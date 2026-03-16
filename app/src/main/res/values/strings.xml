@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Linker</string>
+    
+    <!-- Auth -->
+    <string name="continue_with_google">Continue with Google</string>
+    <string name="continue_with_email">Continue with Email</string>
+    <string name="continue_with_phone">Continue with Phone</string>
+    
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_search">Search</string>
+    <string name="nav_create">Create</string>
+    <string name="nav_chat">Chat</string>
+    <string name="nav_profile">Profile</string>
+    
+    <!-- Permissions -->
+    <string name="permission_camera">Camera permission is required to capture photos and videos</string>
+    <string name="permission_storage">Storage permission is required to access your photos and videos</string>
+    <string name="permission_bluetooth">Bluetooth permission is required for offline messaging</string>
+    <string name="permission_location">Location permission is required for Bluetooth connectivity</string>
+    <string name="permission_notifications">Notification permission is required to receive messages</string>
+    
+    <!-- Errors -->
+    <string name="error_generic">Something went wrong. Please try again.</string>
+    <string name="error_network">No internet connection</string>
+    <string name="error_auth">Authentication failed</string>
+    
+    <!-- Content -->
+    <string name="story_expires_in">Expires in %1$s</string>
+    <string name="note_expires_in">%1$s left</string>
+</resources>
