@@ -20,8 +20,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.R
 import com.linker.app.presentation.theme.*
 
-// ─── Data models ─────────────────────────────────────────────────────────────
-
 sealed interface SettingsItem {
     data class Navigation(
         val iconRes: Int, val label: String,
@@ -30,6 +28,7 @@ sealed interface SettingsItem {
 
     data class Toggle(
         val iconRes: Int, val label: String,
+        val fieldKey: String,               // savingField ile eşleştirilmek için
         val checked: Boolean, val onToggle: (Boolean) -> Unit
     ) : SettingsItem
 
@@ -41,8 +40,6 @@ sealed interface SettingsItem {
 
 data class SettingsSection(val title: String, val items: List<SettingsItem>)
 
-// ─── Screen ──────────────────────────────────────────────────────────────────
-
 @Composable
 fun SettingsScreen(
     onNavigateBack: () -> Unit,
@@ -53,7 +50,6 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Snackbar
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -61,7 +57,6 @@ fun SettingsScreen(
         }
     }
 
-    // Local-only toggles (notif, theme, media)
     var notificationsEnabled by remember { mutableStateOf(true) }
     var pushStories          by remember { mutableStateOf(true) }
     var pushMessages         by remember { mutableStateOf(true) }
@@ -82,31 +77,39 @@ fun SettingsScreen(
             SettingsItem.Navigation(R.drawable.ic_smart_lock_ai_outline, "Two-Factor Authentication")
         )),
         SettingsSection("Privacy", listOf(
-            // Private Account — Firestore'a yazılır
             SettingsItem.Toggle(
-                R.drawable.ic_profile_2user_outline, "Private Account",
+                R.drawable.ic_profile_2user_outline, "Private Account", "private",
                 uiState.isPrivateAccount
             ) { viewModel.setPrivateAccount(it) },
-            SettingsItem.Toggle(R.drawable.ic_eos__eos__outline, "Activity Status", activityStatus) { activityStatus = it },
-            SettingsItem.Toggle(R.drawable.ic_ai_send_message_outline, "Read Receipts", readReceipts) { readReceipts = it },
+            SettingsItem.Toggle(
+                R.drawable.ic_ai_users_outline, "Hide Follow Lists", "hideFollowLists",
+                uiState.hideFollowLists
+            ) { viewModel.setHideFollowLists(it) },
+            SettingsItem.Toggle(
+                R.drawable.ic_eos__eos__outline, "Activity Status", "activityStatus",
+                activityStatus
+            ) { activityStatus = it },
+            SettingsItem.Toggle(
+                R.drawable.ic_ai_send_message_outline, "Read Receipts", "readReceipts",
+                readReceipts
+            ) { readReceipts = it },
             SettingsItem.Navigation(R.drawable.ic_close_circle_outline, "Blocked Users"),
             SettingsItem.Navigation(R.drawable.ic_ai_users_outline, "Restricted Accounts"),
-            // Gelen follow isteklerini görme
             SettingsItem.Navigation(
                 R.drawable.ic_bell_2_outline, "Follow Requests",
                 onClick = onNavigateToPendingRequests
             )
         )),
         SettingsSection("Notifications", listOf(
-            SettingsItem.Toggle(R.drawable.ic_bell_2_outline, "Push Notifications", notificationsEnabled) { notificationsEnabled = it },
-            SettingsItem.Toggle(R.drawable.ic_story_outline, "Story Notifications", pushStories) { pushStories = it },
-            SettingsItem.Toggle(R.drawable.ic_ai_commentary_outline, "Message Notifications", pushMessages) { pushMessages = it },
+            SettingsItem.Toggle(R.drawable.ic_bell_2_outline, "Push Notifications", "notif", notificationsEnabled) { notificationsEnabled = it },
+            SettingsItem.Toggle(R.drawable.ic_story_outline, "Story Notifications", "story", pushStories) { pushStories = it },
+            SettingsItem.Toggle(R.drawable.ic_ai_commentary_outline, "Message Notifications", "msg", pushMessages) { pushMessages = it },
             SettingsItem.Navigation(R.drawable.ic_bell_2_outline, "Notification Preferences")
         )),
         SettingsSection("Appearance & Media", listOf(
             SettingsItem.Navigation(R.drawable.ic_paint_brush_2_outline, "Theme", "Default"),
-            SettingsItem.Toggle(R.drawable.ic_gallery_outline, "Auto-Play Videos", autoPlayVideos) { autoPlayVideos = it },
-            SettingsItem.Toggle(R.drawable.ic_ai_sand_timer_outline, "Data Saver", dataSaver) { dataSaver = it }
+            SettingsItem.Toggle(R.drawable.ic_gallery_outline, "Auto-Play Videos", "autoplay", autoPlayVideos) { autoPlayVideos = it },
+            SettingsItem.Toggle(R.drawable.ic_ai_sand_timer_outline, "Data Saver", "datasaver", dataSaver) { dataSaver = it }
         )),
         SettingsSection("Support & About", listOf(
             SettingsItem.Navigation(R.drawable.ic_search_outline, "Help Center"),
@@ -125,23 +128,15 @@ fun SettingsScreen(
         containerColor = Black,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             // Top bar
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left_01_outline),
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
+                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline), "Back",
+                        tint = TextPrimary, modifier = Modifier.size(28.dp))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Settings", color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
@@ -168,8 +163,11 @@ fun SettingsScreen(
                         section.items.forEachIndexed { idx, item ->
                             when (item) {
                                 is SettingsItem.Navigation -> NavigationRow(item)
-                                is SettingsItem.Toggle     -> ToggleRow(item, uiState.isLoading && item.label == "Private Account")
-                                is SettingsItem.Danger     -> DangerRow(item)
+                                is SettingsItem.Toggle     -> ToggleRow(
+                                    item = item,
+                                    isSaving = uiState.savingField == item.fieldKey
+                                )
+                                is SettingsItem.Danger -> DangerRow(item)
                             }
                             if (idx < section.items.lastIndex) {
                                 HorizontalDivider(
@@ -186,8 +184,6 @@ fun SettingsScreen(
         }
     }
 }
-
-// ─── Row composables ─────────────────────────────────────────────────────────
 
 @Composable
 private fun NavigationRow(item: SettingsItem.Navigation) {
@@ -246,7 +242,7 @@ private fun DangerRow(item: SettingsItem.Danger) {
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        androidx.compose.foundation.layout.Box(
+        Box(
             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
                 .background(item.color.copy(alpha = 0.15f)),
             contentAlignment = Alignment.Center
@@ -260,7 +256,7 @@ private fun DangerRow(item: SettingsItem.Danger) {
 
 @Composable
 private fun IconBox(iconRes: Int, label: String) {
-    androidx.compose.foundation.layout.Box(
+    Box(
         modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
             .background(LightGray.copy(alpha = 0.5f)),
         contentAlignment = Alignment.Center

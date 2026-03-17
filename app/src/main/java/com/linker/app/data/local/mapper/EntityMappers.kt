@@ -14,77 +14,66 @@ import com.linker.app.domain.model.StoryMediaType
 // ── UserEntity ↔ User ─────────────────────────────────────────────────────────
 
 fun UserEntity.toDomain(): User = User(
-    userId           = userId,
-    username         = username,
-    displayName      = displayName,
-    email            = email,
-    phoneNumber      = phoneNumber,
-    bio              = bio,
-    profileImageUrl  = profileImageUrl,
-    coverImageUrl    = coverImageUrl,
-    isVerified       = isVerified,
-    followersCount   = followersCount,
-    followingCount   = followingCount,
-    likesCount       = likesCount,
-    isFollowing      = isFollowing,
-    isFollowedBy     = isFollowedBy,
-    isBlocked        = isBlocked,
-    isMuted          = isMuted,
-    isPrivate        = isPrivate,
+    userId            = userId,
+    username          = username,
+    displayName       = displayName,
+    email             = email,
+    phoneNumber       = phoneNumber,
+    bio               = bio,
+    profileImageUrl   = profileImageUrl,
+    coverImageUrl     = coverImageUrl,
+    isVerified        = isVerified,
+    followersCount    = followersCount,
+    followingCount    = followingCount,
+    likesCount        = likesCount,
+    isFollowing       = isFollowing,
+    isFollowedBy      = isFollowedBy,
+    isBlocked         = isBlocked,
+    isMuted           = isMuted,
+    isPrivate         = isPrivate,
     followRequestSent = followRequestSent,
-    createdAt        = createdAt,
-    updatedAt        = updatedAt
+    hideFollowLists   = hideFollowLists,
+    createdAt         = createdAt,
+    updatedAt         = updatedAt
 )
 
 fun User.toEntity(): UserEntity = UserEntity(
-    userId           = userId,
-    username         = username,
-    displayName      = displayName,
-    email            = email,
-    phoneNumber      = phoneNumber,
-    bio              = bio,
-    profileImageUrl  = profileImageUrl,
-    coverImageUrl    = coverImageUrl,
-    isVerified       = isVerified,
-    followersCount   = followersCount,
-    followingCount   = followingCount,
-    likesCount       = likesCount,
-    isFollowing      = isFollowing,
-    isFollowedBy     = isFollowedBy,
-    isBlocked        = isBlocked,
-    isMuted          = isMuted,
-    isPrivate        = isPrivate,
+    userId            = userId,
+    username          = username,
+    displayName       = displayName,
+    email             = email,
+    phoneNumber       = phoneNumber,
+    bio               = bio,
+    profileImageUrl   = profileImageUrl,
+    coverImageUrl     = coverImageUrl,
+    isVerified        = isVerified,
+    followersCount    = followersCount,
+    followingCount    = followingCount,
+    likesCount        = likesCount,
+    isFollowing       = isFollowing,
+    isFollowedBy      = isFollowedBy,
+    isBlocked         = isBlocked,
+    isMuted           = isMuted,
+    isPrivate         = isPrivate,
     followRequestSent = followRequestSent,
-    createdAt        = createdAt,
-    updatedAt        = updatedAt,
-    lastSyncedAt     = System.currentTimeMillis()
+    hideFollowLists   = hideFollowLists,
+    createdAt         = createdAt,
+    updatedAt         = updatedAt,
+    lastSyncedAt      = System.currentTimeMillis()
 )
 
 // ── LinkEntity ↔ Link ─────────────────────────────────────────────────────────
 
 fun LinkEntity.toDomain(author: User): Link = Link(
-    linkId        = linkId,
-    author        = author,
-    linkType      = linkType.toDomain(),
-    description   = description,
-    mediaUrls     = mediaUrls,
-    thumbnailUrl  = thumbnailUrl,
-    videoDuration = videoDuration,
-    aspectRatio   = aspectRatio,
-    likesCount    = likesCount,
-    commentsCount = commentsCount,
-    sharesCount   = sharesCount,
-    relinksCount  = relinksCount,
-    savesCount    = savesCount,
-    viewsCount    = viewsCount,
-    isLiked       = isLiked,
-    isSaved       = isSaved,
-    isRelinked    = isRelinked,
-    location      = location,
-    hashtags      = hashtags,
-    mentions      = mentions,
-    createdAt     = createdAt,
-    updatedAt     = updatedAt
+    linkId        = linkId, author = author, linkType = linkType.toDomain(),
+    description   = description, mediaUrls = mediaUrls, thumbnailUrl = thumbnailUrl,
+    videoDuration = videoDuration, aspectRatio = aspectRatio,
+    likesCount    = likesCount, commentsCount = commentsCount,
+    sharesCount   = sharesCount, relinksCount = relinksCount,
+    savesCount    = savesCount, viewsCount = viewsCount,
+    isLiked = isLiked, isSaved = isSaved, isRelinked = isRelinked,
+    location = location, hashtags = hashtags, mentions = mentions,
+    createdAt = createdAt, updatedAt = updatedAt
 )
 
 fun com.linker.app.data.local.entity.LinkType.toDomain(): LinkType = when (this) {
@@ -100,45 +89,25 @@ fun LinkType.toEntity(): com.linker.app.data.local.entity.LinkType = when (this)
 }
 
 fun Link.toEntity(): LinkEntity = LinkEntity(
-    linkId        = linkId,
-    authorId      = author.userId,
-    linkType      = linkType.toEntity(),
-    description   = description,
-    mediaUrls     = mediaUrls,
-    thumbnailUrl  = thumbnailUrl,
-    videoDuration = videoDuration,
-    aspectRatio   = aspectRatio,
-    likesCount    = likesCount,
-    commentsCount = commentsCount,
-    sharesCount   = sharesCount,
-    relinksCount  = relinksCount,
-    savesCount    = savesCount,
-    viewsCount    = viewsCount,
-    isLiked       = isLiked,
-    isSaved       = isSaved,
-    isRelinked    = isRelinked,
-    location      = location,
-    hashtags      = hashtags,
-    mentions      = mentions,
-    createdAt     = createdAt,
-    updatedAt     = updatedAt,
-    lastSyncedAt  = System.currentTimeMillis()
+    linkId = linkId, authorId = author.userId, linkType = linkType.toEntity(),
+    description = description, mediaUrls = mediaUrls, thumbnailUrl = thumbnailUrl,
+    videoDuration = videoDuration, aspectRatio = aspectRatio,
+    likesCount = likesCount, commentsCount = commentsCount,
+    sharesCount = sharesCount, relinksCount = relinksCount,
+    savesCount = savesCount, viewsCount = viewsCount,
+    isLiked = isLiked, isSaved = isSaved, isRelinked = isRelinked,
+    location = location, hashtags = hashtags, mentions = mentions,
+    createdAt = createdAt, updatedAt = updatedAt,
+    lastSyncedAt = System.currentTimeMillis()
 )
 
 // ── StoryEntity ↔ Story ───────────────────────────────────────────────────────
 
 fun StoryEntity.toDomain(author: User): Story = Story(
-    storyId      = storyId,
-    author       = author,
-    mediaUrl     = mediaUrl,
-    mediaType    = mediaType.toDomain(),
-    thumbnailUrl = thumbnailUrl,
-    duration     = duration,
-    caption      = caption,
-    viewsCount   = viewsCount,
-    isViewed     = isViewed,
-    createdAt    = createdAt,
-    expiresAt    = expiresAt
+    storyId = storyId, author = author, mediaUrl = mediaUrl,
+    mediaType = mediaType.toDomain(), thumbnailUrl = thumbnailUrl,
+    duration = duration, caption = caption, viewsCount = viewsCount,
+    isViewed = isViewed, createdAt = createdAt, expiresAt = expiresAt
 )
 
 fun com.linker.app.data.local.entity.StoryMediaType.toDomain(): StoryMediaType = when (this) {
@@ -149,20 +118,12 @@ fun com.linker.app.data.local.entity.StoryMediaType.toDomain(): StoryMediaType =
 // ── NoteEntity ↔ Note ─────────────────────────────────────────────────────────
 
 fun NoteEntity.toDomain(author: User): Note = Note(
-    noteId              = noteId,
-    author              = author,
-    noteType            = noteType.toDomain(),
-    content             = content,
-    musicTrackId        = musicTrackId,
-    musicTrackName      = musicTrackName,
-    musicArtistName     = musicArtistName,
-    musicAlbumArt       = musicAlbumArt,
-    countdownTargetTime = countdownTargetTime,
-    countdownTitle      = countdownTitle,
-    backgroundColor     = backgroundColor,
-    textColor           = textColor,
-    createdAt           = createdAt,
-    expiresAt           = expiresAt
+    noteId = noteId, author = author, noteType = noteType.toDomain(),
+    content = content, musicTrackId = musicTrackId, musicTrackName = musicTrackName,
+    musicArtistName = musicArtistName, musicAlbumArt = musicAlbumArt,
+    countdownTargetTime = countdownTargetTime, countdownTitle = countdownTitle,
+    backgroundColor = backgroundColor, textColor = textColor,
+    createdAt = createdAt, expiresAt = expiresAt
 )
 
 fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this) {
@@ -174,19 +135,10 @@ fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this)
 // ── ChatEntity ↔ Chat / MessageEntity ↔ Message ───────────────────────────────
 
 fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat = Chat(
-    chatId       = chatId,
-    chatType     = chatType.toDomain(),
-    chatName     = chatName,
-    chatImageUrl = chatImageUrl,
-    participants = participants,
-    lastMessage  = lastMessage,
-    unreadCount  = unreadCount,
-    isPinned     = isPinned,
-    isMuted      = isMuted,
-    isArchived   = isArchived,
-    theme        = theme,
-    createdAt    = createdAt,
-    updatedAt    = updatedAt
+    chatId = chatId, chatType = chatType.toDomain(), chatName = chatName,
+    chatImageUrl = chatImageUrl, participants = participants, lastMessage = lastMessage,
+    unreadCount = unreadCount, isPinned = isPinned, isMuted = isMuted,
+    isArchived = isArchived, theme = theme, createdAt = createdAt, updatedAt = updatedAt
 )
 
 fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this) {
@@ -194,33 +146,15 @@ fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this)
     com.linker.app.data.local.entity.ChatType.GROUP   -> ChatType.GROUP
 }
 
-fun MessageEntity.toDomain(
-    sender: User,
-    sharedLink: Link? = null,
-    replyToMessage: Message? = null
-): Message = Message(
-    messageId          = messageId,
-    chatId             = chatId,
-    sender             = sender,
-    messageType        = messageType.toDomain(),
-    content            = content,
-    mediaUrl           = mediaUrl,
-    thumbnailUrl       = thumbnailUrl,
-    mediaWidth         = mediaWidth,
-    mediaHeight        = mediaHeight,
-    mediaDuration      = mediaDuration,
-    sharedLink         = sharedLink,
-    replyToMessage     = replyToMessage,
-    reactions          = reactions,
-    isEdited           = isEdited,
-    isDeleted          = isDeleted,
-    deletedForEveryone = deletedForEveryone,
-    messageStatus      = messageStatus.toDomain(),
-    deliveryMethod     = deliveryMethod.toDomain(),
-    createdAt          = createdAt,
-    updatedAt          = updatedAt,
-    deliveredAt        = deliveredAt,
-    readAt             = readAt
+fun MessageEntity.toDomain(sender: User, sharedLink: Link? = null, replyToMessage: Message? = null): Message = Message(
+    messageId = messageId, chatId = chatId, sender = sender,
+    messageType = messageType.toDomain(), content = content,
+    mediaUrl = mediaUrl, thumbnailUrl = thumbnailUrl,
+    mediaWidth = mediaWidth, mediaHeight = mediaHeight, mediaDuration = mediaDuration,
+    sharedLink = sharedLink, replyToMessage = replyToMessage, reactions = reactions,
+    isEdited = isEdited, isDeleted = isDeleted, deletedForEveryone = deletedForEveryone,
+    messageStatus = messageStatus.toDomain(), deliveryMethod = deliveryMethod.toDomain(),
+    createdAt = createdAt, updatedAt = updatedAt, deliveredAt = deliveredAt, readAt = readAt
 )
 
 fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when (this) {
@@ -257,33 +191,17 @@ fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = w
 // ── Comment / Notification ────────────────────────────────────────────────────
 
 fun CommentEntity.toDomain(author: User): Comment = Comment(
-    commentId       = commentId,
-    linkId          = linkId,
-    author          = author,
-    content         = content,
-    gifUrl          = gifUrl,
-    parentCommentId = parentCommentId,
-    likesCount      = likesCount,
-    repliesCount    = repliesCount,
-    isLiked         = isLiked,
-    isPinned        = isPinned,
-    isEdited        = isEdited,
-    createdAt       = createdAt,
-    updatedAt       = updatedAt
+    commentId = commentId, linkId = linkId, author = author, content = content,
+    gifUrl = gifUrl, parentCommentId = parentCommentId, likesCount = likesCount,
+    repliesCount = repliesCount, isLiked = isLiked, isPinned = isPinned,
+    isEdited = isEdited, createdAt = createdAt, updatedAt = updatedAt
 )
 
 fun NotificationEntity.toDomain(actor: User): Notification = Notification(
-    notificationId   = notificationId,
-    notificationType = notificationType.toDomain(),
-    actor            = actor,
-    targetEntityId   = targetEntityId,
-    targetEntityType = targetEntityType,
-    title            = title,
-    message          = message,
-    imageUrl         = imageUrl,
-    actionUrl        = actionUrl,
-    isRead           = isRead,
-    createdAt        = createdAt
+    notificationId = notificationId, notificationType = notificationType.toDomain(),
+    actor = actor, targetEntityId = targetEntityId, targetEntityType = targetEntityType,
+    title = title, message = message, imageUrl = imageUrl, actionUrl = actionUrl,
+    isRead = isRead, createdAt = createdAt
 )
 
 fun com.linker.app.data.local.entity.NotificationType.toDomain(): NotificationType = when (this) {

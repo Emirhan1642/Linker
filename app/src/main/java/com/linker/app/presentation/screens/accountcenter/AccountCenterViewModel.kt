@@ -6,8 +6,11 @@ import com.linker.app.domain.model.AccountSession
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -21,6 +24,11 @@ data class AccountCenterUiState(
     val switchError: String? = null
 )
 
+sealed class AccountCenterEffect {
+    /** Hesap geçişi tamamlandı — Home'a git ve her şeyi sıfırla */
+    data class SwitchComplete(val newUid: String) : AccountCenterEffect()
+}
+
 @HiltViewModel
 class AccountCenterViewModel @Inject constructor(
     private val accountRepository: AccountRepository
@@ -29,17 +37,16 @@ class AccountCenterViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(AccountCenterUiState())
     val uiState: StateFlow<AccountCenterUiState> = _uiState.asStateFlow()
 
+    private val _effects = MutableSharedFlow<AccountCenterEffect>()
+    val effects: SharedFlow<AccountCenterEffect> = _effects.asSharedFlow()
+
     init {
         accountRepository.observeSessions()
-            .onEach { sessions ->
-                _uiState.value = _uiState.value.copy(sessions = sessions)
-            }
+            .onEach { sessions -> _uiState.value = _uiState.value.copy(sessions = sessions) }
             .launchIn(viewModelScope)
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                activeUid = accountRepository.getActiveUid()
-            )
+            _uiState.value = _uiState.value.copy(activeUid = accountRepository.getActiveUid())
         }
     }
 
@@ -48,28 +55,19 @@ class AccountCenterViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isSwitching = true, switchError = null)
             when (val result = accountRepository.switchToAccount(uid)) {
                 is Result.Success -> {
-                    _uiState.value = _uiState.value.copy(
-                        isSwitching = false,
-                        activeUid = uid
-                    )
+                    _uiState.value = _uiState.value.copy(isSwitching = false, activeUid = uid)
+                    _effects.emit(AccountCenterEffect.SwitchComplete(uid))
                 }
                 is Result.Error -> {
-                    _uiState.value = _uiState.value.copy(
-                        isSwitching = false,
-                        switchError = result.message
-                    )
+                    _uiState.value = _uiState.value.copy(isSwitching = false, switchError = result.message)
                 }
-                else -> {
-                    _uiState.value = _uiState.value.copy(isSwitching = false)
-                }
+                else -> _uiState.value = _uiState.value.copy(isSwitching = false)
             }
         }
     }
 
     fun removeAccount(uid: String) {
-        viewModelScope.launch {
-            accountRepository.removeSession(uid)
-        }
+        viewModelScope.launch { accountRepository.removeSession(uid) }
     }
 
     fun dismissError() {

@@ -8,6 +8,7 @@ import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,8 +19,6 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-// ─── State ────────────────────────────────────────────────────────────────────
 
 data class SearchUiState(
     val query: String = "",
@@ -32,8 +31,6 @@ data class SearchUiState(
 
 enum class SearchTab { LINKS, USERS }
 
-// ─── ViewModel ────────────────────────────────────────────────────────────────
-
 @OptIn(FlowPreview::class)
 @HiltViewModel
 class SearchViewModel @Inject constructor(
@@ -44,19 +41,31 @@ class SearchViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    // Aktif kullanıcının UID'si — recent searches hesaba özel tutulur
     private val currentUid: String
         get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
 
+    private var recentSearchesJob: Job? = null
+
     init {
-        loadRecentSearches()
+        startListeningRecentSearches()
         observeQueryChanges()
     }
 
-    // ── Recent searches ───────────────────────────────────────────────────────
+    /**
+     * Hesap değişiminde çağrılır:
+     * 1. Önceki arama geçmişi flow'unu durdur
+     * 2. Query ve sonuçları temizle
+     * 3. Yeni UID ile arama geçmişini dinlemeye başla
+     */
+    fun onAccountChanged() {
+        // Önce state'i temizle — eski hesabın aramasını gösterme
+        _uiState.update { SearchUiState() }
+        startListeningRecentSearches()
+    }
 
-    private fun loadRecentSearches() {
-        viewModelScope.launch {
+    fun startListeningRecentSearches() {
+        recentSearchesJob?.cancel()
+        recentSearchesJob = viewModelScope.launch {
             searchHistoryRepository.getRecentSearches(currentUid).collectLatest { recents ->
                 _uiState.update { it.copy(recentSearches = recents) }
             }
@@ -85,24 +94,16 @@ class SearchViewModel @Inject constructor(
     }
 
     fun removeRecentSearch(query: String) {
-        viewModelScope.launch {
-            searchHistoryRepository.removeSearch(currentUid, query)
-        }
+        viewModelScope.launch { searchHistoryRepository.removeSearch(currentUid, query) }
     }
 
     fun clearAllRecentSearches() {
-        viewModelScope.launch {
-            searchHistoryRepository.clearAll(currentUid)
-        }
+        viewModelScope.launch { searchHistoryRepository.clearAll(currentUid) }
     }
 
     private fun saveRecentSearch(query: String) {
-        viewModelScope.launch {
-            searchHistoryRepository.addSearch(currentUid, query)
-        }
+        viewModelScope.launch { searchHistoryRepository.addSearch(currentUid, query) }
     }
-
-    // ── Search execution ──────────────────────────────────────────────────────
 
     private fun observeQueryChanges() {
         viewModelScope.launch {
@@ -110,9 +111,7 @@ class SearchViewModel @Inject constructor(
                 .debounce(400)
                 .distinctUntilChanged { old, new -> old.query == new.query }
                 .filter { it.query.isNotBlank() }
-                .collectLatest { state ->
-                    executeSearch(state.query)
-                }
+                .collectLatest { state -> executeSearch(state.query) }
         }
     }
 
@@ -120,18 +119,12 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSearching = true, error = null) }
             when (val result = userRepository.searchUsers(query)) {
-                is Result.Success -> _uiState.update {
-                    it.copy(searchResults = result.data, isSearching = false)
-                }
-                is Result.Error -> _uiState.update {
-                    it.copy(isSearching = false, error = result.message)
-                }
+                is Result.Success -> _uiState.update { it.copy(searchResults = result.data, isSearching = false) }
+                is Result.Error   -> _uiState.update { it.copy(isSearching = false, error = result.message) }
                 is Result.Loading -> {}
             }
         }
     }
 
-    fun onTabSelected(tab: SearchTab) {
-        _uiState.update { it.copy(selectedTab = tab) }
-    }
+    fun onTabSelected(tab: SearchTab) = _uiState.update { it.copy(selectedTab = tab) }
 }

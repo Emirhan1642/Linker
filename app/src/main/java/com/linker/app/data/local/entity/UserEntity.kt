@@ -5,8 +5,7 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "users")
 data class UserEntity(
-    @PrimaryKey
-    val userId: String,
+    @PrimaryKey val userId: String,
     val username: String,
     val displayName: String,
     val email: String?,
@@ -24,6 +23,7 @@ data class UserEntity(
     val isMuted: Boolean = false,
     val isPrivate: Boolean = false,
     val followRequestSent: Boolean = false,
+    val hideFollowLists: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
     val lastSyncedAt: Long = System.currentTimeMillis()

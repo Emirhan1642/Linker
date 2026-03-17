@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.FollowState
 import com.linker.app.domain.model.Link
@@ -29,7 +30,6 @@ data class UserProfileUiState(
     val posts: List<Link> = emptyList(),
     val selectedTab: Int = 0,
     val isActionLoading: Boolean = false,
-    /** Private hesap ve takip etmiyorsak içerik kilitli */
     val isContentLocked: Boolean = false,
     val error: String? = null
 )
@@ -54,6 +54,10 @@ class UserProfileViewModel @Inject constructor(
     private val _effects = MutableSharedFlow<UserProfileEffect>()
     val effects: SharedFlow<UserProfileEffect> = _effects.asSharedFlow()
 
+    /** Aktif kullanıcının kendi profili mi görüntüleniyor? */
+    val isOwnProfile: Boolean
+        get() = FirebaseAuth.getInstance().currentUser?.uid == userId
+
     init { loadUser() }
 
     fun loadUser() {
@@ -63,12 +67,19 @@ class UserProfileViewModel @Inject constructor(
                 is Result.Success -> {
                     val user = result.data
                     val locked = user.isPrivate && !user.isFollowing
+                    // isActionLoading'i de burada sıfırlıyoruz —
+                    // follow işlemi tamamlanınca loadUser() çağrılır ve her şey temizlenir
                     _uiState.update {
-                        it.copy(isLoading = false, user = user, isContentLocked = locked)
+                        it.copy(
+                            isLoading       = false,
+                            isActionLoading = false,
+                            user            = user,
+                            isContentLocked = locked
+                        )
                     }
                 }
                 is Result.Error -> _uiState.update {
-                    it.copy(isLoading = false, error = result.message)
+                    it.copy(isLoading = false, isActionLoading = false, error = result.message)
                 }
                 is Result.Loading -> {}
             }
@@ -77,28 +88,21 @@ class UserProfileViewModel @Inject constructor(
 
     fun onTabSelected(tab: Int) = _uiState.update { it.copy(selectedTab = tab) }
 
-    /**
-     * Tek buton, tüm follow state'lerini yönetir:
-     *  FOLLOWING         → unfollow
-     *  REQUEST_SENT      → cancel request
-     *  NOT_FOLLOWING     → follow (direkt)
-     *  NOT_FOLLOWING_PRIVATE → send follow request
-     */
     fun onFollowAction() {
         val user = _uiState.value.user ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isActionLoading = true) }
 
             val result: Result<Unit> = when (user.followState()) {
-                FollowState.FOLLOWING              -> userRepository.unfollowUser(user.userId)
-                FollowState.REQUEST_SENT           -> userRepository.cancelFollowRequest(user.userId)
+                FollowState.FOLLOWING             -> userRepository.unfollowUser(user.userId)
+                FollowState.REQUEST_SENT          -> userRepository.cancelFollowRequest(user.userId)
                 FollowState.NOT_FOLLOWING,
-                FollowState.NOT_FOLLOWING_PRIVATE  -> userRepository.followUser(user.userId)
+                FollowState.NOT_FOLLOWING_PRIVATE -> userRepository.followUser(user.userId)
             }
 
             when (result) {
-                is Result.Success -> loadUser()   // fresh state
-                is Result.Error   -> {
+                is Result.Success -> loadUser()   // loadUser isActionLoading'i false yapıyor
+                is Result.Error -> {
                     _uiState.update { it.copy(isActionLoading = false) }
                     _effects.emit(UserProfileEffect.ShowSnackbar(result.message))
                 }

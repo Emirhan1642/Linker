@@ -18,24 +18,20 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideLinkerDatabase(@ApplicationContext context: Context): LinkerDatabase {
-        return Room.databaseBuilder(
-            context,
-            LinkerDatabase::class.java,
-            LinkerDatabase.DATABASE_NAME
-        )
-            .addMigrations(LinkerDatabase.MIGRATION_2_3)
+        return Room.databaseBuilder(context, LinkerDatabase::class.java, LinkerDatabase.DATABASE_NAME)
+            .addMigrations(LinkerDatabase.MIGRATION_2_3, LinkerDatabase.MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
     }
 
-    @Provides @Singleton fun provideUserDao(db: LinkerDatabase)          = db.userDao()
-    @Provides @Singleton fun provideLinkDao(db: LinkerDatabase)          = db.linkDao()
-    @Provides @Singleton fun provideStoryDao(db: LinkerDatabase)         = db.storyDao()
-    @Provides @Singleton fun provideNoteDao(db: LinkerDatabase)          = db.noteDao()
-    @Provides @Singleton fun provideChatDao(db: LinkerDatabase)          = db.chatDao()
-    @Provides @Singleton fun provideMessageDao(db: LinkerDatabase)       = db.messageDao()
-    @Provides @Singleton fun provideMessageQueueDao(db: LinkerDatabase)  = db.messageQueueDao()
-    @Provides @Singleton fun provideCommentDao(db: LinkerDatabase)       = db.commentDao()
-    @Provides @Singleton fun provideMediaCacheDao(db: LinkerDatabase)    = db.mediaCacheDao()
-    @Provides @Singleton fun provideNotificationDao(db: LinkerDatabase)  = db.notificationDao()
+    @Provides @Singleton fun provideUserDao(db: LinkerDatabase)         = db.userDao()
+    @Provides @Singleton fun provideLinkDao(db: LinkerDatabase)         = db.linkDao()
+    @Provides @Singleton fun provideStoryDao(db: LinkerDatabase)        = db.storyDao()
+    @Provides @Singleton fun provideNoteDao(db: LinkerDatabase)         = db.noteDao()
+    @Provides @Singleton fun provideChatDao(db: LinkerDatabase)         = db.chatDao()
+    @Provides @Singleton fun provideMessageDao(db: LinkerDatabase)      = db.messageDao()
+    @Provides @Singleton fun provideMessageQueueDao(db: LinkerDatabase) = db.messageQueueDao()
+    @Provides @Singleton fun provideCommentDao(db: LinkerDatabase)      = db.commentDao()
+    @Provides @Singleton fun provideMediaCacheDao(db: LinkerDatabase)   = db.mediaCacheDao()
+    @Provides @Singleton fun provideNotificationDao(db: LinkerDatabase) = db.notificationDao()
 }

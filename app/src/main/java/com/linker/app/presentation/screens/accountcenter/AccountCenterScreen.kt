@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,45 +27,37 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
 import com.linker.app.R
 import com.linker.app.domain.model.AccountSession
-import com.linker.app.presentation.components.LinkerAvatar
-import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.theme.*
 
-/**
- * Account Center Screen
- *
- * Lets users view all stored accounts, switch between them with a single tap,
- * add a new account, or remove an existing one.
- *
- * Security guarantees visible in the UI:
- *  • Switching shows a loading indicator and only completes after the Keystore-
- *    decrypted token is consumed by Firebase Auth.
- *  • Removing an account revokes its Firebase session server-side.
- *  • No passwords or tokens are ever rendered or logged.
- */
 @Composable
 fun AccountCenterScreen(
     onNavigateBack: () -> Unit,
-    onNavigateToAuth: () -> Unit,           // "Add account" → Auth flow
-    onSwitchComplete: () -> Unit,           // After a successful switch → go to Home
+    onNavigateToAuth: () -> Unit,
+    onSwitchComplete: () -> Unit,
     viewModel: AccountCenterViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var pendingRemoveUid by remember { mutableStateOf<String?>(null) }
 
-    // Navigate home after a successful switch
-    LaunchedEffect(uiState.activeUid) {
-        // Only fire navigation when a switch was triggered (isSwitching was true)
+    // Hesap geçişi tamamlandığında Home'a git
+    LaunchedEffect(Unit) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is AccountCenterEffect.SwitchComplete -> onSwitchComplete()
+            }
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Black)
+            // Scaffold yok — status bar padding manuel
+            .statusBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // ── Top Bar ─────────────────────────────────────────────────────
+            // ── Top Bar ──────────────────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -76,21 +67,18 @@ fun AccountCenterScreen(
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(
-                        painter = painterResource(id = R.drawable.ic_arrow_left_01_outline),
+                        painterResource(R.drawable.ic_arrow_left_01_outline),
                         contentDescription = "Back",
                         tint = TextPrimary,
                         modifier = Modifier.size(28.dp)
                     )
                 }
-
                 Text(
-                    text = "Account Center",
+                    "Account Center",
                     color = TextPrimary,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold
                 )
-
-                // Right side: "+" button to add account
                 IconButton(onClick = onNavigateToAuth) {
                     Box(
                         modifier = Modifier
@@ -100,7 +88,7 @@ fun AccountCenterScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            painter = painterResource(id = R.drawable.ic_ai_add_outline),
+                            painterResource(R.drawable.ic_ai_add_outline),
                             contentDescription = "Add account",
                             tint = Black,
                             modifier = Modifier.size(22.dp)
@@ -109,7 +97,7 @@ fun AccountCenterScreen(
                 }
             }
 
-            // ── Security Note ───────────────────────────────────────────────
+            // ── Security Note ─────────────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -121,13 +109,13 @@ fun AccountCenterScreen(
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_security_safe_outline),
-                    contentDescription = null,
+                    painterResource(R.drawable.ic_security_safe_outline),
+                    null,
                     tint = AccentGreen,
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Sessions are encrypted with Android Keystore. No passwords are stored.",
+                    "Sessions are encrypted with Android Keystore. No passwords are stored.",
                     color = AccentGreen,
                     fontSize = 12.sp,
                     lineHeight = 16.sp
@@ -136,7 +124,7 @@ fun AccountCenterScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // ── Session List ────────────────────────────────────────────────
+            // ── Session List ──────────────────────────────────────────────────
             if (uiState.sessions.isEmpty()) {
                 EmptyState(onAddAccount = onNavigateToAuth)
             } else {
@@ -156,27 +144,20 @@ fun AccountCenterScreen(
                             isActive = session.uid == uiState.activeUid,
                             isSwitching = uiState.isSwitching && session.uid != uiState.activeUid,
                             onSwitch = {
-                                if (session.uid != uiState.activeUid) {
-                                    viewModel.switchAccount(session.uid)
-                                }
+                                if (session.uid != uiState.activeUid) viewModel.switchAccount(session.uid)
                             },
                             onRemove = { pendingRemoveUid = session.uid }
                         )
                     }
-
-                    item {
-                        // "Add another account" row
-                        AddAccountRow(onClick = onNavigateToAuth)
-                    }
+                    item { AddAccountRow(onClick = onNavigateToAuth) }
                 }
             }
         }
 
-        // ── Global switching overlay ─────────────────────────────────────
+        // ── Switching overlay ─────────────────────────────────────────────────
         AnimatedVisibility(
             visible = uiState.isSwitching,
-            enter = fadeIn(),
-            exit = fadeOut(),
+            enter = fadeIn(), exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
         ) {
             Box(
@@ -189,67 +170,46 @@ fun AccountCenterScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator(
-                        color = AccentGreen,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Text(
-                        text = "Switching account…",
-                        color = TextPrimary,
-                        fontSize = 15.sp
-                    )
+                    CircularProgressIndicator(color = AccentGreen, strokeWidth = 3.dp, modifier = Modifier.size(48.dp))
+                    Text("Switching account…", color = TextPrimary, fontSize = 15.sp)
                 }
             }
         }
 
-        // ── Error snackbar ───────────────────────────────────────────────
+        // ── Error snackbar ────────────────────────────────────────────────────
         uiState.switchError?.let { error ->
             Snackbar(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
                 action = {
                     TextButton(onClick = { viewModel.dismissError() }) {
                         Text("Dismiss", color = AccentGreen)
                     }
                 },
                 containerColor = DarkGray
-            ) {
-                Text(error, color = TextPrimary)
-            }
+            ) { Text(error, color = TextPrimary) }
         }
     }
 
-    // ── Remove confirmation dialog ───────────────────────────────────────
+    // ── Remove confirmation ───────────────────────────────────────────────────
     pendingRemoveUid?.let { uid ->
         val session = uiState.sessions.firstOrNull { it.uid == uid }
         AlertDialog(
             onDismissRequest = { pendingRemoveUid = null },
             containerColor = DarkGray,
             icon = {
-                Icon(
-                    painterResource(R.drawable.ic_close_circle_outline),
-                    contentDescription = null,
-                    tint = ErrorRed
-                )
+                Icon(painterResource(R.drawable.ic_close_circle_outline), null, tint = ErrorRed)
             },
             title = {
                 Text("Remove account?", color = TextPrimary, fontWeight = FontWeight.SemiBold)
             },
             text = {
                 Text(
-                    text = "\"${session?.displayName ?: uid}\" will be removed from this device. " +
-                            "You can always add it back by signing in again.",
-                    color = TextSecondary,
-                    fontSize = 14.sp
+                    "\"${session?.displayName ?: uid}\" will be removed from this device.",
+                    color = TextSecondary, fontSize = 14.sp
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.removeAccount(uid)
-                    pendingRemoveUid = null
-                }) {
+                TextButton(onClick = { viewModel.removeAccount(uid); pendingRemoveUid = null }) {
                     Text("Remove", color = ErrorRed, fontWeight = FontWeight.SemiBold)
                 }
             },
@@ -262,7 +222,7 @@ fun AccountCenterScreen(
     }
 }
 
-// ─── Account Card ─────────────────────────────────────────────────────────────
+// ── Account Card ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun AccountCard(
@@ -272,13 +232,9 @@ private fun AccountCard(
     onSwitch: () -> Unit,
     onRemove: () -> Unit
 ) {
-    val borderBrush = if (isActive) LinkerAngularGradient else Brush.linearGradient(
-        colors = listOf(LightGray, LightGray)
-    )
-    val borderWidth by animateDpAsState(
-        targetValue = if (isActive) 2.dp else 1.dp,
-        label = "border"
-    )
+    val borderBrush = if (isActive) LinkerAngularGradient
+    else Brush.linearGradient(listOf(LightGray, LightGray))
+    val borderWidth by animateDpAsState(if (isActive) 2.dp else 1.dp, label = "border")
 
     Row(
         modifier = Modifier
@@ -296,65 +252,37 @@ private fun AccountCard(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.weight(1f)
         ) {
-            // Avatar
             Box(modifier = Modifier.size(52.dp)) {
                 if (session.avatarUrl != null) {
                     AsyncImage(
                         model = session.avatarUrl,
                         contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
+                        modifier = Modifier.fillMaxSize().clip(CircleShape)
                     )
                 } else {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
-                            .background(LightGray),
+                        modifier = Modifier.fillMaxSize().clip(CircleShape).background(LightGray),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            painterResource(R.drawable.ic_profile_outline),
-                            contentDescription = null,
-                            tint = TextSecondary,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        Icon(painterResource(R.drawable.ic_profile_outline), null, tint = TextSecondary, modifier = Modifier.size(28.dp))
                     }
                 }
-
-                // Online badge for active account
                 if (isActive) {
                     Box(
                         modifier = Modifier
-                            .size(14.dp)
-                            .align(Alignment.BottomEnd)
-                            .clip(CircleShape)
-                            .background(Black)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(AccentGreen)
+                            .size(14.dp).align(Alignment.BottomEnd)
+                            .clip(CircleShape).background(Black)
+                            .padding(2.dp).clip(CircleShape).background(AccentGreen)
                     )
                 }
             }
 
-            // Names
             Column {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = session.displayName,
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(session.displayName, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     if (isActive) {
                         Text(
-                            text = "Active",
-                            color = AccentGreen,
-                            fontSize = 11.sp,
+                            "Active", color = AccentGreen, fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
@@ -363,54 +291,26 @@ private fun AccountCard(
                         )
                     }
                 }
-                Text(
-                    text = "@${session.username}",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
+                Text("@${session.username}", color = TextSecondary, fontSize = 13.sp)
             }
         }
 
-        // Actions
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (isSwitching) {
-                CircularProgressIndicator(
-                    color = AccentGreen,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(20.dp)
-                )
+                CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
             } else if (!isActive) {
-                // Switch chevron
-                Icon(
-                    painterResource(R.drawable.ic_arrow_left_01_outline),
-                    contentDescription = "Switch",
-                    tint = TextHint,
-                    modifier = Modifier.size(18.dp)
-                )
+                Icon(painterResource(R.drawable.ic_arrow_left_01_outline), "Switch", tint = TextHint, modifier = Modifier.size(18.dp))
             }
-
-            // Remove button (always shown except for active account)
             if (!isActive) {
-                IconButton(
-                    onClick = onRemove,
-                    modifier = Modifier.size(36.dp)
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_close_circle_outline),
-                        contentDescription = "Remove",
-                        tint = ErrorRed.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
-                    )
+                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
+                    Icon(painterResource(R.drawable.ic_close_circle_outline), "Remove", tint = ErrorRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
                 }
             }
         }
     }
 }
 
-// ─── Add account row ──────────────────────────────────────────────────────────
+// ── Add account row ───────────────────────────────────────────────────────────
 
 @Composable
 private fun AddAccountRow(onClick: () -> Unit) {
@@ -427,64 +327,34 @@ private fun AddAccountRow(onClick: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
+                .size(52.dp).clip(CircleShape)
                 .background(AccentGreen.copy(alpha = 0.12f))
                 .border(1.dp, AccentGreen.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                painterResource(R.drawable.ic_ai_add_outline),
-                contentDescription = null,
-                tint = AccentGreen,
-                modifier = Modifier.size(26.dp)
-            )
+            Icon(painterResource(R.drawable.ic_ai_add_outline), null, tint = AccentGreen, modifier = Modifier.size(26.dp))
         }
-
         Column {
-            Text(
-                text = "Add another account",
-                color = TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = "Log in or create a new Linker account",
-                color = TextSecondary,
-                fontSize = 12.sp
-            )
+            Text("Add another account", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            Text("Log in or create a new Linker account", color = TextSecondary, fontSize = 12.sp)
         }
     }
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
+// ── Empty state ───────────────────────────────────────────────────────────────
 
 @Composable
 private fun EmptyState(onAddAccount: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 64.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 64.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Icon(
-            painterResource(R.drawable.ic_ai_users_outline),
-            contentDescription = null,
-            tint = TextHint,
-            modifier = Modifier.size(64.dp)
-        )
+        Icon(painterResource(R.drawable.ic_ai_users_outline), null, tint = TextHint, modifier = Modifier.size(64.dp))
+        Text("No saved accounts", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            text = "No saved accounts",
-            color = TextPrimary,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Text(
-            text = "Add an account to switch between profiles without signing in every time.",
-            color = TextSecondary,
-            fontSize = 14.sp,
-            lineHeight = 20.sp
+            "Add an account to switch between profiles without signing in every time.",
+            color = TextSecondary, fontSize = 14.sp, lineHeight = 20.sp
         )
         Button(
             onClick = onAddAccount,

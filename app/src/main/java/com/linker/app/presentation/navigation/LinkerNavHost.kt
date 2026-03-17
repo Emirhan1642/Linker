@@ -2,6 +2,7 @@ package com.linker.app.presentation.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.google.firebase.auth.FirebaseAuth
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -40,77 +41,64 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
         }
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = Route.Splash,
-        modifier = modifier
-    ) {
+    NavHost(navController = navController, startDestination = Route.Splash, modifier = modifier) {
 
-        // ── Splash ──────────────────────────────────────────────────────────
         composable<Route.Splash> {
             SplashScreen(
                 onNavigateToAuth = {
-                    navController.navigate(Route.Auth) {
-                        popUpTo(Route.Splash) { inclusive = true }
-                    }
+                    navController.navigate(Route.Auth) { popUpTo(Route.Splash) { inclusive = true } }
                 },
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) {
-                        popUpTo(Route.Splash) { inclusive = true }
-                    }
+                    navController.navigate(Route.Home) { popUpTo(Route.Splash) { inclusive = true } }
                 }
             )
         }
 
-        // ── Normal Auth (ilk giriş) ─────────────────────────────────────────
         composable<Route.Auth> {
             AuthScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) {
-                        popUpTo(Route.Auth) { inclusive = true }
-                    }
+                    navController.navigate(Route.Home) { popUpTo(Route.Auth) { inclusive = true } }
                 },
                 isAddingAccount = false
             )
         }
 
-        // ── "Hesap Ekle" Auth (Account Center'dan gelir) ────────────────────
         composable<Route.AddAccountAuth> {
             AuthScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) {
-                        popUpTo(Route.Home) { inclusive = true }
-                    }
+                    navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } }
                 },
                 onNavigateToAccountCenter = {
-                    navController.navigate(Route.AccountCenter) {
-                        popUpTo(Route.AccountCenter) { inclusive = true }
-                    }
+                    navController.navigate(Route.AccountCenter) { popUpTo(Route.AccountCenter) { inclusive = true } }
                 },
                 isAddingAccount = true
             )
         }
 
-        // ── Home ────────────────────────────────────────────────────────────
         composable<Route.Home> {
             HomeScreen(onNavigateBottomNav = onNavigateBottomNav)
         }
 
-        // ── Search ──────────────────────────────────────────────────────────
         composable<Route.Search> {
             SearchScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateBottomNav = onNavigateBottomNav,
                 onNavigateToUserProfile = { userId ->
-                    navController.navigate(Route.UserProfile(userId))
+                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (userId == myUid) {
+                        navController.navigate(Route.Profile) {
+                            popUpTo(Route.Home) { saveState = true }
+                            launchSingleTop = true; restoreState = true
+                        }
+                    } else {
+                        navController.navigate(Route.UserProfile(userId))
+                    }
                 }
             )
         }
 
-        // ── Create (TODO) ───────────────────────────────────────────────────
         composable<Route.Create> { }
 
-        // ── Chat List ───────────────────────────────────────────────────────
         composable<Route.Chat> {
             ChatListScreen(
                 onNavigateToChatDetail = { navController.navigate(Route.ChatDetail(it)) },
@@ -119,7 +107,6 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Chat Detail ─────────────────────────────────────────────────────
         composable<Route.ChatDetail> { backStackEntry ->
             val route = backStackEntry.toRoute<Route.ChatDetail>()
             ChatMessageScreen(
@@ -129,33 +116,21 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Chat Info ───────────────────────────────────────────────────────
         composable<Route.ChatInfo> {
             ChatInfoScreen(onNavigateBack = { navController.popBackStack() })
         }
 
-        // ── Story Viewer ────────────────────────────────────────────────────
         composable<Route.StoryViewer> {
             StoryScreen(onNavigateBack = { navController.popBackStack() })
         }
 
-        // ── My Profile ──────────────────────────────────────────────────────
         composable<Route.Profile> {
             ProfileScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSettings = { navController.navigate(Route.Settings) },
                 onNavigateBottomNav = onNavigateBottomNav,
-                onNavigateToStory = { navController.navigate(Route.StoryViewer("my_id")) }
-            )
-        }
-
-        // ── User Profile (başka kullanıcı) ───────────────────────────────────
-        composable<Route.UserProfile> {
-            UserProfileScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateToChat = { userId ->
-                    navController.navigate(Route.ChatDetail(userId))
-                },
+                onNavigateToStory = { navController.navigate(Route.StoryViewer("my_id")) },
+                // followers/following sayısı 0 ise FollowList'e gitme
                 onNavigateToFollowers = { uid ->
                     navController.navigate(Route.FollowList(uid, "FOLLOWERS"))
                 },
@@ -165,38 +140,63 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Follow List (Followers / Following / Pending / Sent) ─────────────
+        composable<Route.UserProfile> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.UserProfile>()
+            val myUid = FirebaseAuth.getInstance().currentUser?.uid
+            if (route.userId == myUid) {
+                navController.navigate(Route.Profile) {
+                    popUpTo(Route.UserProfile(route.userId)) { inclusive = true }
+                    launchSingleTop = true
+                }
+            } else {
+                UserProfileScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToChat = { userId -> navController.navigate(Route.ChatDetail(userId)) },
+                    onNavigateToFollowers = { uid ->
+                        navController.navigate(Route.FollowList(uid, "FOLLOWERS"))
+                    },
+                    onNavigateToFollowing = { uid ->
+                        navController.navigate(Route.FollowList(uid, "FOLLOWING"))
+                    }
+                )
+            }
+        }
+
         composable<Route.FollowList> {
             FollowListScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToUserProfile = { userId ->
-                    navController.navigate(Route.UserProfile(userId))
+                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (userId == myUid) {
+                        navController.navigate(Route.Profile) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(Route.UserProfile(userId))
+                    }
                 }
             )
         }
 
-        // ── Settings ────────────────────────────────────────────────────────
         composable<Route.Settings> {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToAccountCenter = { navController.navigate(Route.AccountCenter) },
                 onNavigateToPendingRequests = {
-                    // Aktif kullanıcının UID'si burada placeholder — ViewModel içinde currentUser'dan alınır
-                    navController.navigate(Route.FollowList("me", "PENDING_REQUESTS"))
+                    val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
+                    navController.navigate(Route.FollowList(uid, "PENDING_REQUESTS"))
                 }
             )
         }
 
-        // ── Account Center ──────────────────────────────────────────────────
         composable<Route.AccountCenter> {
             AccountCenterScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToAuth = {
-                    navController.navigate(Route.AddAccountAuth)
-                },
+                onNavigateToAuth = { navController.navigate(Route.AddAccountAuth) },
                 onSwitchComplete = {
+                    // Home'a git, tüm backstack'i temizle — ProfileViewModel yeni
+                    // AccountCenter hesabını AuthStateListener sayesinde otomatik yükleyecek
                     navController.navigate(Route.Home) {
-                        popUpTo(Route.Home) { inclusive = true }
+                        popUpTo(0) { inclusive = true }
+                        launchSingleTop = true
                     }
                 }
             )

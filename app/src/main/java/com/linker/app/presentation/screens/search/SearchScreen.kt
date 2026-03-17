@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.R
 import com.linker.app.domain.model.User
 import com.linker.app.presentation.components.BottomNavItem
@@ -34,6 +35,20 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+
+    // Ekran her göründüğünde aktif UID'yi oku.
+    // Eğer değiştiyse (hesap geçişi) state'i sıfırla ve yeni hesabın
+    // arama geçmişini yükle.
+    val currentUid = remember { mutableStateOf(FirebaseAuth.getInstance().currentUser?.uid) }
+    LaunchedEffect(Unit) {
+        val freshUid = FirebaseAuth.getInstance().currentUser?.uid
+        if (freshUid != currentUid.value) {
+            currentUid.value = freshUid
+            viewModel.onAccountChanged()
+        } else {
+            viewModel.startListeningRecentSearches()
+        }
+    }
 
     Scaffold(
         containerColor = Black,
@@ -58,11 +73,8 @@ fun SearchScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left_01_outline),
-                        contentDescription = "Back",
-                        tint = TextPrimary
-                    )
+                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline),
+                        contentDescription = "Back", tint = TextPrimary)
                 }
                 LinkerSearchBar(
                     query = uiState.query,
@@ -71,18 +83,14 @@ fun SearchScreen(
                     modifier = Modifier.weight(1f),
                     onSearch = { viewModel.onSearchSubmit() }
                 )
-                IconButton(onClick = { /* QR / advanced */ }) {
-                    Icon(
-                        painterResource(R.drawable.ic_box_search_outline),
-                        contentDescription = "Scan",
-                        tint = TextPrimary
-                    )
+                IconButton(onClick = {}) {
+                    Icon(painterResource(R.drawable.ic_box_search_outline),
+                        contentDescription = "Scan", tint = TextPrimary)
                 }
             }
 
             // ── Content ──────────────────────────────────────────────────────
             if (uiState.query.isBlank()) {
-                // ── Boş sorgu: recent searches ────────────────────────────────
                 RecentSearchesSection(
                     recents = uiState.recentSearches,
                     onRecentClick = { viewModel.onRecentSearchClick(it) },
@@ -90,9 +98,7 @@ fun SearchScreen(
                     onClearAll = { viewModel.clearAllRecentSearches() }
                 )
             } else {
-                // ── Arama sonuçları ───────────────────────────────────────────
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Tabs
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -111,34 +117,25 @@ fun SearchScreen(
                         ) { viewModel.onTabSelected(SearchTab.USERS) }
                     }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(0.5.dp)
-                            .background(LightGray.copy(alpha = 0.5f))
-                    )
+                    Box(modifier = Modifier.fillMaxWidth().height(0.5.dp)
+                        .background(LightGray.copy(alpha = 0.5f)))
 
                     if (uiState.selectedTab == SearchTab.USERS) {
-                        if (uiState.isSearching) {
-                            Box(
+                        when {
+                            uiState.isSearching -> Box(
+                                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                                contentAlignment = Alignment.Center
+                            ) { CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp) }
+
+                            uiState.searchResults.isEmpty() -> Box(
                                 modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp)
+                                Text("No users found for \"${uiState.query}\"",
+                                    color = TextSecondary, fontSize = 14.sp)
                             }
-                        } else if (uiState.searchResults.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    "No users found for \"${uiState.query}\"",
-                                    color = TextSecondary,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        } else {
-                            LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)) {
+
+                            else -> LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)) {
                                 items(uiState.searchResults, key = { it.userId }) { user ->
                                     UserSearchResultItem(
                                         user = user,
@@ -148,11 +145,8 @@ fun SearchScreen(
                             }
                         }
                     } else {
-                        // Links tab placeholder
-                        Box(
-                            modifier = Modifier.fillMaxSize().padding(top = 100.dp),
-                            contentAlignment = Alignment.TopCenter
-                        ) {
+                        Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp),
+                            contentAlignment = Alignment.TopCenter) {
                             Text("Links search coming soon…", color = TextSecondary)
                         }
                     }
@@ -175,75 +169,38 @@ private fun RecentSearchesSection(
         if (recents.isNotEmpty()) {
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "Recent Searches",
-                        color = TextPrimary,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        "Clear all",
-                        color = TextSecondary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.clickable { onClearAll() }
-                    )
+                    Text("Recent Searches", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Clear all", color = TextSecondary, fontSize = 13.sp,
+                        modifier = Modifier.clickable { onClearAll() })
                 }
             }
-
             items(recents, key = { it }) { recent ->
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onRecentClick(recent) }
+                    modifier = Modifier.fillMaxWidth().clickable { onRecentClick(recent) }
                         .padding(horizontal = 16.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        painterResource(R.drawable.ic_clock_outline),
-                        contentDescription = null,
-                        tint = TextHint,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(painterResource(R.drawable.ic_clock_outline), null,
+                        tint = TextHint, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = recent,
-                        color = TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick = { onRemove(recent) },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_close_circle_outline),
-                            contentDescription = "Remove",
-                            tint = TextHint,
-                            modifier = Modifier.size(20.dp)
-                        )
+                    Text(recent, color = TextPrimary, fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { onRemove(recent) }, modifier = Modifier.size(32.dp)) {
+                        Icon(painterResource(R.drawable.ic_close_circle_outline), "Remove",
+                            tint = TextHint, modifier = Modifier.size(20.dp))
                     }
                 }
             }
         } else {
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 80.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "No recent searches",
-                        color = TextHint,
-                        fontSize = 14.sp
-                    )
+                Box(modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
+                    contentAlignment = Alignment.Center) {
+                    Text("No recent searches", color = TextHint, fontSize = 14.sp)
                 }
             }
         }
@@ -253,71 +210,39 @@ private fun RecentSearchesSection(
 // ── User Search Result Item ───────────────────────────────────────────────────
 
 @Composable
-fun UserSearchResultItem(
-    user: User,
-    onClick: () -> Unit
-) {
+fun UserSearchResultItem(user: User, onClick: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        LinkerAvatar(
-            imageUrl = user.profileImageUrl,
-            size = 56.dp,
-            storyState = StoryState.NONE
-        )
+        LinkerAvatar(imageUrl = user.profileImageUrl, size = 56.dp, storyState = StoryState.NONE)
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = user.displayName,
-                    color = TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text(user.displayName, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                 if (user.isVerified) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    Icon(
-                        painterResource(R.drawable.ic_security_safe_outline),
-                        contentDescription = "Verified",
-                        tint = AccentGreen,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Icon(painterResource(R.drawable.ic_security_safe_outline), "Verified",
+                        tint = AccentGreen, modifier = Modifier.size(14.dp))
                 }
             }
-            Text(
-                text = "@${user.username}",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
-            Text(
-                text = "${formatStat(user.followersCount)} followers · ${formatStat(user.likesCount)} likes",
-                color = TextHint,
-                fontSize = 12.sp
-            )
+            Text("@${user.username}", color = TextSecondary, fontSize = 13.sp)
+            Text("${formatStat(user.followersCount)} followers · ${formatStat(user.likesCount)} likes",
+                color = TextHint, fontSize = 12.sp)
         }
-
-        // Follow button
         val isFollowing = user.isFollowing
         Button(
-            onClick = { /* handled from UserProfile */ },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isFollowing) LightGray else AccentGreen
-            ),
+            onClick = {},
+            colors = ButtonDefaults.buttonColors(containerColor = if (isFollowing) LightGray else AccentGreen),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
             shape = RoundedCornerShape(20.dp),
-            modifier = Modifier
-                .height(32.dp)
-                .padding(start = 8.dp)
+            modifier = Modifier.height(32.dp).padding(start = 8.dp)
         ) {
             Text(
                 text = if (isFollowing) "Following" else "Follow",
                 color = if (isFollowing) TextPrimary else Black,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 13.sp, fontWeight = FontWeight.SemiBold
             )
         }
     }
@@ -327,27 +252,15 @@ fun UserSearchResultItem(
 
 @Composable
 fun SearchTabItem(
-    title: String,
-    isSelected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    title: String, isSelected: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit
 ) {
-    Column(
-        modifier = modifier.clickable { onClick() },
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = title,
+    Column(modifier = modifier.clickable { onClick() }, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(title,
             color = if (isSelected) TextPrimary else TextSecondary,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        Box(
-            modifier = Modifier
-                .height(2.dp)
-                .width(48.dp)
-                .background(if (isSelected) TextPrimary else Color.Transparent)
-        )
+            fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(bottom = 8.dp))
+        Box(modifier = Modifier.height(2.dp).width(48.dp)
+            .background(if (isSelected) TextPrimary else Color.Transparent))
     }
 }

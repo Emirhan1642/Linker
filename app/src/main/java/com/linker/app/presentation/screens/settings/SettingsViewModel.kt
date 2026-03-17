@@ -2,7 +2,6 @@ package com.linker.app.presentation.screens.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
 import com.linker.app.domain.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,7 +16,9 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val isPrivateAccount: Boolean = false,
-    val isLoading: Boolean = false,
+    val hideFollowLists: Boolean = false,
+    /** Hangi toggle kayıt yapılıyor? null = hiçbiri */
+    val savingField: String? = null,
     val snackbarMessage: String? = null
 )
 
@@ -30,24 +31,35 @@ class SettingsViewModel @Inject constructor(
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
-        // Firestore'dan aktif kullanıcının isPrivate değerini dinle
         userRepository.getCurrentUser()
             .onEach { user ->
-                _uiState.update { it.copy(isPrivateAccount = user?.isPrivate ?: false) }
+                _uiState.update {
+                    it.copy(
+                        isPrivateAccount = user?.isPrivate ?: false,
+                        hideFollowLists  = user?.hideFollowLists ?: false
+                    )
+                }
             }
             .launchIn(viewModelScope)
     }
 
     fun setPrivateAccount(isPrivate: Boolean) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(savingField = "private") }
             when (val result = userRepository.setPrivateAccount(isPrivate)) {
-                is Result.Success -> _uiState.update {
-                    it.copy(isPrivateAccount = isPrivate, isLoading = false)
-                }
-                is Result.Error   -> _uiState.update {
-                    it.copy(isLoading = false, snackbarMessage = result.message)
-                }
+                is Result.Success -> _uiState.update { it.copy(isPrivateAccount = isPrivate, savingField = null) }
+                is Result.Error   -> _uiState.update { it.copy(savingField = null, snackbarMessage = result.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun setHideFollowLists(hide: Boolean) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(savingField = "hideFollowLists") }
+            when (val result = userRepository.setHideFollowLists(hide)) {
+                is Result.Success -> _uiState.update { it.copy(hideFollowLists = hide, savingField = null) }
+                is Result.Error   -> _uiState.update { it.copy(savingField = null, snackbarMessage = result.message) }
                 is Result.Loading -> {}
             }
         }
