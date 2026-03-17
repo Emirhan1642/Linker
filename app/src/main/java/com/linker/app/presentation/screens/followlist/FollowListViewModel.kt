@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.User
@@ -41,11 +42,16 @@ class FollowListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val route = savedStateHandle.toRoute<Route.FollowList>()
+    private val listTypeSafe = runCatching { FollowListType.valueOf(route.listType) }
+        .getOrElse {
+            Log.w("FollowListViewModel", "Unknown listType='${route.listType}', defaulting to FOLLOWERS")
+            FollowListType.FOLLOWERS
+        }
     private val myUid = FirebaseAuth.getInstance().currentUser?.uid
 
     private val _uiState = MutableStateFlow(
         FollowListUiState(
-            listType     = FollowListType.valueOf(route.listType),
+            listType     = listTypeSafe,
             targetUserId = route.userId,
             currentUid   = myUid
         )

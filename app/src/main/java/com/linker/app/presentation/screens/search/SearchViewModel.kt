@@ -127,4 +127,37 @@ class SearchViewModel @Inject constructor(
     }
 
     fun onTabSelected(tab: SearchTab) = _uiState.update { it.copy(selectedTab = tab) }
+
+    fun onFollowClick(user: User) {
+        viewModelScope.launch {
+            val current = _uiState.value.searchResults.firstOrNull { it.userId == user.userId } ?: user
+
+            val optimistic = when {
+                current.isFollowing -> current.copy(isFollowing = false, followRequestSent = false)
+                current.followRequestSent -> current.copy(followRequestSent = false, isFollowing = false)
+                current.isPrivate -> current.copy(followRequestSent = true, isFollowing = false)
+                else -> current.copy(isFollowing = true, followRequestSent = false)
+            }
+            updateUserInResults(optimistic)
+
+            val result = when {
+                current.isFollowing -> userRepository.unfollowUser(current.userId)
+                current.followRequestSent -> userRepository.cancelFollowRequest(current.userId)
+                else -> userRepository.followUser(current.userId)
+            }
+
+            if (result is Result.Error) {
+                updateUserInResults(current)
+                _uiState.update { it.copy(error = result.message) }
+            }
+        }
+    }
+
+    private fun updateUserInResults(user: User) {
+        _uiState.update { state ->
+            state.copy(
+                searchResults = state.searchResults.map { if (it.userId == user.userId) user else it }
+            )
+        }
+    }
 }

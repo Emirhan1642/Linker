@@ -4,6 +4,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.Transaction
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.safeCall
 import com.linker.app.data.local.dao.UserDao
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
+import kotlin.math.max
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -107,18 +110,35 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun followUser(targetUserId: String): Result<Unit> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val docId = "${me}_${targetUserId}"
-        val existing = firestore.collection("follows").document(docId).get().await()
-        if (existing.exists()) return@safeCall
-        val targetSnap = firestore.collection("users").document(targetUserId).get().await()
-        val isPrivate = targetSnap.getBoolean("isPrivate") ?: false
-        val status = if (isPrivate) "pending" else "active"
-        firestore.collection("follows").document(docId).set(mapOf(
-            "followerId" to me, "followedId" to targetUserId,
-            "status" to status, "createdAt" to System.currentTimeMillis()
-        )).await()
+        val followRef = firestore.collection("follows").document(docId)
+        val meRef = firestore.collection("users").document(me)
+        val targetRef = firestore.collection("users").document(targetUserId)
+
+        val isPrivate = firestore.runTransaction { tx ->
+            val existing = tx.get(followRef)
+            if (existing.exists()) return@runTransaction null
+
+            val targetSnap = tx.get(targetRef)
+            val privateAccount = targetSnap.getBoolean("isPrivate") ?: false
+            val status = if (privateAccount) "pending" else "active"
+            tx.set(
+                followRef,
+                mapOf(
+                    "followerId" to me,
+                    "followedId" to targetUserId,
+                    "status" to status,
+                    "createdAt" to System.currentTimeMillis()
+                )
+            )
+            if (!privateAccount) {
+                updateCount(tx, meRef, "followingCount", 1)
+                updateCount(tx, targetRef, "followersCount", 1)
+            }
+            privateAccount
+        }.await()
+
+        if (isPrivate == null) return@safeCall
         if (!isPrivate) {
-            firestore.collection("users").document(me).update("followingCount", FieldValue.increment(1)).await()
-            firestore.collection("users").document(targetUserId).update("followersCount", FieldValue.increment(1)).await()
             userDao.updateFollowingStatus(targetUserId, true)
         } else {
             userDao.updateRequestSentStatus(targetUserId, true)
@@ -128,14 +148,23 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun unfollowUser(targetUserId: String): Result<Unit> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val docId = "${me}_${targetUserId}"
-        val existing = firestore.collection("follows").document(docId).get().await()
-        if (!existing.exists()) return@safeCall
-        val wasActive = existing.getString("status") == "active"
-        firestore.collection("follows").document(docId).delete().await()
-        if (wasActive) {
-            decrementSafe("users", me, "followingCount")
-            decrementSafe("users", targetUserId, "followersCount")
-        }
+        val followRef = firestore.collection("follows").document(docId)
+        val meRef = firestore.collection("users").document(me)
+        val targetRef = firestore.collection("users").document(targetUserId)
+
+        val status = firestore.runTransaction { tx ->
+            val existing = tx.get(followRef)
+            if (!existing.exists()) return@runTransaction "none"
+            val currentStatus = existing.getString("status") ?: "none"
+            tx.delete(followRef)
+            if (currentStatus == "active") {
+                updateCount(tx, meRef, "followingCount", -1)
+                updateCount(tx, targetRef, "followersCount", -1)
+            }
+            currentStatus
+        }.await()
+
+        if (status == "none") return@safeCall
         userDao.updateFollowingStatus(targetUserId, false)
         userDao.updateRequestSentStatus(targetUserId, false)
     }
@@ -153,25 +182,40 @@ class UserRepositoryImpl @Inject constructor(
     override suspend fun acceptFollowRequest(fromUserId: String): Result<Unit> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val docId = "${fromUserId}_${me}"
-        val existing = firestore.collection("follows").document(docId).get().await()
-        if (!existing.exists()) throw Exception("Follow request not found")
-        if (existing.getString("status") == "active") return@safeCall
-        firestore.collection("follows").document(docId).update("status", "active").await()
-        firestore.collection("users").document(fromUserId).update("followingCount", FieldValue.increment(1)).await()
-        firestore.collection("users").document(me).update("followersCount", FieldValue.increment(1)).await()
+        val followRef = firestore.collection("follows").document(docId)
+        val meRef = firestore.collection("users").document(me)
+        val fromRef = firestore.collection("users").document(fromUserId)
+
+        firestore.runTransaction { tx ->
+            val existing = tx.get(followRef)
+            if (!existing.exists()) throw Exception("Follow request not found")
+            val status = existing.getString("status") ?: "pending"
+            if (status == "active") return@runTransaction null
+            tx.update(followRef, "status", "active")
+            updateCount(tx, fromRef, "followingCount", 1)
+            updateCount(tx, meRef, "followersCount", 1)
+            null
+        }.await()
     }
 
     override suspend fun declineFollowRequest(fromUserId: String): Result<Unit> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val docId = "${fromUserId}_${me}"
-        val existing = firestore.collection("follows").document(docId).get().await()
-        if (!existing.exists()) return@safeCall
-        val status = existing.getString("status")
-        firestore.collection("follows").document(docId).delete().await()
-        if (status == "active") {
-            decrementSafe("users", fromUserId, "followingCount")
-            decrementSafe("users", me, "followersCount")
-        }
+        val followRef = firestore.collection("follows").document(docId)
+        val meRef = firestore.collection("users").document(me)
+        val fromRef = firestore.collection("users").document(fromUserId)
+
+        firestore.runTransaction { tx ->
+            val existing = tx.get(followRef)
+            if (!existing.exists()) return@runTransaction null
+            val status = existing.getString("status") ?: "pending"
+            tx.delete(followRef)
+            if (status == "active") {
+                updateCount(tx, fromRef, "followingCount", -1)
+                updateCount(tx, meRef, "followersCount", -1)
+            }
+            null
+        }.await()
     }
 
     override suspend fun getFollowers(userId: String): Result<List<User>?> = safeCall {
@@ -300,6 +344,13 @@ class UserRepositoryImpl @Inject constructor(
         val current = (snap.get(field) as? Number)?.toLong() ?: 0L
         if (current > 0) firestore.collection(collection).document(docId)
             .update(field, FieldValue.increment(-1)).await()
+    }
+
+    private fun updateCount(tx: Transaction, docRef: DocumentReference, field: String, delta: Long) {
+        val snap = tx.get(docRef)
+        val current = (snap.get(field) as? Number)?.toLong() ?: 0L
+        val next = max(0L, current + delta)
+        tx.update(docRef, field, next)
     }
 
     private fun mapToEntity(id: String, data: Map<String, Any>): UserEntity = UserEntity(

@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc(userId) {
+      return get(/databases/$(database)/documents/users/$(userId));
+    }
+
+    function isPublic(userId) {
+      return userDoc(userId).data.isPrivate != true
+        && userDoc(userId).data.hideFollowLists != true;
+    }
+
+    function isApprovedFollower(viewerId, targetId) {
+      return exists(/databases/$(database)/documents/follows/$(viewerId + "_" + targetId))
+        && get(/databases/$(database)/documents/follows/$(viewerId + "_" + targetId)).data.status == "active";
+    }
+
+    match /users/{userId} {
+      // NOTE: Firestore rules cannot hide individual fields on read.
+      // If email/phone must be private, move them to a separate collection.
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update, delete: if isOwner(userId);
+    }
+
+    match /follows/{followId} {
+      allow read: if isSignedIn() && (
+        // Allow reads of missing follow docs (e.g., checking relationship state).
+        resource == null ||
+        resource.data.followerId == request.auth.uid ||
+        resource.data.followedId == request.auth.uid ||
+        isPublic(resource.data.followedId) ||
+        isPublic(resource.data.followerId) ||
+        isApprovedFollower(request.auth.uid, resource.data.followedId) ||
+        isApprovedFollower(request.auth.uid, resource.data.followerId)
+      );
+
+      allow create: if isSignedIn()
+        && request.resource.data.followerId == request.auth.uid
+        && exists(/databases/$(database)/documents/users/$(request.resource.data.followedId));
+
+      allow update, delete: if isSignedIn() && (
+        resource.data.followerId == request.auth.uid ||
+        resource.data.followedId == request.auth.uid
+      );
+    }
+  }
+}

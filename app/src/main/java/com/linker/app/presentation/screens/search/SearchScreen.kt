@@ -139,7 +139,8 @@ fun SearchScreen(
                                 items(uiState.searchResults, key = { it.userId }) { user ->
                                     UserSearchResultItem(
                                         user = user,
-                                        onClick = { onNavigateToUserProfile(user.userId) }
+                                        onClick = { onNavigateToUserProfile(user.userId) },
+                                        onFollowClick = { viewModel.onFollowClick(user) }
                                     )
                                 }
                             }
@@ -210,7 +211,11 @@ private fun RecentSearchesSection(
 // ── User Search Result Item ───────────────────────────────────────────────────
 
 @Composable
-fun UserSearchResultItem(user: User, onClick: () -> Unit) {
+fun UserSearchResultItem(
+    user: User,
+    onClick: () -> Unit,
+    onFollowClick: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -232,16 +237,24 @@ fun UserSearchResultItem(user: User, onClick: () -> Unit) {
                 color = TextHint, fontSize = 12.sp)
         }
         val isFollowing = user.isFollowing
+        val isRequested = user.followRequestSent
+        val buttonText = when {
+            isFollowing -> "Following"
+            isRequested -> "Requested"
+            else -> "Follow"
+        }
+        val buttonColor = if (isFollowing || isRequested) LightGray else AccentGreen
+        val textColor = if (isFollowing || isRequested) TextPrimary else Black
         Button(
-            onClick = {},
-            colors = ButtonDefaults.buttonColors(containerColor = if (isFollowing) LightGray else AccentGreen),
+            onClick = onFollowClick,
+            colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier.height(32.dp).padding(start = 8.dp)
         ) {
             Text(
-                text = if (isFollowing) "Following" else "Follow",
-                color = if (isFollowing) TextPrimary else Black,
+                text = buttonText,
+                color = textColor,
                 fontSize = 13.sp, fontWeight = FontWeight.SemiBold
             )
         }

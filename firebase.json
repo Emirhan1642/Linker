@@ -4,5 +4,8 @@
       "anonymous": true,
       "emailPassword": true
     }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
   }
 }
