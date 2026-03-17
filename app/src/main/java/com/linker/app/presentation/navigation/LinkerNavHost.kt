@@ -40,7 +40,11 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
         }
     }
 
-    NavHost(navController = navController, startDestination = Route.Splash, modifier = modifier) {
+    NavHost(
+        navController = navController,
+        startDestination = Route.Splash,
+        modifier = modifier
+    ) {
 
         // ── Splash ──────────────────────────────────────────────────────────
         composable<Route.Splash> {
@@ -58,7 +62,7 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Auth ────────────────────────────────────────────────────────────
+        // ── Normal Auth (ilk giriş) ─────────────────────────────────────────
         composable<Route.Auth> {
             AuthScreen(
                 onNavigateToHome = {
@@ -70,7 +74,7 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Add Account Auth ────────────────────────────────────────────────
+        // ── "Hesap Ekle" Auth (Account Center'dan gelir) ────────────────────
         composable<Route.AddAccountAuth> {
             AuthScreen(
                 onNavigateToHome = {
@@ -103,7 +107,7 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        // ── Create ──────────────────────────────────────────────────────────
+        // ── Create (TODO) ───────────────────────────────────────────────────
         composable<Route.Create> { }
 
         // ── Chat List ───────────────────────────────────────────────────────
@@ -149,26 +153,35 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
         composable<Route.UserProfile> {
             UserProfileScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToChat = { navController.navigate(Route.ChatDetail(it)) },
-                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, "FOLLOWERS")) },
-                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, "FOLLOWING")) }
+                onNavigateToChat = { userId ->
+                    navController.navigate(Route.ChatDetail(userId))
+                },
+                onNavigateToFollowers = { uid ->
+                    navController.navigate(Route.FollowList(uid, "FOLLOWERS"))
+                },
+                onNavigateToFollowing = { uid ->
+                    navController.navigate(Route.FollowList(uid, "FOLLOWING"))
+                }
             )
         }
 
-        // FollowList rotası:
+        // ── Follow List (Followers / Following / Pending / Sent) ─────────────
         composable<Route.FollowList> {
             FollowListScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToUserProfile = { navController.navigate(Route.UserProfile(it)) }
+                onNavigateToUserProfile = { userId ->
+                    navController.navigate(Route.UserProfile(userId))
+                }
             )
         }
 
-        // Settings'e pending requests ekle:
+        // ── Settings ────────────────────────────────────────────────────────
         composable<Route.Settings> {
             SettingsScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToAccountCenter = { navController.navigate(Route.AccountCenter) },
                 onNavigateToPendingRequests = {
+                    // Aktif kullanıcının UID'si burada placeholder — ViewModel içinde currentUser'dan alınır
                     navController.navigate(Route.FollowList("me", "PENDING_REQUESTS"))
                 }
             )
@@ -178,7 +191,9 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
         composable<Route.AccountCenter> {
             AccountCenterScreen(
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToAuth = { navController.navigate(Route.AddAccountAuth) },
+                onNavigateToAuth = {
+                    navController.navigate(Route.AddAccountAuth)
+                },
                 onSwitchComplete = {
                     navController.navigate(Route.Home) {
                         popUpTo(Route.Home) { inclusive = true }
