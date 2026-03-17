@@ -141,7 +141,9 @@ fun ProfileScreen(
                 if (selectedTab == 0) {
                     if (currentLinks.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
-                            Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                            Box(modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp), contentAlignment = Alignment.Center) {
                                 Text("No Links yet", color = TextSecondary)
                             }
                         }
@@ -155,7 +157,9 @@ fun ProfileScreen(
                     }
                 } else {
                     item(span = StaggeredGridItemSpan.FullLine) {
-                        Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp), contentAlignment = Alignment.Center) {
                             Text("No Relink yet", color = TextSecondary)
                         }
                     }
@@ -289,27 +293,26 @@ fun ProfileHeader(
     ) {
         // Top Bar
         Row(
-            modifier = Modifier
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             IconButton(onClick = onNavigateBack) {
                 Icon(painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
             }
 
-        // Avatar
-        LinkerAvatar(
-            imageUrl = user?.profileImageUrl,
-            size = 240.dp,
-            storyState = storyState,
-            onClick = onAvatarClick,
-            onLongClick = onAvatarLongClick
-        )
+            // Avatar
+            LinkerAvatar(
+                imageUrl = user?.profileImageUrl,
+                size = 240.dp,
+                storyState = storyState,
+                onClick = onAvatarClick,
+                onLongClick = onAvatarLongClick
+            )
 
-        IconButton(onClick = onNavigateToSettings) {
-            Icon(painterResource(id = R.drawable.ic_setting_2_outline), contentDescription = "Settings", tint = TextPrimary, modifier = Modifier.size(30.dp))
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(painterResource(id = R.drawable.ic_setting_2_outline), contentDescription = "Settings", tint = TextPrimary, modifier = Modifier.size(30.dp))
+            }
         }
-    }
 
     Spacer(modifier = Modifier.height(8.dp))
 
@@ -443,12 +446,14 @@ fun ProfilePostItem(post: Link) {
     ) {
         // Since we don't have actual images, we'll draw a gradient placeholder
         Box(
-            modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
-                    startY = 100f
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                        startY = 100f
+                    )
                 )
-            )
         )
         
         // Top Overlay

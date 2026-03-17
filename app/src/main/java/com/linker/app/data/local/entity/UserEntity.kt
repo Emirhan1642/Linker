@@ -3,11 +3,6 @@ package com.linker.app.data.local.entity
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
-/**
- * User Entity - Cached user profiles
- * 
- * Stores user information for offline access
- */
 @Entity(tableName = "users")
 data class UserEntity(
     @PrimaryKey
@@ -27,6 +22,8 @@ data class UserEntity(
     val isFollowedBy: Boolean = false,
     val isBlocked: Boolean = false,
     val isMuted: Boolean = false,
+    val isPrivate: Boolean = false,
+    val followRequestSent: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
     val lastSyncedAt: Long = System.currentTimeMillis()

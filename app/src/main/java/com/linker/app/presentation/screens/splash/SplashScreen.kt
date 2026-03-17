@@ -19,21 +19,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.auth.FirebaseAuth
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.presentation.theme.*
 import kotlinx.coroutines.delay
 
 /**
  * Splash Screen
  *
- * Shows animated Linker logo and checks Firebase auth status.
+ * Routing logic:
+ *   - Not signed in                      → Auth
+ *   - Signed in, no Firestore profile    → Auth (ProfileSetup adımına düşer)
+ *   - Signed in, profile tam             → session güncelle → Home
  */
 @Composable
 fun SplashScreen(
     onNavigateToAuth: () -> Unit,
-    onNavigateToHome: () -> Unit
+    onNavigateToHome: () -> Unit,
+    viewModel: SplashViewModel = hiltViewModel()
 ) {
-    // Fade-in animation
     val infiniteTransition = rememberInfiniteTransition(label = "splash")
     val alpha by infiniteTransition.animateFloat(
         initialValue = 0.4f,
@@ -63,9 +66,7 @@ fun SplashScreen(
                 ),
                 modifier = Modifier.alpha(alpha)
             )
-
             Spacer(modifier = Modifier.height(8.dp))
-
             Text(
                 text = "Connect without limits",
                 color = TextSecondary,
@@ -77,12 +78,15 @@ fun SplashScreen(
     }
 
     LaunchedEffect(Unit) {
-        delay(2200) // Splash display time
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser != null && !currentUser.displayName.isNullOrBlank()) {
+        delay(2200)
+        // ViewModel, Firestore kontrolü + session kaydını halleder
+        val destination = viewModel.resolveStartDestination()
+        if (destination == SplashDestination.HOME) {
             onNavigateToHome()
         } else {
             onNavigateToAuth()
         }
     }
 }
+
+enum class SplashDestination { HOME, AUTH }

@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Brush
 
 // Base Dark Colors
 val Black = Color(0xFF151515) // Deep dark background
+val DarkerGray = Color(0xFF121212) // Background
 val DarkGray = Color(0xFF1C1C20) // Surface / Cards
 val LightGray = Color(0xFF353434) // Borders, secondary surfaces
 val TextPrimary = Color(0xFFFFFFFF)

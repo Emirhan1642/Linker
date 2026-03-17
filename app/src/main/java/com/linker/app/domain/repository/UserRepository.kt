@@ -6,31 +6,37 @@ import kotlinx.coroutines.flow.Flow
 
 interface UserRepository {
 
-    /** Returns the current signed-in user, or null if not authenticated. */
     fun getCurrentUser(): Flow<User?>
-
-    /** Fetches a user by ID — checks cache first, then remote. */
     suspend fun getUserById(userId: String): Result<User>
-
-    /** Fetches a user by username. */
     suspend fun getUserByUsername(username: String): Result<User>
-
-    /** Returns users whose username or display name contains [query]. */
     suspend fun searchUsers(query: String, limit: Int = 20): Result<List<User>>
 
-    /** Follows the user with [targetUserId]. */
+    // ── Follow / Unfollow ──────────────────────────────────────────────────
+    /** Public hesap: direkt takip. Private hesap: istek gönder. */
     suspend fun followUser(targetUserId: String): Result<Unit>
-
-    /** Unfollows the user with [targetUserId]. */
     suspend fun unfollowUser(targetUserId: String): Result<Unit>
 
-    /** Blocks the user with [targetUserId]. */
-    suspend fun blockUser(targetUserId: String): Result<Unit>
+    // ── Follow Requests ────────────────────────────────────────────────────
+    /** Bekleyen follow isteğini iptal et (istek gönderen taraf) */
+    suspend fun cancelFollowRequest(targetUserId: String): Result<Unit>
+    /** Gelen isteği kabul et (alıcı taraf) */
+    suspend fun acceptFollowRequest(fromUserId: String): Result<Unit>
+    /** Gelen isteği reddet (alıcı taraf) */
+    suspend fun declineFollowRequest(fromUserId: String): Result<Unit>
 
-    /** Unblocks the user with [targetUserId]. */
+    // ── Lists ──────────────────────────────────────────────────────────────
+    suspend fun getFollowers(userId: String): Result<List<User>>
+    suspend fun getFollowing(userId: String): Result<List<User>>
+    /** Aktif kullanıcıya gelen bekleyen follow istekleri */
+    suspend fun getPendingRequests(): Result<List<User>>
+    /** Aktif kullanıcının gönderdiği bekleyen istekler */
+    suspend fun getSentRequests(): Result<List<User>>
+
+    // ── Block ──────────────────────────────────────────────────────────────
+    suspend fun blockUser(targetUserId: String): Result<Unit>
     suspend fun unblockUser(targetUserId: String): Result<Unit>
 
-    /** Updates the current user's profile. */
+    // ── Profile ────────────────────────────────────────────────────────────
     suspend fun updateProfile(
         displayName: String? = null,
         bio: String? = null,
@@ -38,9 +44,9 @@ interface UserRepository {
         coverImageUrl: String? = null
     ): Result<User>
 
-    /** Observes the list of users the current user is following (cached). */
-    fun observeFollowing(): Flow<List<User>>
+    /** Private hesap ayarını aç/kapat — Firestore'a yazar */
+    suspend fun setPrivateAccount(isPrivate: Boolean): Result<Unit>
 
-    /** Returns whether a given username is already taken. */
+    fun observeFollowing(): Flow<List<User>>
     suspend fun isUsernameAvailable(username: String): Result<Boolean>
 }

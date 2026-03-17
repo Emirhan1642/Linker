@@ -11,58 +11,57 @@ import com.linker.app.domain.model.NotificationType
 import com.linker.app.domain.model.NoteType
 import com.linker.app.domain.model.StoryMediaType
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  UserEntity  ↔  User
-// ──────────────────────────────────────────────────────────────────────────────
+// ── UserEntity ↔ User ─────────────────────────────────────────────────────────
 
 fun UserEntity.toDomain(): User = User(
-    userId        = userId,
-    username      = username,
-    displayName   = displayName,
-    email         = email,
-    phoneNumber   = phoneNumber,
-    bio           = bio,
-    profileImageUrl = profileImageUrl,
-    coverImageUrl = coverImageUrl,
-    isVerified    = isVerified,
-    followersCount = followersCount,
-    followingCount = followingCount,
-    likesCount    = likesCount,
-    isFollowing   = isFollowing,
-    isFollowedBy  = isFollowedBy,
-    isBlocked     = isBlocked,
-    isMuted       = isMuted,
-    createdAt     = createdAt,
-    updatedAt     = updatedAt
+    userId           = userId,
+    username         = username,
+    displayName      = displayName,
+    email            = email,
+    phoneNumber      = phoneNumber,
+    bio              = bio,
+    profileImageUrl  = profileImageUrl,
+    coverImageUrl    = coverImageUrl,
+    isVerified       = isVerified,
+    followersCount   = followersCount,
+    followingCount   = followingCount,
+    likesCount       = likesCount,
+    isFollowing      = isFollowing,
+    isFollowedBy     = isFollowedBy,
+    isBlocked        = isBlocked,
+    isMuted          = isMuted,
+    isPrivate        = isPrivate,
+    followRequestSent = followRequestSent,
+    createdAt        = createdAt,
+    updatedAt        = updatedAt
 )
 
 fun User.toEntity(): UserEntity = UserEntity(
-    userId        = userId,
-    username      = username,
-    displayName   = displayName,
-    email         = email,
-    phoneNumber   = phoneNumber,
-    bio           = bio,
-    profileImageUrl = profileImageUrl,
-    coverImageUrl = coverImageUrl,
-    isVerified    = isVerified,
-    followersCount = followersCount,
-    followingCount = followingCount,
-    likesCount    = likesCount,
-    isFollowing   = isFollowing,
-    isFollowedBy  = isFollowedBy,
-    isBlocked     = isBlocked,
-    isMuted       = isMuted,
-    createdAt     = createdAt,
-    updatedAt     = updatedAt,
-    lastSyncedAt  = System.currentTimeMillis()
+    userId           = userId,
+    username         = username,
+    displayName      = displayName,
+    email            = email,
+    phoneNumber      = phoneNumber,
+    bio              = bio,
+    profileImageUrl  = profileImageUrl,
+    coverImageUrl    = coverImageUrl,
+    isVerified       = isVerified,
+    followersCount   = followersCount,
+    followingCount   = followingCount,
+    likesCount       = likesCount,
+    isFollowing      = isFollowing,
+    isFollowedBy     = isFollowedBy,
+    isBlocked        = isBlocked,
+    isMuted          = isMuted,
+    isPrivate        = isPrivate,
+    followRequestSent = followRequestSent,
+    createdAt        = createdAt,
+    updatedAt        = updatedAt,
+    lastSyncedAt     = System.currentTimeMillis()
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  LinkEntity  ↔  Link
-// ──────────────────────────────────────────────────────────────────────────────
+// ── LinkEntity ↔ Link ─────────────────────────────────────────────────────────
 
-/** Requires the author [User] to already be loaded. */
 fun LinkEntity.toDomain(author: User): Link = Link(
     linkId        = linkId,
     author        = author,
@@ -126,9 +125,7 @@ fun Link.toEntity(): LinkEntity = LinkEntity(
     lastSyncedAt  = System.currentTimeMillis()
 )
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  StoryEntity  ↔  Story
-// ──────────────────────────────────────────────────────────────────────────────
+// ── StoryEntity ↔ Story ───────────────────────────────────────────────────────
 
 fun StoryEntity.toDomain(author: User): Story = Story(
     storyId      = storyId,
@@ -149,25 +146,23 @@ fun com.linker.app.data.local.entity.StoryMediaType.toDomain(): StoryMediaType =
     com.linker.app.data.local.entity.StoryMediaType.VIDEO -> StoryMediaType.VIDEO
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  NoteEntity  ↔  Note
-// ──────────────────────────────────────────────────────────────────────────────
+// ── NoteEntity ↔ Note ─────────────────────────────────────────────────────────
 
 fun NoteEntity.toDomain(author: User): Note = Note(
-    noteId             = noteId,
-    author             = author,
-    noteType           = noteType.toDomain(),
-    content            = content,
-    musicTrackId       = musicTrackId,
-    musicTrackName     = musicTrackName,
-    musicArtistName    = musicArtistName,
-    musicAlbumArt      = musicAlbumArt,
+    noteId              = noteId,
+    author              = author,
+    noteType            = noteType.toDomain(),
+    content             = content,
+    musicTrackId        = musicTrackId,
+    musicTrackName      = musicTrackName,
+    musicArtistName     = musicArtistName,
+    musicAlbumArt       = musicAlbumArt,
     countdownTargetTime = countdownTargetTime,
-    countdownTitle     = countdownTitle,
-    backgroundColor    = backgroundColor,
-    textColor          = textColor,
-    createdAt          = createdAt,
-    expiresAt          = expiresAt
+    countdownTitle      = countdownTitle,
+    backgroundColor     = backgroundColor,
+    textColor           = textColor,
+    createdAt           = createdAt,
+    expiresAt           = expiresAt
 )
 
 fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this) {
@@ -176,14 +171,9 @@ fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this)
     com.linker.app.data.local.entity.NoteType.COUNTDOWN -> NoteType.COUNTDOWN
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  ChatEntity  ↔  Chat    /    MessageEntity  ↔  Message
-// ──────────────────────────────────────────────────────────────────────────────
+// ── ChatEntity ↔ Chat / MessageEntity ↔ Message ───────────────────────────────
 
-fun ChatEntity.toDomain(
-    participants: List<User>,
-    lastMessage: Message?
-): Chat = Chat(
+fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat = Chat(
     chatId       = chatId,
     chatType     = chatType.toDomain(),
     chatName     = chatName,
@@ -209,28 +199,28 @@ fun MessageEntity.toDomain(
     sharedLink: Link? = null,
     replyToMessage: Message? = null
 ): Message = Message(
-    messageId           = messageId,
-    chatId              = chatId,
-    sender              = sender,
-    messageType         = messageType.toDomain(),
-    content             = content,
-    mediaUrl            = mediaUrl,
-    thumbnailUrl        = thumbnailUrl,
-    mediaWidth          = mediaWidth,
-    mediaHeight         = mediaHeight,
-    mediaDuration       = mediaDuration,
-    sharedLink          = sharedLink,
-    replyToMessage      = replyToMessage,
-    reactions           = reactions,
-    isEdited            = isEdited,
-    isDeleted           = isDeleted,
-    deletedForEveryone  = deletedForEveryone,
-    messageStatus       = messageStatus.toDomain(),
-    deliveryMethod      = deliveryMethod.toDomain(),
-    createdAt           = createdAt,
-    updatedAt           = updatedAt,
-    deliveredAt         = deliveredAt,
-    readAt              = readAt
+    messageId          = messageId,
+    chatId             = chatId,
+    sender             = sender,
+    messageType        = messageType.toDomain(),
+    content            = content,
+    mediaUrl           = mediaUrl,
+    thumbnailUrl       = thumbnailUrl,
+    mediaWidth         = mediaWidth,
+    mediaHeight        = mediaHeight,
+    mediaDuration      = mediaDuration,
+    sharedLink         = sharedLink,
+    replyToMessage     = replyToMessage,
+    reactions          = reactions,
+    isEdited           = isEdited,
+    isDeleted          = isDeleted,
+    deletedForEveryone = deletedForEveryone,
+    messageStatus      = messageStatus.toDomain(),
+    deliveryMethod     = deliveryMethod.toDomain(),
+    createdAt          = createdAt,
+    updatedAt          = updatedAt,
+    deliveredAt        = deliveredAt,
+    readAt             = readAt
 )
 
 fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when (this) {
@@ -264,9 +254,7 @@ fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = w
     MessageStatus.FAILED    -> com.linker.app.data.local.entity.MessageStatus.FAILED
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  CommentEntity  ↔  Comment   /   NotificationEntity  ↔  Notification
-// ──────────────────────────────────────────────────────────────────────────────
+// ── Comment / Notification ────────────────────────────────────────────────────
 
 fun CommentEntity.toDomain(author: User): Comment = Comment(
     commentId       = commentId,
@@ -299,13 +287,13 @@ fun NotificationEntity.toDomain(actor: User): Notification = Notification(
 )
 
 fun com.linker.app.data.local.entity.NotificationType.toDomain(): NotificationType = when (this) {
-    com.linker.app.data.local.entity.NotificationType.LIKE        -> NotificationType.LIKE
-    com.linker.app.data.local.entity.NotificationType.COMMENT     -> NotificationType.COMMENT
-    com.linker.app.data.local.entity.NotificationType.REPLY       -> NotificationType.REPLY
-    com.linker.app.data.local.entity.NotificationType.FOLLOW      -> NotificationType.FOLLOW
-    com.linker.app.data.local.entity.NotificationType.MENTION     -> NotificationType.MENTION
-    com.linker.app.data.local.entity.NotificationType.RELINK      -> NotificationType.RELINK
-    com.linker.app.data.local.entity.NotificationType.MESSAGE     -> NotificationType.MESSAGE
-    com.linker.app.data.local.entity.NotificationType.STORY_VIEW  -> NotificationType.STORY_VIEW
-    com.linker.app.data.local.entity.NotificationType.LIVE        -> NotificationType.LIVE
+    com.linker.app.data.local.entity.NotificationType.LIKE       -> NotificationType.LIKE
+    com.linker.app.data.local.entity.NotificationType.COMMENT    -> NotificationType.COMMENT
+    com.linker.app.data.local.entity.NotificationType.REPLY      -> NotificationType.REPLY
+    com.linker.app.data.local.entity.NotificationType.FOLLOW     -> NotificationType.FOLLOW
+    com.linker.app.data.local.entity.NotificationType.MENTION    -> NotificationType.MENTION
+    com.linker.app.data.local.entity.NotificationType.RELINK     -> NotificationType.RELINK
+    com.linker.app.data.local.entity.NotificationType.MESSAGE    -> NotificationType.MESSAGE
+    com.linker.app.data.local.entity.NotificationType.STORY_VIEW -> NotificationType.STORY_VIEW
+    com.linker.app.data.local.entity.NotificationType.LIVE       -> NotificationType.LIVE
 }

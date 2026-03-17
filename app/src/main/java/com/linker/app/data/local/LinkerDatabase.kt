@@ -3,15 +3,11 @@ package com.linker.app.data.local
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.linker.app.data.local.dao.*
 import com.linker.app.data.local.entity.*
 
-/**
- * Linker Room Database
- * 
- * Main database for offline-first architecture
- * Contains all entities for users, posts, stories, messages, and cache
- */
 @Database(
     entities = [
         UserEntity::class,
@@ -25,13 +21,12 @@ import com.linker.app.data.local.entity.*
         MediaCacheEntity::class,
         NotificationEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class LinkerDatabase : RoomDatabase() {
-    
-    // DAOs
+
     abstract fun userDao(): UserDao
     abstract fun linkDao(): LinkDao
     abstract fun storyDao(): StoryDao
@@ -42,8 +37,16 @@ abstract class LinkerDatabase : RoomDatabase() {
     abstract fun commentDao(): CommentDao
     abstract fun mediaCacheDao(): MediaCacheDao
     abstract fun notificationDao(): NotificationDao
-    
+
     companion object {
         const val DATABASE_NAME = "linker_database"
+
+        /** v2 → v3: isPrivate ve followRequestSent sütunları eklendi */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE users ADD COLUMN isPrivate INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE users ADD COLUMN followRequestSent INTEGER NOT NULL DEFAULT 0")
+            }
+        }
     }
 }

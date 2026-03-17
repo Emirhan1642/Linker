@@ -148,6 +148,9 @@ dependencies {
     // Permissions
     implementation(libs.accompanist.permissions)
 
+    // Security
+    implementation(libs.androidx.security.crypto)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
