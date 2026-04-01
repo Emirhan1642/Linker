@@ -90,3 +90,8 @@ linker-d02d0-f6e467e35636.json
 .env.*
 *.local
 apikey.properties
+.agents
+.kotlin
+.firebaserc
+.linker-cache.json
+firestore.rules
