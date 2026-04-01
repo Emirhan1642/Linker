@@ -116,8 +116,20 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             )
         }
 
-        composable<Route.ChatInfo> {
-            ChatInfoScreen(onNavigateBack = { navController.popBackStack() })
+        composable<Route.ChatInfo> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.ChatInfo>()
+            ChatInfoScreen(
+                chatId = route.chatId,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToUserProfile = { userId ->
+                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (userId == myUid) {
+                        navController.navigate(Route.Profile) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(Route.UserProfile(userId))
+                    }
+                }
+            )
         }
 
         composable<Route.StoryViewer> {

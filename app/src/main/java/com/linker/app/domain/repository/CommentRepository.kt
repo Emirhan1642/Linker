@@ -47,4 +47,7 @@ interface NotificationRepository {
 
     /** Deletes all notifications. */
     suspend fun clearAll(): Result<Unit>
+
+    /** Inserts a local notification (used by chat repo for push notifications). */
+    suspend fun insertNotification(notification: com.linker.app.data.local.entity.NotificationEntity)
 }

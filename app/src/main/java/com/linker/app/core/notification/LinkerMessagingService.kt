@@ -2,46 +2,177 @@ package com.linker.app.core.notification
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Build
+import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.linker.app.MainActivity
+import com.linker.app.R
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
  * Firebase Cloud Messaging Service
- * 
- * Handles push notifications from Firebase
+ *
+ * Handles push notifications from Firebase:
+ * - Chat messages → deep link to chat
+ * - Likes / Comments / Follows → deep link to content
+ * - System notifications
  */
 @AndroidEntryPoint
 class LinkerMessagingService : FirebaseMessagingService() {
-    
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // TODO: Send token to backend
+        // TODO: Send token to backend / store in user profile
+        android.util.Log.d(TAG, "FCM token refreshed: $token")
     }
-    
+
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
-        // TODO: Handle incoming messages
-        // - Chat messages
-        // - Likes/Comments
-        // - Follow notifications
+        createNotificationChannel()
+
+        val data = message.data
+        val notificationType = data["type"] ?: "general"
+
+        when (notificationType) {
+            "MESSAGE" -> handleChatNotification(message, data)
+            "LIKE", "COMMENT", "REPLY", "FOLLOW", "MENTION", "RELINK", "STORY_VIEW", "LIVE" ->
+                handleSocialNotification(message, data, notificationType)
+            else -> handleGeneralNotification(message)
+        }
     }
-    
+
+    private fun handleChatNotification(
+        message: RemoteMessage,
+        data: Map<String, String>
+    ) {
+        val chatId = data["chatId"] ?: return
+        val messageId = data["messageId"] ?: ""
+        val senderName = data["senderName"] ?: data["title"] ?: "New Message"
+        val body = message.notification?.body ?: data["body"] ?: "Sent you a message"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("deep_link", "chat/$chatId")
+            putExtra("chat_id", chatId)
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            chatId.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_ai_commentary_outline)
+            .setContentTitle(senderName)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        getNotificationManager().notify(chatId.hashCode(), notification)
+    }
+
+    private fun handleSocialNotification(
+        message: RemoteMessage,
+        data: Map<String, String>,
+        type: String
+    ) {
+        val title = data["title"] ?: message.notification?.title ?: "Linker"
+        val body = message.notification?.body ?: data["body"] ?: "New activity"
+        val targetId = data["targetEntityId"] ?: ""
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("deep_link", "$type/$targetId")
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            "$type-$targetId".hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val icon = when (type) {
+            "LIKE" -> R.drawable.ic_heart_outline
+            "COMMENT", "REPLY" -> R.drawable.ic_ai_commentary_outline
+            "FOLLOW" -> R.drawable.ic_ai_users_outline
+            "MENTION" -> R.drawable.ic_hashtag_down_outline
+            "RELINK" -> R.drawable.ic_toy_6_outline
+            "STORY_VIEW" -> R.drawable.ic_story_outline
+            "LIVE" -> R.drawable.ic_play_add_outline
+            else -> R.drawable.ic_ai_homepage_outline
+        }
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(icon)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        getNotificationManager().notify("$type-$targetId".hashCode(), notification)
+    }
+
+    private fun handleGeneralNotification(message: RemoteMessage) {
+        val title = message.notification?.title ?: "Linker"
+        val body = message.notification?.body ?: "You have a new notification"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_ai_homepage_outline)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        getNotificationManager().notify(System.currentTimeMillis().toInt(), notification)
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "Linker Notifications",
                 NotificationManager.IMPORTANCE_HIGH
-            )
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            ).apply {
+                description = "Chat messages, likes, comments, and follow notifications"
+                enableLights(true)
+                enableVibration(true)
+            }
+            getNotificationManager().createNotificationChannel(channel)
         }
     }
-    
+
+    private fun getNotificationManager(): NotificationManager {
+        return getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
+
     companion object {
-        private const val CHANNEL_ID = "linker_notifications"
+        private const val TAG = "LinkerMessaging"
+        const val CHANNEL_ID = "linker_notifications"
     }
 }

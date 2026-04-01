@@ -1,35 +1,52 @@
 package com.linker.app.presentation.screens.chat
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.R
+import com.linker.app.domain.model.ChatType
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import com.linker.app.presentation.theme.LightGray
+import com.linker.app.presentation.theme.AccentGreen
 
 @Composable
 fun ChatInfoScreen(
-    onNavigateBack: () -> Unit
+    chatId: String,
+    onNavigateBack: () -> Unit,
+    onNavigateToUserProfile: (String) -> Unit = {},
+    viewModel: ChatInfoViewModel = hiltViewModel()
 ) {
-    var selectedTab by remember { mutableStateOf(0) } // 0: Gallery, 1: Reel, 2: Link, 3: User
+    val uiState by viewModel.uiState.collectAsState()
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(chatId) {
+        viewModel.loadChatInfo(chatId)
+    }
 
     Scaffold(
         containerColor = Black
@@ -49,82 +66,376 @@ fun ChatInfoScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                        Icon(
+                            painterResource(id = R.drawable.ic_arrow_left_01_outline),
+                            contentDescription = "Back",
+                            tint = TextPrimary,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text("Chat Info", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+
+            if (uiState.isLoading) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(color = TextSecondary)
                     }
                 }
-            }
+            } else if (uiState.error != null) {
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(300.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(uiState.error ?: "Error", color = TextSecondary, fontSize = 16.sp)
+                    }
+                }
+            } else {
+                // Avatar & Name
+                item {
+                    val displayName = uiState.chatName
+                    val username = uiState.otherParticipant?.username
+                        ?: if (uiState.isGroupChat) "${uiState.participants.size} members" else null
 
-            // Avatar & Name
-            item {
-                LinkerAvatar(
-                    imageUrl = null,
-                    size = 150.dp,
-                    hasStory = true
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Bad Bunny", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text("@badbunny", color = TextSecondary, fontSize = 14.sp)
-                Spacer(modifier = Modifier.height(24.dp))
-            }
-
-            // Options List
-            item {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                    ChatInfoOption(icon = R.drawable.ic_enhance_user_ai_outline, title = "Profile", subtitle = "@badbunny")
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_bell_2_outline, title = "Silent Mode", subtitle = "Off")
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_search_status_1_outline, title = "Search", subtitle = null)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_paint_brush_2_outline, title = "Theme", subtitle = "Default")
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_ai_sand_timer_outline, title = "Disappearing messages", subtitle = "Off")
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_security_safe_outline, title = "Security", subtitle = null, subtitleStyle = false)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_user_edit_outline, title = "Nicknames", subtitle = null)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ChatInfoOption(icon = R.drawable.ic_ai_users_outline, title = "Create a group", subtitle = null)
+                    LinkerAvatar(
+                        imageUrl = uiState.chatImageUrl,
+                        size = 150.dp,
+                        storyState = com.linker.app.presentation.components.StoryState.NONE
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(displayName, color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    if (username != null) {
+                        Text("@$username", color = TextSecondary, fontSize = 14.sp)
+                    }
                     Spacer(modifier = Modifier.height(24.dp))
                 }
-            }
 
-            // Tabs
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    TabRowIconItem(icon = R.drawable.ic_gallery_outline, isSelected = selectedTab == 0) { selectedTab = 0 }
-                    TabRowIconItem(icon = R.drawable.ic_play_add_outline, isSelected = selectedTab == 1) { selectedTab = 1 }
-                    TabRowIconItem(icon = R.drawable.ic_toy_6_outline, isSelected = selectedTab == 2) { selectedTab = 2 } // Fallback to toy_6 (relink) or similar link icon if available
-                    TabRowIconItem(icon = R.drawable.ic_profile_outline, isSelected = selectedTab == 3) { selectedTab = 3 }
+                // Group members (if group chat)
+                if (uiState.isGroupChat && uiState.participants.isNotEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+                        ) {
+                            Text("Members", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 12.dp))
+                            uiState.participants.forEach { participant ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onNavigateToUserProfile(participant.userId) }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    LinkerAvatar(
+                                        imageUrl = participant.profileImageUrl,
+                                        size = 40.dp,
+                                        storyState = com.linker.app.presentation.components.StoryState.NONE
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            participant.displayName.ifBlank { participant.username },
+                                            color = TextPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        if (participant.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid) {
+                                            Text("You", color = TextSecondary, fontSize = 11.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(20.dp))
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(LightGray.copy(alpha=0.5f)))
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            
-            // Grid content for Gallery
-            item {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Demo images blocks matching the staggered profile feed
-                    Box(modifier = Modifier.weight(1f).aspectRatio(0.8f).clip(RoundedCornerShape(16.dp)).background(LightGray))
-                    Box(modifier = Modifier.weight(1f).aspectRatio(0.8f).clip(RoundedCornerShape(16.dp)).background(LightGray))
+                // Options List
+                item {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                        // Profile
+                        if (!uiState.isGroupChat) {
+                            ChatInfoOption(
+                                icon = R.drawable.ic_enhance_user_ai_outline,
+                                title = "Profile",
+                                subtitle = uiState.otherParticipant?.username,
+                                onClick = { uiState.otherParticipant?.let { onNavigateToUserProfile(it.userId) } }
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
+
+                        // Silent Mode
+                        ChatInfoOption(
+                            icon = R.drawable.ic_bell_2_outline,
+                            title = "Silent Mode",
+                            subtitle = if (uiState.isMuted) "On" else "Off",
+                            onClick = { viewModel.toggleMute() }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Pin Chat
+                        ChatInfoOption(
+                            icon = R.drawable.ic_security_safe_outline,
+                            title = "Pin Chat",
+                            subtitle = if (uiState.isPinned) "Pinned" else "Not pinned",
+                            onClick = { viewModel.togglePin() }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Search
+                        ChatInfoOption(
+                            icon = R.drawable.ic_search_status_1_outline,
+                            title = "Search",
+                            subtitle = null,
+                            onClick = { /* TODO: open search in this chat */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Theme
+                        ChatInfoOption(
+                            icon = R.drawable.ic_paint_brush_2_outline,
+                            title = "Theme",
+                            subtitle = uiState.theme ?: "Default",
+                            onClick = { /* TODO: open theme picker */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Disappearing messages
+                        ChatInfoOption(
+                            icon = R.drawable.ic_ai_sand_timer_outline,
+                            title = "Disappearing messages",
+                            subtitle = "Off",
+                            onClick = { /* TODO */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Security
+                        ChatInfoOption(
+                            icon = R.drawable.ic_security_safe_outline,
+                            title = "Security",
+                            subtitle = "End-to-end encrypted",
+                            subtitleStyle = true,
+                            onClick = { /* TODO */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Nicknames
+                        ChatInfoOption(
+                            icon = R.drawable.ic_user_edit_outline,
+                            title = "Nicknames",
+                            subtitle = null,
+                            onClick = { /* TODO */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Create a group (only for private chats)
+                        if (!uiState.isGroupChat) {
+                            ChatInfoOption(
+                                icon = R.drawable.ic_ai_users_outline,
+                                title = "Create a group",
+                                subtitle = null,
+                                onClick = { /* TODO: navigate to create group with this user */ }
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                        }
+                    }
                 }
-                Spacer(modifier = Modifier.height(100.dp))
+
+                // Tabs
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 32.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        TabRowIconItem(icon = R.drawable.ic_gallery_outline, isSelected = selectedTab == 0) { selectedTab = 0 }
+                        TabRowIconItem(icon = R.drawable.ic_play_add_outline, isSelected = selectedTab == 1) { selectedTab = 1 }
+                        TabRowIconItem(icon = R.drawable.ic_toy_6_outline, isSelected = selectedTab == 2) { selectedTab = 2 }
+                        if (uiState.isGroupChat) {
+                            TabRowIconItem(icon = R.drawable.ic_ai_users_outline, isSelected = selectedTab == 3) { selectedTab = 3 }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(LightGray.copy(alpha = 0.5f)))
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
+                // Grid content based on selected tab
+                when (selectedTab) {
+                    0 -> {
+                        // Gallery tab
+                        if (uiState.sharedMedia.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No shared media", color = TextSecondary, fontSize = 14.sp)
+                                }
+                            }
+                        } else {
+                            items(uiState.sharedMedia) { media ->
+                                SharedMediaThumbnail(media)
+                            }
+                        }
+                    }
+                    1 -> {
+                        // Reels/Videos tab
+                        val videos = uiState.sharedMedia.filter { it.mediaType == MediaType.VIDEO }
+                        if (videos.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No shared videos", color = TextSecondary, fontSize = 14.sp)
+                                }
+                            }
+                        } else {
+                            items(videos) { media ->
+                                SharedMediaThumbnail(media)
+                            }
+                        }
+                    }
+                    2 -> {
+                        // Links tab
+                        if (uiState.sharedLinks.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("No shared links", color = TextSecondary, fontSize = 14.sp)
+                                }
+                            }
+                        } else {
+                            items(uiState.sharedLinks) { link ->
+                                SharedLinkItemRow(link)
+                            }
+                        }
+                    }
+                    3 -> {
+                        // Members tab (group chats only)
+                        items(uiState.participants) { participant ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToUserProfile(participant.userId) }
+                                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LinkerAvatar(
+                                    imageUrl = participant.profileImageUrl,
+                                    size = 48.dp,
+                                    storyState = com.linker.app.presentation.components.StoryState.NONE
+                                )
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text(
+                                        participant.displayName.ifBlank { participant.username },
+                                        color = TextPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (participant.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid) {
+                                        Text("You", color = AccentGreen, fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun ChatInfoOption(icon: Int, title: String, subtitle: String?, subtitleStyle: Boolean = false) {
+fun SharedMediaThumbnail(media: SharedMediaItem) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LightGray)
+    ) {
+        // TODO: Replace with Coil AsyncImage once mediaUrl is valid
+        Icon(
+            painter = painterResource(
+                id = when (media.mediaType) {
+                    MediaType.VIDEO -> R.drawable.ic_play_add_outline
+                    MediaType.GIF -> R.drawable.ic_toy_6_outline
+                    MediaType.IMAGE -> R.drawable.ic_gallery_outline
+                }
+            ),
+            contentDescription = null,
+            tint = TextSecondary,
+            modifier = Modifier.align(Alignment.Center).size(32.dp)
+        )
+    }
+}
+
+@Composable
+fun SharedLinkItemRow(link: SharedLinkItem) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { },
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { /* TODO: navigate to link */ }
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(60.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(LightGray),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_toy_6_outline),
+                contentDescription = null,
+                tint = TextSecondary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = link.title,
+                color = TextPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "Shared by ${link.senderName}",
+                color = TextSecondary,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun ChatInfoOption(
+    icon: Int,
+    title: String,
+    subtitle: String?,
+    subtitleStyle: Boolean = false,
+    onClick: () -> Unit = {}
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -134,17 +445,23 @@ fun ChatInfoOption(icon: Int, title: String, subtitle: String?, subtitleStyle: B
             modifier = Modifier.size(28.dp)
         )
         Spacer(modifier = Modifier.width(16.dp))
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(text = title, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
             if (subtitle != null) {
                 Text(
-                    text = subtitle, 
-                    color = if(subtitleStyle) TextPrimary else TextSecondary, 
-                    fontSize = 11.sp, 
+                    text = subtitle,
+                    color = if (subtitleStyle) TextPrimary else TextSecondary,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Normal
                 )
             }
         }
+        Icon(
+            painter = painterResource(id = R.drawable.ic_arrow_left_01_outline),
+            contentDescription = "Go",
+            tint = TextSecondary,
+            modifier = Modifier.size(20.dp).rotate(180f)
+        )
     }
 }
 

@@ -4,11 +4,13 @@ import com.linker.app.data.repository.AccountRepositoryImpl
 import com.linker.app.data.repository.AuthRepositoryImpl
 import com.linker.app.data.repository.ChatRepositoryImpl
 import com.linker.app.data.repository.LinkRepositoryImpl
+import com.linker.app.data.repository.NotificationRepositoryImpl
 import com.linker.app.data.repository.UserRepositoryImpl
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.domain.repository.AuthRepository
 import com.linker.app.domain.repository.ChatRepository
 import com.linker.app.domain.repository.LinkRepository
+import com.linker.app.domain.repository.NotificationRepository
 import com.linker.app.domain.repository.UserRepository
 import dagger.Binds
 import dagger.Module
@@ -34,4 +36,7 @@ abstract class RepositoryModule {
 
     @Binds @Singleton
     abstract fun bindAccountRepository(impl: AccountRepositoryImpl): AccountRepository
+
+    @Binds @Singleton
+    abstract fun bindNotificationRepository(impl: NotificationRepositoryImpl): NotificationRepository
 }

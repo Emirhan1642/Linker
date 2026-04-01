@@ -1,5 +1,7 @@
 {
-  "projects": {},
+  "projects": {
+    "Depolying": "linker-d02d0"
+  },
   "targets": {},
   "etags": {}
 }

@@ -13,6 +13,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
@@ -33,7 +34,8 @@ data class ChatUiModel(
     val lastMessageTime: Long,
     val unreadCount: Int,
     val isTyping: Boolean = false,
-    val participantIds: List<String> = emptyList()
+    val participantIds: List<String> = emptyList(),
+    val isGroupChat: Boolean = false
 )
 
 data class ChatMessageUiState(
@@ -42,7 +44,9 @@ data class ChatMessageUiState(
     val recipientName: String = "User",
     val recipientImageUrl: String? = null,
     val messages: List<MessageUiModel> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val isSending: Boolean = false,
+    val sendError: String? = null
 )
 
 data class MessageUiModel(
@@ -83,9 +87,14 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             chatRepository.observeChats().collect { chats ->
                 val uiModels = chats.map { chat ->
-                    val otherParticipant = chat.participants.firstOrNull { it.userId != currentUserId }
+                    val isGroup = chat.chatType == ChatType.GROUP
+                    val otherParticipant = if (!isGroup) {
+                        chat.participants.firstOrNull { it.userId != currentUserId }
+                    } else null
+
                     val displayName = chat.chatName
                         ?: otherParticipant?.displayName?.ifBlank { null }
+                        ?: otherParticipant?.username?.ifBlank { null }
                         ?: "Chat"
 
                     val resolvedName = if (displayName == "Chat" && otherParticipant != null) {
@@ -97,11 +106,12 @@ class ChatViewModel @Inject constructor(
                     ChatUiModel(
                         chatId = chat.chatId,
                         displayName = resolvedName,
-                        imageUrl = otherParticipant?.profileImageUrl,
+                        imageUrl = if (isGroup) chat.chatImageUrl else otherParticipant?.profileImageUrl,
                         lastMessage = lastMsgText,
                         lastMessageTime = chat.updatedAt,
                         unreadCount = chat.unreadCount,
-                        participantIds = chat.participants.map { it.userId }
+                        participantIds = chat.participants.map { it.userId },
+                        isGroupChat = isGroup
                     )
                 }
                 _chatListState.value = _chatListState.value.copy(
@@ -147,13 +157,19 @@ class ChatViewModel @Inject constructor(
             when (val chatResult = chatRepository.getChatById(chatId)) {
                 is Result.Success -> {
                     val chat = chatResult.data
-                    val otherUser = chat.participants.firstOrNull { it.userId != currentUserId }
-                    val name = chat.chatName
-                        ?: if (otherUser != null) resolveUserDisplayName(otherUser.userId) else "Chat"
+                    val isGroup = chat.chatType == ChatType.GROUP
+                    val otherUser = if (!isGroup) {
+                        chat.participants.firstOrNull { it.userId != currentUserId }
+                    } else null
+                    val name = if (isGroup) {
+                        chat.chatName ?: "Group Chat"
+                    } else if (otherUser != null) {
+                        resolveUserDisplayName(otherUser.userId)
+                    } else "Chat"
 
                     _messageState.value = _messageState.value.copy(
                         recipientName = name,
-                        recipientImageUrl = otherUser?.profileImageUrl
+                        recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl
                     )
                 }
                 is Result.Error -> {
@@ -191,11 +207,21 @@ class ChatViewModel @Inject constructor(
         if (chatId.isBlank() || content.isBlank()) return
 
         viewModelScope.launch {
-            chatRepository.sendMessage(
+            _messageState.update { it.copy(isSending = true, sendError = null) }
+
+            when (val result = chatRepository.sendMessage(
                 chatId = chatId,
                 messageType = MessageType.TEXT,
                 content = content.trim()
-            )
+            )) {
+                is Result.Success -> {
+                    _messageState.update { it.copy(isSending = false, sendError = null) }
+                }
+                is Result.Error -> {
+                    _messageState.update { it.copy(isSending = false, sendError = result.message) }
+                }
+                is Result.Loading -> {}
+            }
         }
     }
 }

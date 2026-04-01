@@ -87,10 +87,13 @@ object NetworkModule {
             .build()
     }
     
-    // TODO: Provide API services
-    // @Provides
-    // @Singleton
-    // fun provideSupabaseApi(@SupabaseRetrofit retrofit: Retrofit): SupabaseApi {
-    //     return retrofit.create(SupabaseApi::class.java)
-    // }
+    // ── API Services ────────────────────────────────────────────────────────
+
+    @Provides
+    @Singleton
+    fun provideSupabaseNotificationApi(
+        @SupabaseRetrofit retrofit: Retrofit
+    ): SupabaseNotificationApi {
+        return retrofit.create(SupabaseNotificationApi::class.java)
+    }
 }

@@ -115,12 +115,16 @@ class UserRepositoryImpl @Inject constructor(
         val targetRef = firestore.collection("users").document(targetUserId)
 
         val isPrivate = firestore.runTransaction { tx ->
+            // All reads first
             val existing = tx.get(followRef)
             if (existing.exists()) return@runTransaction null
-
             val targetSnap = tx.get(targetRef)
+            val meSnap = tx.get(meRef)
+
             val privateAccount = targetSnap.getBoolean("isPrivate") ?: false
             val status = if (privateAccount) "pending" else "active"
+
+            // Then writes
             tx.set(
                 followRef,
                 mapOf(
@@ -131,8 +135,8 @@ class UserRepositoryImpl @Inject constructor(
                 )
             )
             if (!privateAccount) {
-                updateCount(tx, meRef, "followingCount", 1)
-                updateCount(tx, targetRef, "followersCount", 1)
+                updateCount(tx, meRef, "followingCount", 1, meSnap)
+                updateCount(tx, targetRef, "followersCount", 1, targetSnap)
             }
             privateAccount
         }.await()
@@ -153,13 +157,18 @@ class UserRepositoryImpl @Inject constructor(
         val targetRef = firestore.collection("users").document(targetUserId)
 
         val status = firestore.runTransaction { tx ->
+            // All reads first
             val existing = tx.get(followRef)
             if (!existing.exists()) return@runTransaction "none"
             val currentStatus = existing.getString("status") ?: "none"
+            val meSnap = tx.get(meRef)
+            val targetSnap = tx.get(targetRef)
+
+            // Then writes
             tx.delete(followRef)
             if (currentStatus == "active") {
-                updateCount(tx, meRef, "followingCount", -1)
-                updateCount(tx, targetRef, "followersCount", -1)
+                updateCount(tx, meRef, "followingCount", -1, meSnap)
+                updateCount(tx, targetRef, "followersCount", -1, targetSnap)
             }
             currentStatus
         }.await()
@@ -187,13 +196,18 @@ class UserRepositoryImpl @Inject constructor(
         val fromRef = firestore.collection("users").document(fromUserId)
 
         firestore.runTransaction { tx ->
+            // All reads first
             val existing = tx.get(followRef)
             if (!existing.exists()) throw Exception("Follow request not found")
             val status = existing.getString("status") ?: "pending"
             if (status == "active") return@runTransaction null
+            val fromSnap = tx.get(fromRef)
+            val meSnap = tx.get(meRef)
+
+            // Then writes
             tx.update(followRef, "status", "active")
-            updateCount(tx, fromRef, "followingCount", 1)
-            updateCount(tx, meRef, "followersCount", 1)
+            updateCount(tx, fromRef, "followingCount", 1, fromSnap)
+            updateCount(tx, meRef, "followersCount", 1, meSnap)
             null
         }.await()
     }
@@ -206,13 +220,18 @@ class UserRepositoryImpl @Inject constructor(
         val fromRef = firestore.collection("users").document(fromUserId)
 
         firestore.runTransaction { tx ->
+            // All reads first
             val existing = tx.get(followRef)
             if (!existing.exists()) return@runTransaction null
             val status = existing.getString("status") ?: "pending"
+            val fromSnap = tx.get(fromRef)
+            val meSnap = tx.get(meRef)
+
+            // Then writes
             tx.delete(followRef)
             if (status == "active") {
-                updateCount(tx, fromRef, "followingCount", -1)
-                updateCount(tx, meRef, "followersCount", -1)
+                updateCount(tx, fromRef, "followingCount", -1, fromSnap)
+                updateCount(tx, meRef, "followersCount", -1, meSnap)
             }
             null
         }.await()
@@ -346,8 +365,13 @@ class UserRepositoryImpl @Inject constructor(
             .update(field, FieldValue.increment(-1)).await()
     }
 
-    private fun updateCount(tx: Transaction, docRef: DocumentReference, field: String, delta: Long) {
-        val snap = tx.get(docRef)
+    private fun updateCount(
+        tx: Transaction,
+        docRef: DocumentReference,
+        field: String,
+        delta: Long,
+        snap: com.google.firebase.firestore.DocumentSnapshot
+    ) {
         val current = (snap.get(field) as? Number)?.toLong() ?: 0L
         val next = max(0L, current + delta)
         tx.update(docRef, field, next)
