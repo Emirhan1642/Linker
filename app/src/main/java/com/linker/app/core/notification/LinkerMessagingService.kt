@@ -11,7 +11,12 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.linker.app.MainActivity
 import com.linker.app.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Firebase Cloud Messaging Service
@@ -24,10 +29,16 @@ import dagger.hilt.android.AndroidEntryPoint
 @AndroidEntryPoint
 class LinkerMessagingService : FirebaseMessagingService() {
 
+    @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
+
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        // TODO: Send token to backend / store in user profile
         android.util.Log.d(TAG, "FCM token refreshed: $token")
+        ioScope.launch {
+            pushTokenRegistrar.registerToken(token)
+        }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {

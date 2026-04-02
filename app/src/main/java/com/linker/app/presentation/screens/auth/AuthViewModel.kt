@@ -17,6 +17,7 @@ import com.linker.app.domain.usecase.auth.SignInWithEmailUseCase
 import com.linker.app.domain.usecase.auth.SignInWithGoogleUseCase
 import com.linker.app.domain.usecase.auth.SignOutUseCase
 import com.linker.app.domain.usecase.auth.VerifyPhoneOtpUseCase
+import com.linker.app.core.notification.PushTokenRegistrar
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -73,7 +74,8 @@ class AuthViewModel @Inject constructor(
     private val sendResetEmail: SendPasswordResetEmailUseCase,
     private val completeProfileSetup: CompleteProfileSetupUseCase,
     private val signOutUseCase: SignOutUseCase,
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val pushTokenRegistrar: PushTokenRegistrar
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -247,6 +249,10 @@ class AuthViewModel @Inject constructor(
             AuthEffect.NavigateToHome
 
         _effect.emit(destination)
+
+        viewModelScope.launch {
+            pushTokenRegistrar.registerCurrentToken()
+        }
     }
 
     // ── saveSession ───────────────────────────────────────────────────────────

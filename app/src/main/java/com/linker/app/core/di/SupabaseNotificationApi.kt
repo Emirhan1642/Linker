@@ -24,6 +24,12 @@ interface SupabaseNotificationApi {
         @Header("Authorization") auth: String,
         @Body request: ChatNotificationRequest
     ): Response<PushNotificationResponse>
+
+    @POST("functions/v1/register-push-token")
+    suspend fun registerPushToken(
+        @Header("Authorization") auth: String,
+        @Body request: RegisterPushTokenRequest
+    ): Response<PushNotificationResponse>
 }
 
 @Serializable
@@ -42,6 +48,13 @@ data class ChatNotificationRequest(
     @SerialName("message") val message: String,
     @SerialName("chat_id") val chatId: String,
     @SerialName("message_id") val messageId: String
+)
+
+@Serializable
+data class RegisterPushTokenRequest(
+    @SerialName("user_id") val userId: String,
+    @SerialName("fcm_token") val fcmToken: String,
+    @SerialName("platform") val platform: String? = null
 )
 
 @Serializable

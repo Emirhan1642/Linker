@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.res.painterResource
 import com.linker.app.R
@@ -27,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,6 +68,12 @@ fun ChatListScreen(
     var searchQuery by remember { mutableStateOf("") }
     val filters = listOf("All", "Unreads", "Favorites", "Groups", "Archived")
     var selectedFilter by remember { mutableStateOf("All") }
+    val listState = rememberLazyListState()
+    val showLockedHeader by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
+        }
+    }
 
     val filteredChats = when (selectedFilter) {
         "Unreads" -> uiState.chats.filter { it.unreadCount > 0 }
@@ -165,26 +173,29 @@ fun ChatListScreen(
 
             // Chat List
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                // Locked chats
-                item {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp)
-                            .padding(top = 15.dp, bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_smart_lock_ai_outline),
-                            contentDescription = "Locked chats",
-                            tint = TextPrimary,
-                            modifier = Modifier.size(40.dp)
-                        )
-                        Spacer(modifier = Modifier.width(20.dp))
-                        Text("Locked chats", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                if (showLockedHeader) {
+                    stickyHeader {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Black)
+                                .padding(horizontal = 20.dp)
+                                .padding(top = 15.dp, bottom = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_smart_lock_ai_outline),
+                                contentDescription = "Locked chats",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.width(20.dp))
+                            Text("Locked chats", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
 
@@ -271,6 +282,8 @@ fun ChatItem(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
+    val hasUnread = unreadCount > 0
+    val displayMessage = if (hasUnread) "$unreadCount new message" else message
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -289,25 +302,36 @@ fun ChatItem(
             Text(text = name, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = message,
-                color = if (isTyping) AccentGreen else TextSecondary,
+                text = displayMessage,
+                color = if (isTyping) AccentGreen else if (hasUnread) AccentGreen else TextSecondary,
                 fontSize = 14.sp,
-                maxLines = 1
+                maxLines = 1,
+                fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
             )
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(
                 text = time,
-                color = if (unreadCount > 0) AccentGreen else TextSecondary,
-                fontSize = 12.sp
+                color = if (hasUnread) AccentGreen else TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
             )
             Spacer(modifier = Modifier.height(4.dp))
-            if (unreadCount > 0) {
-                Text(
-                    text = "+$unreadCount new message",
-                    color = AccentGreen,
-                    fontSize = 12.sp
-                )
+            if (hasUnread) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AccentGreen)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "$unreadCount",
+                        color = Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }

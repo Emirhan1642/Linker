@@ -3,6 +3,9 @@ package com.linker.app.data.repository
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
+import com.linker.app.BuildConfig
+import com.linker.app.core.di.ChatNotificationRequest
+import com.linker.app.core.di.SupabaseNotificationApi
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.safeCall
 import com.linker.app.data.local.dao.ChatDao
@@ -37,7 +40,8 @@ class ChatRepositoryImpl @Inject constructor(
     private val messageDao: MessageDao,
     private val messageQueueDao: MessageQueueDao,
     private val userDao: UserDao,
-    private val notificationRepository: NotificationRepository
+    private val notificationRepository: NotificationRepository,
+    private val supabaseNotificationApi: SupabaseNotificationApi
 ) : ChatRepository {
 
     private val chatsCollection = firestore.collection("chats")
@@ -437,6 +441,18 @@ class ChatRepositoryImpl @Inject constructor(
         messageId: String
     ) {
         try {
+            supabaseNotificationApi.sendChatNotification(
+                auth = "Bearer ${BuildConfig.SUPABASE_ANON_KEY}",
+                request = ChatNotificationRequest(
+                    recipientId = recipientUserId,
+                    senderId = currentUserId,
+                    senderName = senderName,
+                    message = messageText,
+                    chatId = chatId,
+                    messageId = messageId
+                )
+            )
+
             val notificationData = hashMapOf(
                 "recipientId" to recipientUserId,
                 "senderId" to currentUserId,

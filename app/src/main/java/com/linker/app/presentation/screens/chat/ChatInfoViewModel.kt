@@ -69,46 +69,68 @@ class ChatInfoViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, error = null) }
 
         viewModelScope.launch {
+            var actualChatId = chatId
+            var chat: Chat? = null
+
+            // Try to find existing chat
             when (val chatResult = chatRepository.getChatById(chatId)) {
                 is Result.Success -> {
-                    val chat = chatResult.data
-                    val isGroup = chat.chatType == ChatType.GROUP
-                    val other = if (!isGroup) {
-                        chat.participants.firstOrNull { it.userId != currentUserId }
-                    } else null
-
-                    val displayName = if (isGroup) {
-                        chat.chatName ?: "Group Chat"
-                    } else {
-                        other?.displayName?.ifBlank { null }
-                            ?: other?.username?.ifBlank { null }
-                            ?: "User"
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            chat = chat,
-                            chatName = displayName,
-                            chatImageUrl = if (isGroup) chat.chatImageUrl else other?.profileImageUrl,
-                            participants = chat.participants,
-                            otherParticipant = other,
-                            isGroupChat = isGroup,
-                            isMuted = chat.isMuted,
-                            isPinned = chat.isPinned,
-                            theme = chat.theme
-                        )
-                    }
-
-                    loadSharedMedia(chatId)
+                    chat = chatResult.data
                 }
                 is Result.Error -> {
-                    _uiState.update {
-                        it.copy(isLoading = false, error = chatResult.message)
+                    // Chat doesn't exist — treat chatId as recipientUserId and create new chat
+                    when (val newChatResult = chatRepository.createPrivateChat(chatId)) {
+                        is Result.Success -> {
+                            actualChatId = newChatResult.data.chatId
+                            chat = newChatResult.data
+                            currentChatId = actualChatId
+                        }
+                        is Result.Error -> {
+                            _uiState.update {
+                                it.copy(isLoading = false, error = newChatResult.message)
+                            }
+                            return@launch
+                        }
+                        is Result.Loading -> { return@launch }
                     }
                 }
                 is Result.Loading -> {}
             }
+
+            if (chat == null) {
+                _uiState.update { it.copy(isLoading = false, error = "Chat not found") }
+                return@launch
+            }
+
+            val isGroup = chat.chatType == ChatType.GROUP
+            val other = if (!isGroup) {
+                chat.participants.firstOrNull { it.userId != currentUserId }
+            } else null
+
+            val displayName = if (isGroup) {
+                chat.chatName ?: "Group Chat"
+            } else {
+                other?.displayName?.ifBlank { null }
+                    ?: other?.username?.ifBlank { null }
+                    ?: "User"
+            }
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    chat = chat,
+                    chatName = displayName,
+                    chatImageUrl = if (isGroup) chat.chatImageUrl else other?.profileImageUrl,
+                    participants = chat.participants,
+                    otherParticipant = other,
+                    isGroupChat = isGroup,
+                    isMuted = chat.isMuted,
+                    isPinned = chat.isPinned,
+                    theme = chat.theme
+                )
+            }
+
+            loadSharedMedia(actualChatId)
         }
     }
 

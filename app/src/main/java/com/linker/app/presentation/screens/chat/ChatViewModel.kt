@@ -42,6 +42,7 @@ data class ChatMessageUiState(
     val isLoading: Boolean = true,
     val chatId: String = "",
     val recipientName: String = "User",
+    val recipientUsername: String = "",
     val recipientImageUrl: String? = null,
     val messages: List<MessageUiModel> = emptyList(),
     val error: String? = null,
@@ -153,36 +154,57 @@ class ChatViewModel @Inject constructor(
         _messageState.value = ChatMessageUiState(isLoading = true, chatId = chatId)
 
         viewModelScope.launch {
-            // Load chat info
-            when (val chatResult = chatRepository.getChatById(chatId)) {
-                is Result.Success -> {
-                    val chat = chatResult.data
-                    val isGroup = chat.chatType == ChatType.GROUP
-                    val otherUser = if (!isGroup) {
-                        chat.participants.firstOrNull { it.userId != currentUserId }
-                    } else null
-                    val name = if (isGroup) {
-                        chat.chatName ?: "Group Chat"
-                    } else if (otherUser != null) {
-                        resolveUserDisplayName(otherUser.userId)
-                    } else "Chat"
+            // Try to find existing chat
+            val chatResult = chatRepository.getChatById(chatId)
 
-                    _messageState.value = _messageState.value.copy(
-                        recipientName = name,
-                        recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl
-                    )
+            val actualChatId: String
+            val actualChat: Chat?
+
+            if (chatResult is Result.Success) {
+                actualChatId = chatId
+                actualChat = chatResult.data
+            } else {
+                // Chat doesn't exist — treat chatId as recipientUserId and create new chat
+                val recipientUserId = chatId
+                when (val newChatResult = chatRepository.createPrivateChat(recipientUserId)) {
+                    is Result.Success -> {
+                        actualChatId = newChatResult.data.chatId
+                        actualChat = newChatResult.data
+                        _messageState.value = _messageState.value.copy(chatId = actualChatId)
+                    }
+                    is Result.Error -> {
+                        _messageState.value = _messageState.value.copy(
+                            isLoading = false,
+                            error = "Failed to start chat: ${newChatResult.message}"
+                        )
+                        return@launch
+                    }
+                    is Result.Loading -> { return@launch }
                 }
-                is Result.Error -> {
-                    _messageState.value = _messageState.value.copy(error = chatResult.message)
-                }
-                is Result.Loading -> { /* no-op */ }
             }
 
+            val chat = actualChat!!
+            val isGroup = chat.chatType == ChatType.GROUP
+            val otherUser = if (!isGroup) {
+                chat.participants.firstOrNull { it.userId != currentUserId }
+            } else null
+            val name = if (isGroup) {
+                chat.chatName ?: "Group Chat"
+            } else if (otherUser != null) {
+                resolveUserDisplayName(otherUser.userId)
+            } else "Chat"
+
+            _messageState.value = _messageState.value.copy(
+                recipientName = name,
+                recipientUsername = otherUser?.username ?: "",
+                recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl
+            )
+
             // Mark as read
-            chatRepository.markChatAsRead(chatId)
+            chatRepository.markChatAsRead(actualChatId)
 
             // Observe messages
-            chatRepository.observeMessages(chatId).collect { messages ->
+            chatRepository.observeMessages(actualChatId).collect { messages ->
                 val uiMessages = messages
                     .filter { !it.isDeleted }
                     .map { msg ->
@@ -222,6 +244,18 @@ class ChatViewModel @Inject constructor(
                 }
                 is Result.Loading -> {}
             }
+        }
+    }
+
+    fun deleteMessage(messageId: String) {
+        viewModelScope.launch {
+            chatRepository.deleteMessage(messageId, forEveryone = false)
+        }
+    }
+
+    fun reactToMessage(messageId: String, emoji: String) {
+        viewModelScope.launch {
+            chatRepository.reactToMessage(messageId, emoji)
         }
     }
 }
