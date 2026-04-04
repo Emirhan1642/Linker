@@ -21,11 +21,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.res.painterResource
 import com.linker.app.R
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -57,11 +58,13 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatListScreen(
     onNavigateToChatDetail: (String) -> Unit,
     onNavigateBack: () -> Unit,
     onNavigateBottomNav: (BottomNavItem) -> Unit,
+    onNavigateToNewChat: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.chatListState.collectAsState()
@@ -76,9 +79,20 @@ fun ChatListScreen(
     }
 
     val filteredChats = when (selectedFilter) {
-        "Unreads" -> uiState.chats.filter { it.unreadCount > 0 }
-        else -> uiState.chats
+        "Unreads" -> uiState.chats.filter { !it.isArchived && it.unreadCount > 0 }
+        "Favorites" -> uiState.chats.filter { !it.isArchived && it.isFavorited }
+        "Groups" -> uiState.chats.filter { !it.isArchived && it.isGroupChat }
+        "Archived" -> uiState.chats.filter { it.isArchived }
+        else -> uiState.chats.filter { !it.isArchived }
     }
+        .sortedWith(
+            if (selectedFilter == "All") {
+                compareByDescending<ChatUiModel> { it.isPinned }
+                    .thenByDescending { it.lastMessageTime }
+            } else {
+                compareByDescending { it.lastMessageTime }
+            }
+        )
 
     Scaffold(
         containerColor = Black,
@@ -110,7 +124,7 @@ fun ChatListScreen(
                     onQueryChange = { searchQuery = it },
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { /* New Chat */ }) {
+                IconButton(onClick = { onNavigateToNewChat() }) {
                     Icon(painterResource(R.drawable.ic_play_add_outline), contentDescription = "Settings", tint = TextPrimary, modifier = Modifier.size(30.dp))
                 }
             }
@@ -213,7 +227,7 @@ fun ChatListScreen(
                         val chat = filteredChats[index]
                         ChatItem(
                             name = chat.displayName,
-                            message = chat.lastMessage ?: "Start chatting...",
+                            message = chat.lastMessage?.ifBlank { null } ?: "Tap to chat",
                             time = formatTimestamp(chat.lastMessageTime),
                             unreadCount = chat.unreadCount,
                             isTyping = chat.isTyping,
@@ -224,6 +238,7 @@ fun ChatListScreen(
             }
         }
     }
+
 }
 
 @Composable
@@ -283,7 +298,6 @@ fun ChatItem(
 ) {
     val context = LocalContext.current
     val hasUnread = unreadCount > 0
-    val displayMessage = if (hasUnread) "$unreadCount new message" else message
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -302,7 +316,7 @@ fun ChatItem(
             Text(text = name, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = displayMessage,
+                text = message,
                 color = if (isTyping) AccentGreen else if (hasUnread) AccentGreen else TextSecondary,
                 fontSize = 14.sp,
                 maxLines = 1,
@@ -316,22 +330,14 @@ fun ChatItem(
                 fontSize = 12.sp,
                 fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
             )
-            Spacer(modifier = Modifier.height(4.dp))
             if (hasUnread) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(AccentGreen)
-                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "$unreadCount",
-                        color = Black,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (unreadCount == 1) "1 new message" else "$unreadCount new messages",
+                    color = AccentGreen,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }

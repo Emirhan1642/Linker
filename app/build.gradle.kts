@@ -36,6 +36,7 @@ android {
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"${properties.getProperty("cloudinary.apiSecret", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${properties.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${properties.getProperty("supabase.anonkey", "")}\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${properties.getProperty("supabase.publishablekey", "")}\"")
     }
 
     buildTypes {
@@ -125,6 +126,7 @@ dependencies {
 
     // UI Components
     implementation(libs.google.material) // Added Material Design library for Views
+    implementation(libs.androidx.emoji2.emojipicker)
 
     // Image Loading
     implementation(libs.coil.compose)

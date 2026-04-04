@@ -15,7 +15,7 @@ import com.linker.app.data.local.entity.*
         MessageQueueEntity::class, CommentEntity::class,
         MediaCacheEntity::class, NotificationEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

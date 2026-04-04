@@ -29,7 +29,8 @@ interface ChatRepository {
     /** Creates a group chat. */
     suspend fun createGroupChat(
         name: String,
-        participantIds: List<String>
+        participantIds: List<String>,
+        permissions: Map<String, Any>? = null
     ): Result<Chat>
 
     /** Updates pin / mute / archive status. */
@@ -37,7 +38,9 @@ interface ChatRepository {
         chatId: String,
         isPinned: Boolean? = null,
         isMuted: Boolean? = null,
-        isArchived: Boolean? = null
+        isArchived: Boolean? = null,
+        isBlocked: Boolean? = null,
+        isFavorited: Boolean? = null
     ): Result<Unit>
 
     // ── Messages ───────────────────────────────────────────────────────────
@@ -73,6 +76,9 @@ interface ChatRepository {
 
     /** Marks all messages in a chat as read. */
     suspend fun markChatAsRead(chatId: String): Result<Unit>
+
+    /** Marks messages up to [upToTimestamp] as read (inclusive). */
+    suspend fun markChatAsReadUpTo(chatId: String, upToTimestamp: Long): Result<Unit>
 
     /** Searches messages within a chat. */
     suspend fun searchMessages(chatId: String, query: String): Result<List<Message>>

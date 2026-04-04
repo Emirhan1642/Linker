@@ -14,16 +14,35 @@ class PushTokenRegistrar @Inject constructor(
     private val auth: FirebaseAuth,
     private val supabaseNotificationApi: SupabaseNotificationApi
 ) {
-    private fun authHeader(): String = "Bearer ${BuildConfig.SUPABASE_ANON_KEY}"
+    private fun resolveSupabaseKey(): String {
+        return BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
+    }
+
+    private fun authHeader(): String = "Bearer ${resolveSupabaseKey()}"
+    private fun apiKey(): String = resolveSupabaseKey()
+
+    private fun logAnonKey() {
+        val key = resolveSupabaseKey()
+        val masked = if (key.length >= 8) {
+            "${key.take(4)}...${key.takeLast(4)}"
+        } else {
+            "len=${key.length}"
+        }
+        val source = if (BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()) "publishable" else "anon"
+        android.util.Log.d(TAG, "SUPABASE_KEY[$source]=$masked (len=${key.length})")
+    }
 
     suspend fun registerCurrentToken() {
         val userId = auth.currentUser?.uid ?: return
+        android.util.Log.d(TAG, "registerCurrentToken: userId=$userId")
+        logAnonKey()
         val token = try {
             FirebaseMessaging.getInstance().token.await()
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Failed to fetch FCM token: ${e.message}")
             return
         }
+        android.util.Log.d(TAG, "registerCurrentToken: token fetched")
         registerToken(userId, token)
     }
 
@@ -34,14 +53,20 @@ class PushTokenRegistrar @Inject constructor(
 
     private suspend fun registerToken(userId: String, token: String) {
         try {
-            supabaseNotificationApi.registerPushToken(
+            val response = supabaseNotificationApi.registerPushToken(
                 auth = authHeader(),
+                apiKey = apiKey(),
                 request = RegisterPushTokenRequest(
                     userId = userId,
                     fcmToken = token,
                     platform = "android"
                 )
             )
+            if (response.isSuccessful) {
+                android.util.Log.d(TAG, "registerToken: success for $userId")
+            } else {
+                android.util.Log.w(TAG, "registerToken: failed ${response.code()} ${response.errorBody()?.string()}")
+            }
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Failed to register push token: ${e.message}")
         }

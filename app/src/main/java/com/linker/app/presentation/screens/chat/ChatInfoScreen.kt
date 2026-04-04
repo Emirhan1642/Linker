@@ -206,6 +206,15 @@ fun ChatInfoScreen(
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
+                        // Archive
+                        ChatInfoOption(
+                            icon = R.drawable.ic_archive_outline,
+                            title = "Archive Chat",
+                            subtitle = if (uiState.isArchived) "UnArchive" else "Archive",
+                            onClick = { viewModel.toggleArchive() }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
                         // Disappearing messages
                         ChatInfoOption(
                             icon = R.drawable.ic_ai_sand_timer_outline,
@@ -222,6 +231,15 @@ fun ChatInfoScreen(
                             subtitle = "End-to-end encrypted",
                             subtitleStyle = true,
                             onClick = { /* TODO */ }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+
+                        // Block User
+                        ChatInfoOption(
+                            icon = R.drawable.ic_forbidden_outline,
+                            title = "Block User",
+                            subtitle = if (uiState.isBlocked) "UnBlock" else "Block",
+                            onClick = { viewModel.toggleBlock() }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -244,6 +262,15 @@ fun ChatInfoScreen(
                             )
                             Spacer(modifier = Modifier.height(24.dp))
                         }
+
+                        // Fav Chat
+                        ChatInfoOption(
+                            icon = R.drawable.ic_star_outline,
+                            title = "Favorite Chat",
+                            subtitle = if (uiState.isFavorited) "UnFavorite" else "Favorite",
+                            onClick = { viewModel.toggleFavorite() }
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
                     }
                 }
 

@@ -1,7 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   fetchFcmTokens,
-  isValidAnonAuth,
+  isValidAnonAuthHeaders,
+  maskKey,
+  getSupabaseAnonKey,
   sendFcmNotification,
 } from "../_shared/notifications.ts";
 
@@ -20,9 +22,20 @@ Deno.serve(async (req) => {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!isValidAnonAuth(authHeader)) {
-      return new Response("Unauthorized", { status: 401 });
+    if (!isValidAnonAuthHeaders(req.headers)) {
+      const authHeader = req.headers.get("Authorization");
+      const apiKey = req.headers.get("apikey");
+      const envKey = getSupabaseAnonKey();
+      const debug = {
+        error: "Unauthorized (missing or invalid anon key)",
+        authorization: maskKey(authHeader),
+        apikey: maskKey(apiKey),
+        env: maskKey(envKey),
+      };
+      return new Response(JSON.stringify(debug), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
     }
 
     const body = (await req.json()) as RequestBody;
@@ -44,6 +57,8 @@ Deno.serve(async (req) => {
       body: body.message,
       data: {
         type: "MESSAGE",
+        title: body.sender_name,
+        body: body.message,
         chatId: body.chat_id,
         messageId: body.message_id,
         senderName: body.sender_name,

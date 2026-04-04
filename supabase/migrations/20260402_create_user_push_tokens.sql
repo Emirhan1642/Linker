@@ -1,6 +1,6 @@
 create table if not exists public.user_push_tokens (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
+  user_id text not null,
   fcm_token text not null,
   platform text,
   updated_at timestamptz default now()

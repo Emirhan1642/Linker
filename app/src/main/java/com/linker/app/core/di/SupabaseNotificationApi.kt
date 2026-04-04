@@ -16,18 +16,21 @@ interface SupabaseNotificationApi {
     @POST("functions/v1/send-notification")
     suspend fun sendPushNotification(
         @Header("Authorization") auth: String,
+        @Header("apikey") apiKey: String,
         @Body request: PushNotificationRequest
     ): Response<PushNotificationResponse>
 
     @POST("functions/v1/send-chat-notification")
     suspend fun sendChatNotification(
         @Header("Authorization") auth: String,
+        @Header("apikey") apiKey: String,
         @Body request: ChatNotificationRequest
     ): Response<PushNotificationResponse>
 
     @POST("functions/v1/register-push-token")
     suspend fun registerPushToken(
         @Header("Authorization") auth: String,
+        @Header("apikey") apiKey: String,
         @Body request: RegisterPushTokenRequest
     ): Response<PushNotificationResponse>
 }

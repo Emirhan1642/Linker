@@ -61,6 +61,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Linker"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -77,6 +78,10 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".core.notification.NotificationActionReceiver"
+            android:exported="false" />
 
         <!-- WorkManager for background uploads -->
         <provider

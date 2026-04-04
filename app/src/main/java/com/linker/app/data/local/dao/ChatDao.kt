@@ -57,4 +57,13 @@ interface ChatDao {
     
     @Query("UPDATE chats SET lastMessageId = :messageId, lastMessageText = :text, lastMessageAt = :timestamp, unreadCount = unreadCount + 1 WHERE chatId = :chatId")
     suspend fun updateLastMessage(chatId: String, messageId: String, text: String, timestamp: Long)
+
+    @Query("UPDATE chats SET lastMessageId = NULL, lastMessageText = NULL, lastMessageAt = NULL WHERE chatId = :chatId")
+    suspend fun clearLastMessage(chatId: String)
+
+    @Query("UPDATE chats SET isFavorited = :isFavorited WHERE chatId = :chatId")
+    suspend fun updateFavoriteStatus(chatId: String, isFavorited: Boolean)
+
+    @Query("UPDATE chats SET isBlocked = :isBlocked WHERE chatId = :chatId")
+    suspend fun updateBlockedStatus(chatId: String, isBlocked: Boolean)
 }

@@ -16,7 +16,7 @@ composeBom = "2024.12.01"
 composeNavigation = "2.8.5"
 
 # Dependency Injection
-hilt = "2.52"
+hilt = "2.55"
 hiltNavigationCompose = "1.2.0"
 
 # Room Database
@@ -67,6 +67,7 @@ junitVersion = "1.2.1"
 espressoCore = "3.6.1"
 mockk = "1.13.13"
 foundation = "1.10.5"
+emoji2 = "1.6.0"
 
 [libraries]
 # Core
@@ -151,6 +152,7 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
+androidx-emoji2-emojipicker = { group = "androidx.emoji2", name = "emoji2-emojipicker", version.ref = "emoji2" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

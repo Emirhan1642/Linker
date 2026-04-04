@@ -31,6 +31,7 @@ data class ChatEntity(
     val isMuted: Boolean = false,
     val isArchived: Boolean = false,
     val isBlocked: Boolean = false,
+    val isFavorited: Boolean = false,
     val theme: String? = null, // Chat theme color/pattern
     val createdAt: Long,
     val updatedAt: Long,

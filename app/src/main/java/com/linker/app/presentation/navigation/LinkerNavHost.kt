@@ -1,6 +1,7 @@
 package com.linker.app.presentation.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import com.google.firebase.auth.FirebaseAuth
 import androidx.navigation.compose.NavHost
@@ -13,6 +14,7 @@ import com.linker.app.presentation.screens.auth.AuthScreen
 import com.linker.app.presentation.screens.chat.ChatInfoScreen
 import com.linker.app.presentation.screens.chat.ChatListScreen
 import com.linker.app.presentation.screens.chat.ChatMessageScreen
+import com.linker.app.presentation.screens.chat.NewChatScreen
 import com.linker.app.presentation.screens.followlist.FollowListScreen
 import com.linker.app.presentation.screens.home.HomeScreen
 import com.linker.app.presentation.screens.profile.ProfileScreen
@@ -23,7 +25,11 @@ import com.linker.app.presentation.screens.story.StoryScreen
 import com.linker.app.presentation.screens.userprofile.UserProfileScreen
 
 @Composable
-fun LinkerNavHost(modifier: Modifier = Modifier) {
+fun LinkerNavHost(
+    modifier: Modifier = Modifier,
+    initialChatId: String? = null,
+    onChatDeepLinkHandled: () -> Unit = {}
+) {
     val navController = rememberNavController()
 
     val onNavigateBottomNav: (BottomNavItem) -> Unit = { item ->
@@ -103,7 +109,20 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             ChatListScreen(
                 onNavigateToChatDetail = { navController.navigate(Route.ChatDetail(it)) },
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateBottomNav = onNavigateBottomNav
+                onNavigateBottomNav = onNavigateBottomNav,
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) }
+            )
+        }
+
+        composable<Route.NewChat> {
+            NewChatScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToChat = { chatId ->
+                    navController.navigate(Route.ChatDetail(chatId)) {
+                        popUpTo(Route.Chat) { saveState = true }
+                        launchSingleTop = true
+                    }
+                }
             )
         }
 
@@ -112,7 +131,15 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
             ChatMessageScreen(
                 chatId = route.chatId,
                 onNavigateBack = { navController.popBackStack() },
-                onNavigateToInfo = { navController.navigate(Route.ChatInfo(route.chatId)) }
+                onNavigateToInfo = { navController.navigate(Route.ChatInfo(route.chatId)) },
+                onNavigateToUserProfile = { userId ->
+                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
+                    if (userId == myUid) {
+                        navController.navigate(Route.Profile) { launchSingleTop = true }
+                    } else {
+                        navController.navigate(Route.UserProfile(userId))
+                    }
+                }
             )
         }
 
@@ -212,6 +239,13 @@ fun LinkerNavHost(modifier: Modifier = Modifier) {
                     }
                 }
             )
+        }
+    }
+
+    LaunchedEffect(initialChatId) {
+        if (!initialChatId.isNullOrBlank()) {
+            navController.navigate(Route.ChatDetail(initialChatId))
+            onChatDeepLinkHandled()
         }
     }
 }

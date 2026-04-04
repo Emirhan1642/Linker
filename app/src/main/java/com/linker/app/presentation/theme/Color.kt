@@ -24,6 +24,7 @@ val GradientGreen = Color(0xFF00FF85)
 val GradientBlue = Color(0xFF00C2FF)
 val GradientPurple = Color(0xFF9E00FF)
 val LightPurple = Color(0xFFF0B7FF)
+val LightBlue = Color(0xFF7994CA)
 
 val LinkerGradientColors = listOf(
     GradientRed,

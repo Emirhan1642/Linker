@@ -1,6 +1,7 @@
 package com.linker.app.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.linker.app.BuildConfig
@@ -61,7 +62,6 @@ class ChatRepositoryImpl @Inject constructor(
 
         val listener = chatsCollection
             .whereArrayContains("participantIds", currentUserId)
-            .whereEqualTo("isArchived", false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(emptyList())
@@ -84,7 +84,6 @@ class ChatRepositoryImpl @Inject constructor(
 
         val listener = chatsCollection
             .whereArrayContains("participantIds", currentUserId)
-            .whereEqualTo("isArchived", true)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(emptyList())
@@ -107,15 +106,19 @@ class ChatRepositoryImpl @Inject constructor(
 
         val listener = chatsCollection
             .whereArrayContains("participantIds", currentUserId)
-            .whereEqualTo("isArchived", false)
-            .whereEqualTo("isMuted", false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     trySend(0)
                     return@addSnapshotListener
                 }
                 val total = snapshot?.documents?.sumOf { doc ->
-                    (doc.getLong("unreadCount") ?: 0L).toInt()
+                    val archivedBy = doc.get("archivedBy") as? List<*>
+                    val mutedBy = doc.get("mutedBy") as? List<*>
+                    if (archivedBy?.contains(currentUserId) == true) return@sumOf 0
+                    if (mutedBy?.contains(currentUserId) == true) return@sumOf 0
+                    val map = doc.get("unreadCounts") as? Map<*, *>
+                    val count = (map?.get(currentUserId) as? Number)?.toInt()
+                    count ?: (doc.getLong("unreadCount") ?: 0L).toInt()
                 } ?: 0
                 trySend(total)
             }
@@ -154,10 +157,20 @@ class ChatRepositoryImpl @Inject constructor(
             "lastMessageText" to null,
             "lastMessageAt" to null,
             "unreadCount" to 0,
+            "unreadCounts" to mapOf(
+                currentUserId to 0,
+                recipientUserId to 0
+            ),
+            "archivedBy" to emptyList<String>(),
+            "pinnedBy" to emptyList<String>(),
+            "favoritedBy" to emptyList<String>(),
+            "mutedBy" to emptyList<String>(),
+            "blockedBy" to emptyList<String>(),
             "isPinned" to false,
             "isMuted" to false,
             "isArchived" to false,
             "isBlocked" to false,
+            "isFavorited" to false,
             "theme" to null,
             "createdAt" to now,
             "updatedAt" to now
@@ -178,6 +191,7 @@ class ChatRepositoryImpl @Inject constructor(
             isMuted = false,
             isArchived = false,
             isBlocked = false,
+            isFavorited = false,
             theme = null,
             createdAt = now,
             updatedAt = now
@@ -189,7 +203,8 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun createGroupChat(
         name: String,
-        participantIds: List<String>
+        participantIds: List<String>,
+        permissions: Map<String, Any>?
     ): Result<Chat> = safeCall {
         if (participantIds.size < 1) throw Exception("A group needs at least 2 other participants")
 
@@ -204,10 +219,18 @@ class ChatRepositoryImpl @Inject constructor(
             "lastMessageText" to null,
             "lastMessageAt" to null,
             "unreadCount" to 0,
+            "unreadCounts" to allParticipants.associateWith { 0 },
+            "archivedBy" to emptyList<String>(),
+            "pinnedBy" to emptyList<String>(),
+            "favoritedBy" to emptyList<String>(),
+            "mutedBy" to emptyList<String>(),
+            "blockedBy" to emptyList<String>(),
             "isPinned" to false,
             "isMuted" to false,
             "isArchived" to false,
             "isBlocked" to false,
+            "isFavorited" to false,
+            "groupPermissions" to (permissions ?: emptyMap<String, Any>()),
             "theme" to null,
             "createdAt" to now,
             "updatedAt" to now
@@ -228,6 +251,7 @@ class ChatRepositoryImpl @Inject constructor(
             isMuted = false,
             isArchived = false,
             isBlocked = false,
+            isFavorited = false,
             theme = null,
             createdAt = now,
             updatedAt = now
@@ -241,12 +265,31 @@ class ChatRepositoryImpl @Inject constructor(
         chatId: String,
         isPinned: Boolean?,
         isMuted: Boolean?,
-        isArchived: Boolean?
+        isArchived: Boolean?,
+        isBlocked: Boolean?,
+        isFavorited: Boolean?
     ): Result<Unit> = safeCall {
         val updates = mutableMapOf<String, Any>()
-        isPinned?.let { updates["isPinned"] = it }
-        isMuted?.let { updates["isMuted"] = it }
-        isArchived?.let { updates["isArchived"] = it }
+        isPinned?.let {
+            updates["pinnedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
+            chatDao.updatePinStatus(chatId, it)
+        }
+        isMuted?.let {
+            updates["mutedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
+            chatDao.updateMuteStatus(chatId, it)
+        }
+        isArchived?.let {
+            updates["archivedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
+            chatDao.updateArchiveStatus(chatId, it)
+        }
+        isBlocked?.let {
+            updates["blockedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
+            chatDao.updateBlockedStatus(chatId, it)
+        }
+        isFavorited?.let {
+            updates["favoritedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
+            chatDao.updateFavoriteStatus(chatId, it)
+        }
         if (updates.isNotEmpty()) {
             chatsCollection.document(chatId).update(updates).await()
         }
@@ -289,6 +332,63 @@ class ChatRepositoryImpl @Inject constructor(
             val messageId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
 
+            val localChat = chatDao.getChatById(chat.chatId)
+            if (localChat == null) {
+                chatDao.insertChat(
+                    ChatEntity(
+                        chatId = chat.chatId,
+                        chatType = if (chat.chatType == com.linker.app.domain.model.ChatType.GROUP) EntityChatType.GROUP else EntityChatType.PRIVATE,
+                        chatName = chat.chatName,
+                        chatImageUrl = chat.chatImageUrl,
+                        participantIds = chat.participants.map { it.userId },
+                        lastMessageId = chat.lastMessage?.messageId,
+                        lastMessageText = chat.lastMessage?.content,
+                        lastMessageAt = chat.lastMessage?.createdAt,
+                        unreadCount = chat.unreadCount,
+                        isPinned = chat.isPinned,
+                        isMuted = chat.isMuted,
+                        isArchived = chat.isArchived,
+                        isBlocked = chat.isBlocked,
+                        isFavorited = chat.isFavorited,
+                        theme = chat.theme,
+                        createdAt = chat.createdAt,
+                        updatedAt = chat.updatedAt
+                    )
+                )
+            }
+
+            val existingSender = userDao.getUserById(currentUserId)
+            if (existingSender == null) {
+                val firebaseUser = auth.currentUser
+                val displayName = firebaseUser?.displayName ?: ""
+                val username = firebaseUser?.displayName ?: ""
+                userDao.insertUser(
+                    com.linker.app.data.local.entity.UserEntity(
+                        userId = currentUserId,
+                        username = username,
+                        displayName = displayName,
+                        email = firebaseUser?.email,
+                        phoneNumber = firebaseUser?.phoneNumber,
+                        bio = null,
+                        profileImageUrl = firebaseUser?.photoUrl?.toString(),
+                        coverImageUrl = null,
+                        isVerified = false,
+                        followersCount = 0,
+                        followingCount = 0,
+                        likesCount = 0,
+                        isFollowing = false,
+                        isFollowedBy = false,
+                        isBlocked = false,
+                        isMuted = false,
+                        isPrivate = false,
+                        followRequestSent = false,
+                        hideFollowLists = false,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                )
+            }
+
             val messageData = hashMapOf(
                 "chatId" to chatId,
                 "senderId" to currentUserId,
@@ -303,6 +403,7 @@ class ChatRepositoryImpl @Inject constructor(
                 "replyToMessageId" to replyToMessageId,
                 "forwardedFromMessageId" to null,
                 "reactions" to emptyMap<String, String>(),
+                "readReceipts" to emptyMap<String, Long>(),
                 "isEdited" to false,
                 "isDeleted" to false,
                 "deletedForEveryone" to false,
@@ -403,13 +504,20 @@ class ChatRepositoryImpl @Inject constructor(
             val displayText = content ?: "[Media]"
             chatDao.updateLastMessage(chatId, messageId, displayText, now)
 
-            chatsCollection.document(chatId).update(
-                mapOf(
-                    "lastMessageText" to displayText,
-                    "lastMessageAt" to now,
-                    "updatedAt" to now
-                )
-            ).await()
+            val chatParticipants = chat.participants.map { it.userId }
+            val updates = mutableMapOf<String, Any>(
+                "lastMessageText" to displayText,
+                "lastMessageAt" to now,
+                "updatedAt" to now,
+                "unreadCounts.$currentUserId" to 0
+            )
+            chatParticipants
+                .filter { it.isNotBlank() && it != currentUserId }
+                .forEach { uid ->
+                    updates["unreadCounts.$uid"] = FieldValue.increment(1)
+                }
+
+            chatsCollection.document(chatId).update(updates).await()
 
             val otherParticipants = chat.participants.filter { it.userId != currentUserId }
             if (otherParticipants.isNotEmpty() && deliveryMethod == DeliveryMethod.ONLINE) {
@@ -441,8 +549,10 @@ class ChatRepositoryImpl @Inject constructor(
         messageId: String
     ) {
         try {
+            val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
             supabaseNotificationApi.sendChatNotification(
-                auth = "Bearer ${BuildConfig.SUPABASE_ANON_KEY}",
+                auth = "Bearer $key",
+                apiKey = key,
                 request = ChatNotificationRequest(
                     recipientId = recipientUserId,
                     senderId = currentUserId,
@@ -452,6 +562,7 @@ class ChatRepositoryImpl @Inject constructor(
                     messageId = messageId
                 )
             )
+            android.util.Log.d("ChatRepository", "sendChatNotification: sent to $recipientUserId")
 
             val notificationData = hashMapOf(
                 "recipientId" to recipientUserId,
@@ -498,6 +609,9 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
+        val messageDoc = messagesCollection.document(messageId).get().await()
+        val chatId = messageDoc.getString("chatId") ?: ""
+
         messagesCollection.document(messageId).update(
             mapOf(
                 "isDeleted" to true,
@@ -505,6 +619,38 @@ class ChatRepositoryImpl @Inject constructor(
             )
         ).await()
         messageDao.markAsDeleted(messageId, forEveryone)
+
+        if (chatId.isNotBlank()) {
+            val lastSnapshot = messagesCollection
+                .whereEqualTo("chatId", chatId)
+                .whereEqualTo("isDeleted", false)
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(1)
+                .get()
+                .await()
+
+            val lastDoc = lastSnapshot.documents.firstOrNull()
+            if (lastDoc != null) {
+                val lastText = lastDoc.getString("content") ?: "[Media]"
+                val lastAt = lastDoc.getLong("createdAt") ?: 0L
+                chatsCollection.document(chatId).update(
+                    mapOf(
+                        "lastMessageText" to lastText,
+                        "lastMessageAt" to lastAt,
+                        "updatedAt" to lastAt
+                    )
+                ).await()
+                chatDao.updateLastMessage(chatId, lastDoc.id, lastText, lastAt)
+            } else {
+                chatsCollection.document(chatId).update(
+                    mapOf(
+                        "lastMessageText" to null,
+                        "lastMessageAt" to null
+                    )
+                ).await()
+                chatDao.clearLastMessage(chatId)
+            }
+        }
     }
 
     override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
@@ -564,8 +710,34 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markChatAsRead(chatId: String): Result<Unit> = safeCall {
-        chatsCollection.document(chatId).update("unreadCount", 0).await()
+        markChatAsReadUpTo(chatId, Long.MAX_VALUE)
+    }
+
+    override suspend fun markChatAsReadUpTo(chatId: String, upToTimestamp: Long): Result<Unit> = safeCall {
+        chatsCollection.document(chatId).update("unreadCounts.$currentUserId", 0).await()
         chatDao.markAsRead(chatId)
+
+        val now = System.currentTimeMillis()
+        val unreadMessages = messagesCollection
+            .whereEqualTo("chatId", chatId)
+            .whereLessThanOrEqualTo("createdAt", upToTimestamp)
+            .get()
+            .await()
+
+        val batch = firestore.batch()
+        for (doc in unreadMessages.documents) {
+            val senderId = doc.getString("senderId") ?: ""
+            if (senderId != currentUserId) {
+                val updates = mapOf(
+                    "messageStatus" to "READ",
+                    "readAt" to now,
+                    "deliveredAt" to now,
+                    "readReceipts.$currentUserId" to now
+                )
+                batch.update(doc.reference, updates)
+            }
+        }
+        batch.commit().await()
 
         val messages = messageDao.getMessagesByChat(chatId)
         val currentUid = currentUserId
@@ -711,6 +883,16 @@ class ChatRepositoryImpl @Inject constructor(
             com.linker.app.domain.model.ChatType.PRIVATE
         }
 
+        val unreadCounts = data["unreadCounts"] as? Map<*, *>
+        val resolvedUnread = (unreadCounts?.get(currentUserId) as? Number)?.toInt()
+            ?: (data["unreadCount"] as? Number)?.toInt()
+
+        val archivedBy = data["archivedBy"] as? List<*> ?: emptyList<Any>()
+        val pinnedBy = data["pinnedBy"] as? List<*> ?: emptyList<Any>()
+        val mutedBy = data["mutedBy"] as? List<*> ?: emptyList<Any>()
+        val blockedBy = data["blockedBy"] as? List<*> ?: emptyList<Any>()
+        val favoritedBy = data["favoritedBy"] as? List<*> ?: emptyList<Any>()
+
         return Chat(
             chatId = chatId,
             chatType = chatType,
@@ -718,10 +900,12 @@ class ChatRepositoryImpl @Inject constructor(
             chatImageUrl = data["chatImageUrl"] as? String,
             participants = participants,
             lastMessage = null,
-            unreadCount = (data["unreadCount"] as? Number)?.toInt() ?: 0,
-            isPinned = data["isPinned"] as? Boolean ?: false,
-            isMuted = data["isMuted"] as? Boolean ?: false,
-            isArchived = data["isArchived"] as? Boolean ?: false,
+            unreadCount = resolvedUnread ?: 0,
+            isPinned = pinnedBy.contains(currentUserId) || (data["isPinned"] as? Boolean ?: false),
+            isMuted = mutedBy.contains(currentUserId) || (data["isMuted"] as? Boolean ?: false),
+            isArchived = archivedBy.contains(currentUserId) || (data["isArchived"] as? Boolean ?: false),
+            isBlocked = blockedBy.contains(currentUserId) || (data["isBlocked"] as? Boolean ?: false),
+            isFavorited = favoritedBy.contains(currentUserId) || (data["isFavorited"] as? Boolean ?: false),
             theme = data["theme"] as? String,
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L
@@ -763,6 +947,16 @@ class ChatRepositoryImpl @Inject constructor(
             com.linker.app.domain.model.ChatType.PRIVATE
         }
 
+        val unreadCounts = data["unreadCounts"] as? Map<*, *>
+        val resolvedUnread = (unreadCounts?.get(currentUserId) as? Number)?.toInt()
+            ?: (data["unreadCount"] as? Number)?.toInt()
+
+        val archivedBy = data["archivedBy"] as? List<*> ?: emptyList<Any>()
+        val pinnedBy = data["pinnedBy"] as? List<*> ?: emptyList<Any>()
+        val mutedBy = data["mutedBy"] as? List<*> ?: emptyList<Any>()
+        val blockedBy = data["blockedBy"] as? List<*> ?: emptyList<Any>()
+        val favoritedBy = data["favoritedBy"] as? List<*> ?: emptyList<Any>()
+
         return Chat(
             chatId = chatId,
             chatType = chatType,
@@ -770,10 +964,12 @@ class ChatRepositoryImpl @Inject constructor(
             chatImageUrl = data["chatImageUrl"] as? String,
             participants = participants,
             lastMessage = null,
-            unreadCount = (data["unreadCount"] as? Number)?.toInt() ?: 0,
-            isPinned = data["isPinned"] as? Boolean ?: false,
-            isMuted = data["isMuted"] as? Boolean ?: false,
-            isArchived = data["isArchived"] as? Boolean ?: false,
+            unreadCount = resolvedUnread ?: 0,
+            isPinned = pinnedBy.contains(currentUserId) || (data["isPinned"] as? Boolean ?: false),
+            isMuted = mutedBy.contains(currentUserId) || (data["isMuted"] as? Boolean ?: false),
+            isArchived = archivedBy.contains(currentUserId) || (data["isArchived"] as? Boolean ?: false),
+            isBlocked = blockedBy.contains(currentUserId) || (data["isBlocked"] as? Boolean ?: false),
+            isFavorited = favoritedBy.contains(currentUserId) || (data["isFavorited"] as? Boolean ?: false),
             theme = data["theme"] as? String,
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L
@@ -806,6 +1002,34 @@ class ChatRepositoryImpl @Inject constructor(
             updatedAt = 0L
         )
 
+        val replyToMessageId = data["replyToMessageId"] as? String
+        val replyStub = if (!replyToMessageId.isNullOrBlank()) {
+            Message(
+                messageId = replyToMessageId,
+                chatId = data["chatId"] as? String ?: "",
+                sender = senderStub,
+                messageType = com.linker.app.domain.model.MessageType.TEXT,
+                content = null,
+                mediaUrl = null,
+                thumbnailUrl = null,
+                mediaWidth = null,
+                mediaHeight = null,
+                mediaDuration = null,
+                sharedLink = null,
+                replyToMessage = null,
+                reactions = emptyMap(),
+                isEdited = false,
+                isDeleted = false,
+                deletedForEveryone = false,
+                messageStatus = com.linker.app.domain.model.MessageStatus.SENT,
+                deliveryMethod = com.linker.app.domain.model.DeliveryMethod.ONLINE,
+                createdAt = 0L,
+                updatedAt = 0L,
+                deliveredAt = null,
+                readAt = null
+            )
+        } else null
+
         return Message(
             messageId = messageId,
             chatId = data["chatId"] as? String ?: "",
@@ -822,7 +1046,7 @@ class ChatRepositoryImpl @Inject constructor(
             mediaHeight = (data["mediaHeight"] as? Number)?.toInt(),
             mediaDuration = (data["mediaDuration"] as? Number)?.toInt(),
             sharedLink = null,
-            replyToMessage = null,
+            replyToMessage = replyStub,
             reactions = (data["reactions"] as? Map<String, String>) ?: emptyMap(),
             isEdited = data["isEdited"] as? Boolean ?: false,
             isDeleted = data["isDeleted"] as? Boolean ?: false,

@@ -31,6 +31,9 @@ data class ChatInfoUiState(
     val sharedLinks: List<SharedLinkItem> = emptyList(),
     val isMuted: Boolean = false,
     val isPinned: Boolean = false,
+    val isArchived: Boolean = false,
+    val isBlocked: Boolean = false,
+    val isFavorited: Boolean = false,
     val theme: String? = null,
     val error: String? = null
 )
@@ -126,6 +129,9 @@ class ChatInfoViewModel @Inject constructor(
                     isGroupChat = isGroup,
                     isMuted = chat.isMuted,
                     isPinned = chat.isPinned,
+                    isArchived = chat.isArchived,
+                    isBlocked = chat.isBlocked,
+                    isFavorited = chat.isFavorited,
                     theme = chat.theme
                 )
             }
@@ -196,6 +202,42 @@ class ChatInfoViewModel @Inject constructor(
                 isPinned = newPinned
             )
             _uiState.update { it.copy(isPinned = newPinned) }
+        }
+    }
+
+    fun toggleArchive() {
+        val currentState = _uiState.value
+        val newArcived = !currentState.isArchived
+        viewModelScope.launch {
+            chatRepository.updateChatSettings(
+                chatId = currentChatId,
+                isArchived = newArcived
+            )
+            _uiState.update { it.copy(isArchived = newArcived) }
+        }
+    }
+
+    fun toggleBlock() {
+        val currentState = _uiState.value
+        val newBlocked = !currentState.isBlocked
+        viewModelScope.launch {
+            chatRepository.updateChatSettings(
+                chatId = currentChatId,
+                isBlocked = newBlocked
+            )
+            _uiState.update { it.copy(isBlocked = newBlocked) }
+        }
+    }
+
+    fun toggleFavorite() {
+        val currentState = _uiState.value
+        val newFavorited = !currentState.isFavorited
+        viewModelScope.launch {
+            chatRepository.updateChatSettings(
+                chatId = currentChatId,
+                isFavorited = newFavorited
+            )
+            _uiState.update { it.copy(isFavorited = newFavorited) }
         }
     }
 

@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.presentation.theme.AccentGreen
 import com.linker.app.presentation.theme.DarkGray
+import com.linker.app.presentation.theme.LightBlue
 import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextHint
 import com.linker.app.presentation.theme.TextPrimary
@@ -84,7 +85,7 @@ fun LinkerBottomNavigationBar(
                 } else {
                     // Normal Nav Items
                     val isSelected = currentRoute.equals(item.name, ignoreCase = true)
-                    val contentColor = if (isSelected) TextPrimary else TextHint
+                    val contentColor = if (isSelected) LightBlue else TextHint
                     
                     Column(
                         modifier = Modifier

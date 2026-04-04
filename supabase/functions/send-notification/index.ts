@@ -1,7 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   fetchFcmTokens,
-  isValidAnonAuth,
+  isValidAnonAuthHeaders,
   sendFcmNotification,
 } from "../_shared/notifications.ts";
 
@@ -18,9 +18,8 @@ Deno.serve(async (req) => {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    const authHeader = req.headers.get("Authorization");
-    if (!isValidAnonAuth(authHeader)) {
-      return new Response("Unauthorized", { status: 401 });
+    if (!isValidAnonAuthHeaders(req.headers)) {
+      return new Response("Unauthorized (missing or invalid anon key)", { status: 401 });
     }
 
     const body = (await req.json()) as RequestBody;

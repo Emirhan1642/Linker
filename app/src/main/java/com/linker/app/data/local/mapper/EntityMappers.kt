@@ -138,7 +138,7 @@ fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat =
     chatId = chatId, chatType = chatType.toDomain(), chatName = chatName,
     chatImageUrl = chatImageUrl, participants = participants, lastMessage = lastMessage,
     unreadCount = unreadCount, isPinned = isPinned, isMuted = isMuted,
-    isArchived = isArchived, theme = theme, createdAt = createdAt, updatedAt = updatedAt
+    isArchived = isArchived, isBlocked = isBlocked, isFavorited = isFavorited, theme = theme, createdAt = createdAt, updatedAt = updatedAt
 )
 
 fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this) {

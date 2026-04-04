@@ -18,6 +18,7 @@ sealed interface Route {
     @Serializable data class UserProfile(val userId: String) : Route
     @Serializable data class ChatDetail(val chatId: String) : Route
     @Serializable data class ChatInfo(val chatId: String) : Route
+    @Serializable data object NewChat : Route
     @Serializable data class StoryViewer(val userId: String) : Route
 
     @Serializable data object Settings : Route

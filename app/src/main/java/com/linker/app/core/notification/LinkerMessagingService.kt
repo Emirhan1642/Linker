@@ -6,9 +6,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.NotificationCompat
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import com.google.firebase.firestore.FirebaseFirestore
 import com.linker.app.MainActivity
 import com.linker.app.R
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +33,8 @@ import javax.inject.Inject
 class LinkerMessagingService : FirebaseMessagingService() {
 
     @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
+    @Inject lateinit var firestore: FirebaseFirestore
+    @Inject lateinit var auth: FirebaseAuth
 
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -43,6 +48,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        android.util.Log.d(TAG, "onMessageReceived data=${message.data} notification=${message.notification}")
         createNotificationChannel()
 
         val data = message.data
@@ -60,36 +66,46 @@ class LinkerMessagingService : FirebaseMessagingService() {
         message: RemoteMessage,
         data: Map<String, String>
     ) {
+        android.util.Log.d(TAG, "handleChatNotification data=$data")
         val chatId = data["chatId"] ?: return
         val messageId = data["messageId"] ?: ""
         val senderName = data["senderName"] ?: data["title"] ?: "New Message"
+        val senderId = data["senderId"] ?: ""
         val body = message.notification?.body ?: data["body"] ?: "Sent you a message"
 
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("deep_link", "chat/$chatId")
-            putExtra("chat_id", chatId)
+        val notificationId = if (senderId.isNotBlank()) senderId.hashCode() else chatId.hashCode()
+        ChatNotificationStore.addIncoming(notificationId, chatId, senderId, senderName, body)
+        val state = ChatNotificationStore.get(notificationId)
+        if (state != null) {
+            val notification = ChatNotificationHelper.buildChatNotification(
+                context = this,
+                notificationId = notificationId,
+                chatId = chatId,
+                messageId = messageId,
+                senderId = senderId,
+                senderName = senderName,
+                messages = state.messages
+            ).build()
+            NotificationManagerCompat.from(this).notify(notificationId, notification)
         }
 
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            chatId.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_ai_commentary_outline)
-            .setContentTitle(senderName)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .build()
-
-        getNotificationManager().notify(chatId.hashCode(), notification)
+        if (senderId.isNotBlank() && messageId.isNotBlank() && senderId != auth.currentUser?.uid) {
+            ioScope.launch {
+                try {
+                    val now = System.currentTimeMillis()
+                    firestore.collection("messages")
+                        .document(messageId)
+                        .update(
+                            mapOf(
+                                "messageStatus" to "DELIVERED",
+                                "deliveredAt" to now
+                            )
+                        )
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Failed to update deliveredAt: ${e.message}")
+                }
+            }
+        }
     }
 
     private fun handleSocialNotification(

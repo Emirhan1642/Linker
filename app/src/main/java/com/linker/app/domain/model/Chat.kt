@@ -14,6 +14,8 @@ data class Chat(
     val isPinned: Boolean,
     val isMuted: Boolean,
     val isArchived: Boolean,
+    val isBlocked: Boolean,
+    val isFavorited: Boolean,
     val theme: String?,
     val createdAt: Long,
     val updatedAt: Long

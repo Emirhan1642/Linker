@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
@@ -35,12 +36,19 @@ data class ChatUiModel(
     val unreadCount: Int,
     val isTyping: Boolean = false,
     val participantIds: List<String> = emptyList(),
-    val isGroupChat: Boolean = false
+    val isGroupChat: Boolean = false,
+    val isPinned: Boolean = false,
+    val isFavorited: Boolean = false,
+    val isArchived: Boolean = false,
+    val isMuted: Boolean = false,
+    val isBlocked: Boolean = false
 )
 
 data class ChatMessageUiState(
     val isLoading: Boolean = true,
     val chatId: String = "",
+    val recipientId: String = "",
+    val isGroupChat: Boolean = false,
     val recipientName: String = "User",
     val recipientUsername: String = "",
     val recipientImageUrl: String? = null,
@@ -55,7 +63,58 @@ data class MessageUiModel(
     val content: String?,
     val isSelf: Boolean,
     val timestamp: Long,
-    val status: MessageStatus
+    val status: MessageStatus,
+    val replyToMessageId: String? = null,
+    val readAt: Long? = null,
+    val reactions: Map<String, String> = emptyMap(),
+    val readReceipts: Map<String, Long> = emptyMap()
+)
+
+data class MessageInfoUiState(
+    val isLoading: Boolean = false,
+    val messageId: String = "",
+    val replyToMessageId: String? = null,
+    val content: String = "",
+    val isSelf: Boolean = false,
+    val fromTo: String = "",
+    val sentAt: Long? = null,
+    val deliveredAt: Long? = null,
+    val readAt: Long? = null,
+    val failedAt: Long? = null,
+    val replies: List<ReplyInfo> = emptyList(),
+    val reactions: List<ReactionInfo> = emptyList(),
+    val readReceipts: List<ReadReceiptInfo> = emptyList()
+)
+
+data class ReplyInfo(
+    val messageId: String,
+    val senderId: String,
+    val senderName: String,
+    val preview: String,
+    val avatarUrl: String?
+)
+
+data class ReactionInfo(
+    val userName: String,
+    val emoji: String
+)
+
+data class ReadReceiptInfo(
+    val userName: String,
+    val readAt: Long
+)
+
+data class ReactionUserInfo(
+    val userId: String,
+    val userName: String,
+    val avatarUrl: String?,
+    val emoji: String
+)
+
+data class MessageReactionsUiState(
+    val isLoading: Boolean = false,
+    val messageId: String = "",
+    val reactions: List<ReactionUserInfo> = emptyList()
 )
 
 
@@ -74,18 +133,35 @@ class ChatViewModel @Inject constructor(
     private val _messageState = MutableStateFlow(ChatMessageUiState())
     val messageState: StateFlow<ChatMessageUiState> = _messageState.asStateFlow()
 
+    private val _messageInfoState = MutableStateFlow(MessageInfoUiState())
+    val messageInfoState: StateFlow<MessageInfoUiState> = _messageInfoState.asStateFlow()
+
+    private val _messageReactionsState = MutableStateFlow(MessageReactionsUiState())
+    val messageReactionsState: StateFlow<MessageReactionsUiState> = _messageReactionsState.asStateFlow()
+
+    private var lastMarkedReadAt: Long = 0L
+    private var chatsJob: Job? = null
+    private var authListener: FirebaseAuth.AuthStateListener? = null
+
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
 
     init {
         observeChats()
         observeNotes()
+        authListener = FirebaseAuth.AuthStateListener {
+            // Reset and reload chats when account changes
+            chatsJob?.cancel()
+            _chatListState.value = ChatListUiState(isLoading = true, chats = emptyList(), notes = _chatListState.value.notes)
+            observeChats()
+        }
+        auth.addAuthStateListener(authListener!!)
     }
 
     // ── Chat List ──────────────────────────────────────────────────────────
 
     private fun observeChats() {
-        viewModelScope.launch {
+        chatsJob = viewModelScope.launch {
             chatRepository.observeChats().collect { chats ->
                 val uiModels = chats.map { chat ->
                     val isGroup = chat.chatType == ChatType.GROUP
@@ -93,14 +169,16 @@ class ChatViewModel @Inject constructor(
                         chat.participants.firstOrNull { it.userId != currentUserId }
                     } else null
 
-                    val displayName = chat.chatName
-                        ?: otherParticipant?.displayName?.ifBlank { null }
-                        ?: otherParticipant?.username?.ifBlank { null }
-                        ?: "Chat"
-
-                    val resolvedName = if (displayName == "Chat" && otherParticipant != null) {
-                        resolveUserDisplayName(otherParticipant.userId)
-                    } else displayName
+                    val resolvedName = if (isGroup) {
+                        chat.chatName ?: "Chat"
+                    } else {
+                        val otherId = otherParticipant?.userId
+                        if (!otherId.isNullOrBlank()) {
+                            resolveUserDisplayName(otherId)
+                        } else {
+                            "Chat"
+                        }
+                    }
 
                     val lastMsgText = chatRepository.getChatLastMessageText(chat.chatId)
                     
@@ -112,7 +190,12 @@ class ChatViewModel @Inject constructor(
                         lastMessageTime = chat.updatedAt,
                         unreadCount = chat.unreadCount,
                         participantIds = chat.participants.map { it.userId },
-                        isGroupChat = isGroup
+                        isGroupChat = isGroup,
+                        isPinned = chat.isPinned,
+                        isFavorited = chat.isFavorited,
+                        isArchived = chat.isArchived,
+                        isMuted = chat.isMuted,
+                        isBlocked = chat.isBlocked
                     )
                 }
                 _chatListState.value = _chatListState.value.copy(
@@ -121,6 +204,11 @@ class ChatViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    override fun onCleared() {
+        authListener?.let { auth.removeAuthStateListener(it) }
+        super.onCleared()
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
@@ -146,6 +234,18 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             noteRepository.postNote(content)
         }
+    }
+
+    suspend fun createPrivateChat(recipientUserId: String): Result<Chat> {
+        return chatRepository.createPrivateChat(recipientUserId)
+    }
+
+    suspend fun createGroupChat(
+        name: String,
+        participantIds: List<String>,
+        permissions: Map<String, Any>? = null
+    ): Result<Chat> {
+        return chatRepository.createGroupChat(name, participantIds, permissions)
     }
 
     // ── Messages ───────────────────────────────────────────────────────────
@@ -195,6 +295,8 @@ class ChatViewModel @Inject constructor(
             } else "Chat"
 
             _messageState.value = _messageState.value.copy(
+                recipientId = otherUser?.userId ?: "",
+                isGroupChat = isGroup,
                 recipientName = name,
                 recipientUsername = otherUser?.username ?: "",
                 recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl
@@ -213,18 +315,164 @@ class ChatViewModel @Inject constructor(
                             content = msg.content,
                             isSelf = msg.sender.userId == currentUserId,
                             timestamp = msg.createdAt,
-                            status = msg.messageStatus
+                            status = msg.messageStatus,
+                            replyToMessageId = msg.replyToMessage?.messageId,
+                            readAt = msg.readAt,
+                            reactions = msg.reactions,
+                            readReceipts = emptyMap()
                         )
                     }
                 _messageState.value = _messageState.value.copy(
                     isLoading = false,
                     messages = uiMessages
                 )
+
+                val latestIncoming = uiMessages
+                    .filter { !it.isSelf }
+                    .maxOfOrNull { it.timestamp } ?: 0L
+
+                if (latestIncoming > lastMarkedReadAt) {
+                    lastMarkedReadAt = latestIncoming
+                    chatRepository.markChatAsReadUpTo(actualChatId, latestIncoming)
+                }
             }
         }
     }
 
-    fun sendMessage(content: String) {
+    fun loadMessageInfo(messageId: String) {
+        if (messageId.isBlank()) return
+        _messageInfoState.value = MessageInfoUiState(isLoading = true, messageId = messageId)
+
+        viewModelScope.launch {
+            try {
+                val doc = firestore.collection("messages").document(messageId).get().await()
+                val data = doc.data ?: run {
+                    _messageInfoState.value = MessageInfoUiState(isLoading = false)
+                    return@launch
+                }
+
+                val senderId = data["senderId"] as? String ?: ""
+                val isSelf = senderId == currentUserId
+                val replyToMessageId = data["replyToMessageId"] as? String
+                val content = data["content"] as? String ?: "[Media]"
+                val createdAt = (data["createdAt"] as? Number)?.toLong()
+                val deliveredAt = (data["deliveredAt"] as? Number)?.toLong()
+                val readAt = (data["readAt"] as? Number)?.toLong()
+                val statusStr = data["messageStatus"] as? String ?: "SENT"
+                val isFailed = statusStr == "FAILED"
+                val failedAt = if (isFailed) (data["updatedAt"] as? Number)?.toLong() else null
+
+                val senderName = if (senderId == currentUserId) {
+                    "You"
+                } else {
+                    resolveUserDisplayName(senderId)
+                }
+                val toName = if (_messageState.value.recipientName.isNotBlank()) _messageState.value.recipientName else "Chat"
+                val fromTo = if (senderId == currentUserId) {
+                    "You \u2192 $toName"
+                } else {
+                    "$senderName \u2192 You"
+                }
+
+                val reactionsMap = (data["reactions"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+                    val userId = k as? String ?: return@mapNotNull null
+                    val emoji = v as? String ?: return@mapNotNull null
+                    userId to emoji
+                }?.toMap() ?: emptyMap()
+
+                val reactions = reactionsMap.map { (userId, emoji) ->
+                    val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
+                    ReactionInfo(userName = name, emoji = emoji)
+                }
+
+                val readReceiptsMap = (data["readReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+                    val userId = k as? String ?: return@mapNotNull null
+                    val ts = (v as? Number)?.toLong() ?: return@mapNotNull null
+                    userId to ts
+                }?.toMap() ?: emptyMap()
+
+                val readReceipts = readReceiptsMap.map { (userId, ts) ->
+                    val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
+                    ReadReceiptInfo(userName = name, readAt = ts)
+                }
+
+                val repliesSnapshot = firestore.collection("messages")
+                    .whereEqualTo("replyToMessageId", messageId)
+                    .get()
+                    .await()
+
+                val replies = repliesSnapshot.documents.mapNotNull { replyDoc ->
+                    val replyData = replyDoc.data ?: return@mapNotNull null
+                    val replySenderId = replyData["senderId"] as? String ?: ""
+                    val replySenderName = if (replySenderId == currentUserId) {
+                        "You"
+                    } else {
+                        resolveUserDisplayName(replySenderId)
+                    }
+                    val replyAvatar = try {
+                        firestore.collection("users").document(replySenderId).get().await().getString("profileImageUrl")
+                    } catch (_: Exception) { null }
+                    val preview = (replyData["content"] as? String)?.take(80) ?: "[Media]"
+                    ReplyInfo(
+                        messageId = replyDoc.id,
+                        senderId = replySenderId,
+                        senderName = replySenderName,
+                        preview = preview,
+                        avatarUrl = replyAvatar
+                    )
+                }
+
+                _messageInfoState.value = MessageInfoUiState(
+                    isLoading = false,
+                    messageId = messageId,
+                    replyToMessageId = replyToMessageId,
+                    content = content,
+                    isSelf = isSelf,
+                    fromTo = fromTo,
+                    sentAt = createdAt,
+                    deliveredAt = deliveredAt,
+                    readAt = readAt,
+                    failedAt = failedAt,
+                    replies = replies,
+                    reactions = reactions,
+                    readReceipts = readReceipts
+                )
+            } catch (_: Exception) {
+                _messageInfoState.value = MessageInfoUiState(isLoading = false)
+            }
+        }
+    }
+
+    fun loadMessageReactions(messageId: String, reactions: Map<String, String>) {
+        if (messageId.isBlank()) return
+        _messageReactionsState.value = MessageReactionsUiState(isLoading = true, messageId = messageId)
+
+        viewModelScope.launch {
+            try {
+                val list = reactions.map { (userId, emoji) ->
+                    val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
+                    val avatarUrl = try {
+                        firestore.collection("users").document(userId).get().await().getString("profileImageUrl")
+                    } catch (_: Exception) { null }
+                    ReactionUserInfo(
+                        userId = userId,
+                        userName = name,
+                        avatarUrl = avatarUrl,
+                        emoji = emoji
+                    )
+                }
+                _messageReactionsState.value = MessageReactionsUiState(
+                    isLoading = false,
+                    messageId = messageId,
+                    reactions = list
+                )
+            } catch (_: Exception) {
+                _messageReactionsState.value = MessageReactionsUiState(isLoading = false, messageId = messageId)
+            }
+        }
+    }
+
+    fun sendMessage(content: String, replyToMessageId: String? = null) {
         val chatId = _messageState.value.chatId
         if (chatId.isBlank() || content.isBlank()) return
 
@@ -234,7 +482,8 @@ class ChatViewModel @Inject constructor(
             when (val result = chatRepository.sendMessage(
                 chatId = chatId,
                 messageType = MessageType.TEXT,
-                content = content.trim()
+                content = content.trim(),
+                replyToMessageId = replyToMessageId
             )) {
                 is Result.Success -> {
                     _messageState.update { it.copy(isSending = false, sendError = null) }
@@ -253,7 +502,7 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun reactToMessage(messageId: String, emoji: String) {
+    fun reactToMessage(messageId: String, emoji: String?) {
         viewModelScope.launch {
             chatRepository.reactToMessage(messageId, emoji)
         }
