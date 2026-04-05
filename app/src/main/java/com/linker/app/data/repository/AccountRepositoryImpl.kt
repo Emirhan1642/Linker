@@ -3,6 +3,7 @@ package com.linker.app.data.repository
 import android.content.Context
 import android.util.Base64
 import android.util.Log
+import androidx.annotation.Keep
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.firebase.auth.FirebaseAuth
@@ -270,6 +271,7 @@ class AccountRepositoryImpl @Inject constructor(
 
     // ── DTO ───────────────────────────────────────────────────────────────
 
+    @Keep
     @Serializable
     private data class SessionDto(
         val uid: String,

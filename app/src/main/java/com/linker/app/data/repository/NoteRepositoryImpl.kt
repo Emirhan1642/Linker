@@ -7,6 +7,7 @@ import com.linker.app.domain.model.Note
 import com.linker.app.domain.model.NoteType
 import com.linker.app.domain.model.User
 import com.linker.app.core.util.Result
+import com.linker.app.domain.repository.NoteRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -26,7 +27,7 @@ class NoteRepositoryImpl @Inject constructor(
         get() = auth.currentUser?.uid ?: ""
 
     /** Observe all active (non-expired) notes. */
-    fun observeActiveNotes(): Flow<List<Note>> = callbackFlow {
+    override fun observeActiveNotes(): Flow<List<Note>> = callbackFlow {
         val now = System.currentTimeMillis()
         val listener = notesCollection
             .whereGreaterThan("expiresAt", now)
@@ -45,7 +46,7 @@ class NoteRepositoryImpl @Inject constructor(
     }
 
     /** Post a new text note (expires in 24 hours). */
-    suspend fun postNote(content: String): Result<Note> {
+    override suspend fun postNote(content: String): Result<Note> {
         return try {
             val noteId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
@@ -85,17 +86,17 @@ class NoteRepositoryImpl @Inject constructor(
                 )
             )
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Unknown error", e)
+            Result.Error(e.message ?: "Unknown error", e.toString())
         }
     }
 
     /** Delete a note. */
-    suspend fun deleteNote(noteId: String): Result<Unit> {
+    override suspend fun deleteNote(noteId: String): Result<Unit> {
         return try {
             notesCollection.document(noteId).delete().await()
             Result.Success(Unit)
         } catch (e: Exception) {
-            Result.Error(e.message ?: "Unknown error", e)
+            Result.Error(e.message ?: "Unknown error", e.toString())
         }
     }
 

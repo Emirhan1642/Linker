@@ -17,14 +17,20 @@ object ChatNotificationHelper {
     const val EXTRA_SENDER_ID = "extra_sender_id"
     const val EXTRA_SENDER_NAME = "extra_sender_name"
     const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
+    /** Bildirimin ait olduğu hesap (çoklu oturum); MainActivity önce buna geçiş yapar. */
+    const val EXTRA_TARGET_ACCOUNT_UID = "extra_target_account_uid"
 
     const val ACTION_REPLY = "com.linker.app.notification.REPLY"
     const val ACTION_LIKE = "com.linker.app.notification.LIKE"
     const val ACTION_READ = "com.linker.app.notification.READ"
 
+    fun channelIdForAccount(recipientUid: String): String = "linker_messages_$recipientUid"
+
     fun buildChatNotification(
         context: Context,
         notificationId: Int,
+        channelId: String,
+        targetAccountUid: String,
         chatId: String,
         messageId: String,
         senderId: String,
@@ -32,8 +38,9 @@ object ChatNotificationHelper {
         messages: List<String>
     ): NotificationCompat.Builder {
         val contentIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("chat_id", chatId)
+            putExtra(EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
         }
         val contentPendingIntent = PendingIntent.getActivity(
             context,
@@ -42,18 +49,20 @@ object ChatNotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-            action = ACTION_REPLY
+        fun actionIntent(action: String) = Intent(context, NotificationActionReceiver::class.java).apply {
+            this.action = action
             putExtra(EXTRA_CHAT_ID, chatId)
             putExtra(EXTRA_MESSAGE_ID, messageId)
             putExtra(EXTRA_SENDER_ID, senderId)
             putExtra(EXTRA_SENDER_NAME, senderName)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
         }
+
         val replyPendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId + 1,
-            replyIntent,
+            notificationId * 10 + 1,
+            actionIntent(ACTION_REPLY),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
         val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
@@ -65,18 +74,10 @@ object ChatNotificationHelper {
             replyPendingIntent
         ).addRemoteInput(remoteInput).build()
 
-        val likeIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-            action = ACTION_LIKE
-            putExtra(EXTRA_CHAT_ID, chatId)
-            putExtra(EXTRA_MESSAGE_ID, messageId)
-            putExtra(EXTRA_SENDER_ID, senderId)
-            putExtra(EXTRA_SENDER_NAME, senderName)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-        }
         val likePendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId + 2,
-            likeIntent,
+            notificationId * 10 + 2,
+            actionIntent(ACTION_LIKE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val likeAction = NotificationCompat.Action.Builder(
@@ -85,18 +86,10 @@ object ChatNotificationHelper {
             likePendingIntent
         ).build()
 
-        val readIntent = Intent(context, NotificationActionReceiver::class.java).apply {
-            action = ACTION_READ
-            putExtra(EXTRA_CHAT_ID, chatId)
-            putExtra(EXTRA_MESSAGE_ID, messageId)
-            putExtra(EXTRA_SENDER_ID, senderId)
-            putExtra(EXTRA_SENDER_NAME, senderName)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-        }
         val readPendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId + 3,
-            readIntent,
+            notificationId * 10 + 3,
+            actionIntent(ACTION_READ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val readAction = NotificationCompat.Action.Builder(
@@ -118,7 +111,7 @@ object ChatNotificationHelper {
 
         val largeIcon = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)
 
-        return NotificationCompat.Builder(context, LinkerMessagingService.CHANNEL_ID)
+        return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setLargeIcon(largeIcon)
             .setContentTitle(senderName)
@@ -127,6 +120,9 @@ object ChatNotificationHelper {
             .setAutoCancel(false)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setOnlyAlertOnce(true)
+            .setGroup("linker_${targetAccountUid}")
+            .setGroupSummary(false)
             .addAction(replyAction)
             .addAction(likeAction)
             .addAction(readAction)

@@ -14,6 +14,8 @@ type RequestBody = {
   message: string;
   chat_id: string;
   message_id: string;
+  /** PRIVATE | GROUP — Android tarafında bildirim dalı ve kanal için */
+  chat_type?: string;
 };
 
 Deno.serve(async (req) => {
@@ -52,6 +54,8 @@ Deno.serve(async (req) => {
     }
 
     const tokens = await fetchFcmTokens(body.recipient_id);
+    const chatType = body.chat_type?.trim() || "PRIVATE";
+
     const result = await sendFcmNotification(tokens, {
       title: body.sender_name,
       body: body.message,
@@ -64,6 +68,7 @@ Deno.serve(async (req) => {
         senderName: body.sender_name,
         senderId: body.sender_id,
         recipientId: body.recipient_id,
+        chatType,
       },
     });
 

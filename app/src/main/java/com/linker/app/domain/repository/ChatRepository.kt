@@ -88,4 +88,18 @@ interface ChatRepository {
 
     /** Retries all failed messages for a specific delivery method. */
     suspend fun retryFailedMessages(preferredMethod: DeliveryMethod): Result<Unit>
+
+    // ── Group management (admin) ───────────────────────────────────────────
+
+    /** [userId] kullanıcısını grup yöneticisi yapar (yalnızca mevcut yöneticiler). */
+    suspend fun promoteGroupAdmin(chatId: String, userId: String): Result<Unit>
+
+    /** Yöneticilik kaldırılır; en az bir yönetici kalmalıdır. */
+    suspend fun demoteGroupAdmin(chatId: String, userId: String): Result<Unit>
+
+    /** Üyeyi gruptan çıkarır (yönetici; kendini çıkarmaz — [leaveGroup] kullanın). */
+    suspend fun removeGroupMember(chatId: String, userId: String): Result<Unit>
+
+    /** Grup adı / görseli (yönetici). */
+    suspend fun updateGroupProfile(chatId: String, name: String?, imageUrl: String?): Result<Unit>
 }

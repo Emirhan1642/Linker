@@ -1,5 +1,6 @@
 package com.linker.app.data.repository
 
+import androidx.annotation.Keep
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -13,10 +14,12 @@ import com.linker.app.domain.repository.StoryRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+
 
 /**
  * Story Repository Implementation
@@ -44,22 +47,25 @@ class StoryRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
 
-                val stories = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(StoryDocument::class.java)?.toStory(doc.id)
-                } ?: emptyList()
+                launch {
+                    val stories = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(StoryDocument::class.java)?.let { data ->
+                            documentToStory(data, doc.id)
+                        }
+                    } ?: emptyList()
 
-                // Group by author
-                val grouped = stories.groupBy { it.author.userId }
-                    .map { (authorId, authorStories) ->
-                        UserStories(
-                            author = authorStories.first().author,
-                            stories = authorStories.sortedBy { it.createdAt },
-                            hasUnviewed = authorStories.any { !it.isViewed }
-                        )
-                    }
-                    .sortedByDescending { it.hasUnviewed }
+                    val grouped = stories.groupBy { it.author.userId }
+                        .map { (_, authorStories) ->
+                            UserStories(
+                                author = authorStories.first().author,
+                                stories = authorStories.sortedBy { it.createdAt },
+                                hasUnviewed = authorStories.any { !it.isViewed }
+                            )
+                        }
+                        .sortedByDescending { it.hasUnviewed }
 
-                trySend(grouped)
+                    trySend(grouped)
+                }
             }
 
         awaitClose { listener.remove() }
@@ -74,7 +80,7 @@ class StoryRepositoryImpl @Inject constructor(
             .await()
 
         snapshot.documents.mapNotNull { doc ->
-            doc.toObject(StoryDocument::class.java)?.toStory(doc.id)
+            doc.toObject(StoryDocument::class.java)?.let { documentToStory(it, doc.id) }
         }
     }
 
@@ -171,7 +177,10 @@ class StoryRepositoryImpl @Inject constructor(
         }
     }
 
-    // Firestore document model
+    /**
+     * Firestore [toObject] için düz veri taşıyıcı; alan adları koleksiyon şemasıyla aynı kalmalı (@Keep).
+     */
+    @Keep
     private data class StoryDocument(
         val storyId: String = "",
         val authorId: String = "",
@@ -182,44 +191,47 @@ class StoryRepositoryImpl @Inject constructor(
         val viewsCount: Int = 0,
         val createdAt: Long = 0,
         val expiresAt: Long = 0
-    ) {
-        suspend fun toStory(docId: String): Story? {
-            // Get author info
-            val authorDoc = usersCollection.document(authorId).get().await()
-            val author = User(
-                userId = authorId,
-                username = authorDoc.getString("username") ?: "",
-                displayName = authorDoc.getString("displayName") ?: "",
-                email = authorDoc.getString("email"),
-                phoneNumber = null,
-                bio = authorDoc.getString("bio"),
-                profileImageUrl = authorDoc.getString("profileImageUrl"),
-                coverImageUrl = authorDoc.getString("coverImageUrl"),
-                isVerified = authorDoc.getBoolean("isVerified") ?: false,
-                followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-                followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-                likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                createdAt = authorDoc.getLong("createdAt") ?: 0,
-                updatedAt = authorDoc.getLong("updatedAt") ?: 0
-            )
+    )
 
-            return Story(
-                storyId = docId,
-                author = author,
-                mediaUrl = mediaUrl,
-                mediaType = try { StoryMediaType.valueOf(mediaType) } catch (_: Exception) { StoryMediaType.IMAGE },
-                thumbnailUrl = thumbnailUrl,
-                duration = null,
-                caption = caption,
-                viewsCount = viewsCount,
-                isViewed = false, // TODO: Check viewers collection
-                createdAt = createdAt,
-                expiresAt = expiresAt
-            )
-        }
+    private suspend fun documentToStory(data: StoryDocument, docId: String): Story? {
+        val authorDoc = usersCollection.document(data.authorId).get().await()
+        val author = User(
+            userId = data.authorId,
+            username = authorDoc.getString("username") ?: "",
+            displayName = authorDoc.getString("displayName") ?: "",
+            email = authorDoc.getString("email"),
+            phoneNumber = null,
+            bio = authorDoc.getString("bio"),
+            profileImageUrl = authorDoc.getString("profileImageUrl"),
+            coverImageUrl = authorDoc.getString("coverImageUrl"),
+            isVerified = authorDoc.getBoolean("isVerified") ?: false,
+            followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
+            followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
+            likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
+            isFollowing = false,
+            isFollowedBy = false,
+            isBlocked = false,
+            isMuted = false,
+            createdAt = authorDoc.getLong("createdAt") ?: 0,
+            updatedAt = authorDoc.getLong("updatedAt") ?: 0
+        )
+
+        return Story(
+            storyId = docId,
+            author = author,
+            mediaUrl = data.mediaUrl,
+            mediaType = try {
+                StoryMediaType.valueOf(data.mediaType)
+            } catch (_: Exception) {
+                StoryMediaType.IMAGE
+            },
+            thumbnailUrl = data.thumbnailUrl,
+            duration = null,
+            caption = data.caption,
+            viewsCount = data.viewsCount,
+            isViewed = false, // TODO: Check viewers collection
+            createdAt = data.createdAt,
+            expiresAt = data.expiresAt
+        )
     }
 }

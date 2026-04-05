@@ -3,6 +3,8 @@ package com.linker.app.core.notification
 import java.util.concurrent.ConcurrentHashMap
 
 data class ChatNotificationState(
+    /** Bu bildirim hangi hesaba ait (çoklu oturum). */
+    val recipientUid: String,
     val chatId: String,
     val senderId: String,
     val senderName: String,
@@ -12,14 +14,32 @@ data class ChatNotificationState(
 object ChatNotificationStore {
     private val store = ConcurrentHashMap<Int, ChatNotificationState>()
 
-    fun getOrCreate(notificationId: Int, chatId: String, senderId: String, senderName: String): ChatNotificationState {
+    fun getOrCreate(
+        notificationId: Int,
+        recipientUid: String,
+        chatId: String,
+        senderId: String,
+        senderName: String
+    ): ChatNotificationState {
         return store.getOrPut(notificationId) {
-            ChatNotificationState(chatId = chatId, senderId = senderId, senderName = senderName)
+            ChatNotificationState(
+                recipientUid = recipientUid,
+                chatId = chatId,
+                senderId = senderId,
+                senderName = senderName
+            )
         }
     }
 
-    fun addIncoming(notificationId: Int, chatId: String, senderId: String, senderName: String, message: String) {
-        val state = getOrCreate(notificationId, chatId, senderId, senderName)
+    fun addIncoming(
+        notificationId: Int,
+        recipientUid: String,
+        chatId: String,
+        senderId: String,
+        senderName: String,
+        message: String
+    ) {
+        val state = getOrCreate(notificationId, recipientUid, chatId, senderId, senderName)
         state.messages.add(message)
     }
 

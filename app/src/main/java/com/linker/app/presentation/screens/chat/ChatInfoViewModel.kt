@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
-import com.linker.app.data.repository.ChatRepositoryImpl
+import com.linker.app.domain.repository.ChatRepository
 import com.linker.app.domain.model.Chat
 import com.linker.app.domain.model.ChatType
 import com.linker.app.domain.model.Message
@@ -35,7 +35,11 @@ data class ChatInfoUiState(
     val isBlocked: Boolean = false,
     val isFavorited: Boolean = false,
     val theme: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val canManageGroup: Boolean = false,
+    val groupAdminIds: List<String> = emptyList(),
+    val groupCreatedBy: String? = null,
+    val feedbackMessage: String? = null
 )
 
 data class SharedMediaItem(
@@ -56,7 +60,7 @@ data class SharedLinkItem(
 
 @HiltViewModel
 class ChatInfoViewModel @Inject constructor(
-    private val chatRepository: ChatRepositoryImpl
+    private val chatRepository: ChatRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatInfoUiState())
@@ -68,8 +72,15 @@ class ChatInfoViewModel @Inject constructor(
     private var currentChatId: String = ""
 
     fun loadChatInfo(chatId: String) {
+        val chatIdChanged = chatId != currentChatId
         currentChatId = chatId
-        _uiState.update { it.copy(isLoading = true, error = null) }
+        _uiState.update {
+            it.copy(
+                isLoading = true,
+                error = null,
+                feedbackMessage = if (chatIdChanged) null else it.feedbackMessage
+            )
+        }
 
         viewModelScope.launch {
             var actualChatId = chatId
@@ -118,6 +129,13 @@ class ChatInfoViewModel @Inject constructor(
                     ?: "User"
             }
 
+            val adminIds = chat.groupAdminIds
+            val createdBy = chat.groupCreatedBy
+            val canManageGroup = isGroup && (
+                adminIds.contains(currentUserId) ||
+                    (adminIds.isEmpty() && createdBy == currentUserId)
+                )
+
             _uiState.update {
                 it.copy(
                     isLoading = false,
@@ -132,7 +150,10 @@ class ChatInfoViewModel @Inject constructor(
                     isArchived = chat.isArchived,
                     isBlocked = chat.isBlocked,
                     isFavorited = chat.isFavorited,
-                    theme = chat.theme
+                    theme = chat.theme,
+                    canManageGroup = canManageGroup,
+                    groupAdminIds = adminIds,
+                    groupCreatedBy = createdBy
                 )
             }
 
@@ -244,6 +265,64 @@ class ChatInfoViewModel @Inject constructor(
     fun clearChat() {
         viewModelScope.launch {
             chatRepository.markChatAsRead(currentChatId)
+        }
+    }
+
+    fun clearFeedback() {
+        _uiState.update { it.copy(feedbackMessage = null) }
+    }
+
+    fun promoteMember(userId: String) {
+        viewModelScope.launch {
+            when (val r = chatRepository.promoteGroupAdmin(currentChatId, userId)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(feedbackMessage = "Added as admin") }
+                    loadChatInfo(currentChatId)
+                }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun demoteMember(userId: String) {
+        viewModelScope.launch {
+            when (val r = chatRepository.demoteGroupAdmin(currentChatId, userId)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(feedbackMessage = "Admin role removed") }
+                    loadChatInfo(currentChatId)
+                }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun removeMember(userId: String) {
+        viewModelScope.launch {
+            when (val r = chatRepository.removeGroupMember(currentChatId, userId)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(feedbackMessage = "Removed from group") }
+                    loadChatInfo(currentChatId)
+                }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun updateGroupName(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        viewModelScope.launch {
+            when (val r = chatRepository.updateGroupProfile(currentChatId, trimmed, null)) {
+                is Result.Success -> {
+                    _uiState.update { it.copy(feedbackMessage = "Group name updated") }
+                    loadChatInfo(currentChatId)
+                }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Loading -> {}
+            }
         }
     }
 }

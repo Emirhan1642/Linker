@@ -50,7 +50,9 @@ data class ChatNotificationRequest(
     @SerialName("sender_name") val senderName: String,
     @SerialName("message") val message: String,
     @SerialName("chat_id") val chatId: String,
-    @SerialName("message_id") val messageId: String
+    @SerialName("message_id") val messageId: String,
+    /** Edge function FCM `data.chatType` olarak iletmeli: PRIVATE | GROUP */
+    @SerialName("chat_type") val chatType: String? = null
 )
 
 @Serializable

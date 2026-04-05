@@ -1,5 +1,6 @@
 package com.linker.app.data.repository
 
+import androidx.annotation.Keep
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
@@ -15,6 +16,7 @@ import com.linker.app.data.local.entity.NotificationEntity
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
@@ -46,11 +48,14 @@ class CommentRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
 
-                val comments = snapshot?.documents?.mapNotNull { doc ->
-                    doc.toObject(CommentDocument::class.java)?.toComment(doc.id)
-                } ?: emptyList()
-
-                trySend(comments)
+                launch {
+                    val comments = snapshot?.documents?.mapNotNull { doc ->
+                        doc.toObject(CommentDocument::class.java)?.let { data ->
+                            documentToComment(data, doc.id)
+                        }
+                    } ?: emptyList()
+                    trySend(comments)
+                }
             }
 
         awaitClose { listener.remove() }
@@ -70,7 +75,7 @@ class CommentRepositoryImpl @Inject constructor(
             .await()
 
         snapshot.documents.drop(offset).mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.toComment(doc.id)
+            doc.toObject(CommentDocument::class.java)?.let { documentToComment(it, doc.id) }
         }
     }
 
@@ -82,7 +87,7 @@ class CommentRepositoryImpl @Inject constructor(
             .await()
 
         snapshot.documents.mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.toComment(doc.id)
+            doc.toObject(CommentDocument::class.java)?.let { documentToComment(it, doc.id) }
         }
     }
 
@@ -216,7 +221,11 @@ class CommentRepositoryImpl @Inject constructor(
         }
     }
 
-    // Firestore document model
+    /**
+     * Firestore [toObject] için düz veri taşıyıcı; alan adları koleksiyon şemasıyla aynı kalmalı (@Keep).
+     * Eşleme suspend işlemleri içerdiği için nested class içinde değil, repository metodunda yapılır.
+     */
+    @Keep
     private data class CommentDocument(
         val commentId: String = "",
         val linkId: String = "",
@@ -230,58 +239,58 @@ class CommentRepositoryImpl @Inject constructor(
         val isEdited: Boolean = false,
         val createdAt: Long = 0,
         val updatedAt: Long = 0
-    ) {
-        suspend fun toComment(docId: String): Comment? {
-            // Get author info
-            val authorDoc = usersCollection.document(authorId).get().await()
-            val author = User(
-                userId = authorId,
-                username = authorDoc.getString("username") ?: "",
-                displayName = authorDoc.getString("displayName") ?: "",
-                email = authorDoc.getString("email"),
-                phoneNumber = null,
-                bio = authorDoc.getString("bio"),
-                profileImageUrl = authorDoc.getString("profileImageUrl"),
-                coverImageUrl = authorDoc.getString("coverImageUrl"),
-                isVerified = authorDoc.getBoolean("isVerified") ?: false,
-                followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-                followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-                likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                createdAt = authorDoc.getLong("createdAt") ?: 0,
-                updatedAt = authorDoc.getLong("updatedAt") ?: 0
-            )
+    )
 
-            // Check if current user liked this comment
-            val currentUserId = FirebaseAuth.getInstance().currentUser?.uid
-            val isLiked = if (currentUserId != null) {
-                val likeDoc = commentsCollection
-                    .document(docId)
-                    .collection("likes")
-                    .document(currentUserId)
-                    .get()
-                    .await()
-                likeDoc.exists()
-            } else false
+    private suspend fun documentToComment(data: CommentDocument, docId: String): Comment? {
+        val authorDoc = usersCollection.document(data.authorId).get().await()
+        val author = User(
+            userId = data.authorId,
+            username = authorDoc.getString("username") ?: "",
+            displayName = authorDoc.getString("displayName") ?: "",
+            email = authorDoc.getString("email"),
+            phoneNumber = null,
+            bio = authorDoc.getString("bio"),
+            profileImageUrl = authorDoc.getString("profileImageUrl"),
+            coverImageUrl = authorDoc.getString("coverImageUrl"),
+            isVerified = authorDoc.getBoolean("isVerified") ?: false,
+            followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
+            followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
+            likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
+            isFollowing = false,
+            isFollowedBy = false,
+            isBlocked = false,
+            isMuted = false,
+            createdAt = authorDoc.getLong("createdAt") ?: 0,
+            updatedAt = authorDoc.getLong("updatedAt") ?: 0
+        )
 
-            return Comment(
-                commentId = docId,
-                linkId = linkId,
-                author = author,
-                content = content,
-                gifUrl = gifUrl,
-                parentCommentId = parentCommentId,
-                likesCount = likesCount,
-                repliesCount = repliesCount,
-                isLiked = isLiked,
-                isPinned = isPinned,
-                isEdited = isEdited,
-                createdAt = createdAt,
-                updatedAt = updatedAt
-            )
+        val currentUserId = auth.currentUser?.uid
+        val isLiked = if (currentUserId != null) {
+            val likeDoc = commentsCollection
+                .document(docId)
+                .collection("likes")
+                .document(currentUserId)
+                .get()
+                .await()
+            likeDoc.exists()
+        } else {
+            false
         }
+
+        return Comment(
+            commentId = docId,
+            linkId = data.linkId,
+            author = author,
+            content = data.content,
+            gifUrl = data.gifUrl,
+            parentCommentId = data.parentCommentId,
+            likesCount = data.likesCount,
+            repliesCount = data.repliesCount,
+            isLiked = isLiked,
+            isPinned = data.isPinned,
+            isEdited = data.isEdited,
+            createdAt = data.createdAt,
+            updatedAt = data.updatedAt
+        )
     }
 }

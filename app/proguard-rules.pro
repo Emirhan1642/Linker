@@ -1,13 +1,20 @@
 # ============================================================================
-# Linker ProGuard Configuration
+# Linker ProGuard / R8 Configuration
+# ============================================================================
+#
+# Not: Bazı kurallar kasıtlı olarak geniş tutuldu (kotlin.** / firebase.** /
+# compose.**). Kütüphane consumer kurallarına ek güvence sağlar; daraltmadan
+# önce mutlaka `assembleRelease` + smoke test çalıştırın.
 # ============================================================================
 
 # ── General Android ──────────────────────────────────────────────────────
 -dontusemixedcaseclassnames
 -dontskipnonpubliclibraryclasses
 -verbose
--dontoptimize
--dontpreverify
+
+# R8 varsayılan olarak optimize + shrink uygular (proguard-android-optimize).
+# İleride gizli R8 hatası çıkarsa geçici olarak aşağıdaki satırı açabilirsiniz:
+# -dontoptimize
 
 # Keep line numbers for debugging stack traces
 -keepattributes SourceFile,LineNumberTable
@@ -16,6 +23,7 @@
 # ── Kotlin ───────────────────────────────────────────────────────────────
 -keepattributes *Annotation*
 -dontwarn kotlin.**
+# Geniş tutuluyor: reflection / Metadata ile uyumluluk (daraltma riski yüksek).
 -keep class kotlin.** { *; }
 -keep class kotlin.Metadata { *; }
 -keepclassmembers class **$WhenMappings {
@@ -25,23 +33,18 @@
     public <methods>;
 }
 
-# ── Kotlin Coroutines ────────────────────────────────────────────────────
+# ── Kotlin Coroutines ──────────────────────────────────────────────────────
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 -keepclassmembers class kotlinx.** {
     volatile <fields>;
 }
-
-# ServiceLoader support
--keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
--keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
-
-# Most of volatile fields are updated with AFU and should not be mangled
 -keepclassmembers class kotlinx.coroutines.** {
     volatile <fields>;
 }
 
 # ── Kotlin Serialization ─────────────────────────────────────────────────
+# Uygulama paketi: generated $$serializer ve Companion
 -keepattributes InnerClasses
 -keep,includedescriptorclasses class com.linker.app.**$$serializer { *; }
 -keepclassmembers class com.linker.app.** {
@@ -51,27 +54,24 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Keep `Companion` object fields of serializable classes
+# Serializable sınıfların Companion alanı
 -if @kotlinx.serialization.Serializable class **
 -keepclassmembers class <1> {
     static <1>$Companion Companion;
 }
 
-# Keep `serializer()` on companion objects
+# serializer() yalnızca **$Companion üzerinde — tüm sınıflara yaymayın (eski hata).
 -if @kotlinx.serialization.Serializable class ** {
     static **$Companion Companion;
 }
--keepclassmembers class ** {
+-keepclassmembers class **$Companion {
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# ── Hilt/Dagger ──────────────────────────────────────────────────────────
+# ── Hilt / Dagger 2 ─────────────────────────────────────────────────────
 -dontwarn com.google.errorprone.annotations.**
 -keep class dagger.** { *; }
 -keep class javax.inject.** { *; }
--keep class * extends dagger.internal.Binding
--keep class * extends dagger.internal.ModuleAdapter
--keep class * extends dagger.internal.StaticInjection
 -keepclasseswithmembers class * {
     @dagger.* <methods>;
 }
@@ -113,18 +113,22 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 
-# ── Firebase ─────────────────────────────────────────────────────────────
+# ── Firebase / Play Services ───────────────────────────────────────────────
+# Geniş tutuluyor: Firestore/Auth/FCM reflection; daraltma önce release test şart.
 -keep class com.google.firebase.** { *; }
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
-# Firebase Firestore models
+# @PropertyName ile işaretlenmiş alanlar
 -keepclassmembers class * {
     @com.google.firebase.firestore.PropertyName <fields>;
 }
 
+# Firestore toObject() için: iç repository DTO'larında @androidx.annotation.Keep kullanın.
+
 # ── Compose ──────────────────────────────────────────────────────────────
+# Geniş tutuluyor: compiler/runtime iç sınıfları; kaldırmadan önce release doğrula.
 -keep class androidx.compose.** { *; }
 -dontwarn androidx.compose.**
 
@@ -153,8 +157,9 @@
 -keep class androidx.security.crypto.** { *; }
 -dontwarn androidx.security.crypto.**
 
-# ── Remove Logging (Optional - for extra security) ──────────────────────
-# Uncomment to remove all Log calls in release
+# ── Logging (release sertleştirme) ───────────────────────────────────────
+# d/v/i kaldırır; w/e ve Throwable’lı overload’lar kalır (hata ayıklama için).
+# İhtiyaç yoksa yorumda bırakın.
 # -assumenosideeffects class android.util.Log {
 #     public static *** d(...);
 #     public static *** v(...);

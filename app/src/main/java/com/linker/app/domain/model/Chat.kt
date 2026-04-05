@@ -18,7 +18,11 @@ data class Chat(
     val isFavorited: Boolean,
     val theme: String?,
     val createdAt: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    /** Grup sohbetlerinde yönetici uid listesi (Firestore `adminIds`). */
+    val groupAdminIds: List<String> = emptyList(),
+    /** Grubu oluşturan kullanıcı (Firestore `createdBy`). */
+    val groupCreatedBy: String? = null
 )
 
 enum class ChatType { PRIVATE, GROUP }

@@ -37,7 +37,6 @@ class LinkerMessagingService : FirebaseMessagingService() {
     @Inject lateinit var firestore: FirebaseFirestore
     @Inject lateinit var auth: FirebaseAuth
 
-    // Service-scoped coroutine scope with proper lifecycle
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
@@ -51,7 +50,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         android.util.Log.d(TAG, "onMessageReceived data=${message.data} notification=${message.notification}")
-        createNotificationChannel()
+        createDefaultChannels()
 
         val data = message.data
         val notificationType = data["type"] ?: "general"
@@ -64,6 +63,34 @@ class LinkerMessagingService : FirebaseMessagingService() {
         }
     }
 
+    /**
+     * Aynı alıcı hesap + konuşma dalı için tek bildirim:
+     * - Özel: recipient + gönderen (uid)
+     * - Grup: recipient + chatId
+     */
+    private fun stableChatNotificationId(recipientId: String, chatId: String, senderId: String, isGroup: Boolean): Int {
+        val branch = if (isGroup) "g|$chatId" else "u|$senderId"
+        val key = "$recipientId|$branch"
+        return key.hashCode() and 0x7fff_fffe
+    }
+
+    private fun ensureMessageChannel(recipientUid: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val channelId = ChatNotificationHelper.channelIdForAccount(recipientUid)
+        val nm = getNotificationManager()
+        if (nm.getNotificationChannel(channelId) != null) return
+        val channel = NotificationChannel(
+            channelId,
+            "Messages",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Direct and group messages for one signed-in account"
+            enableLights(true)
+            enableVibration(true)
+        }
+        nm.createNotificationChannel(channel)
+    }
+
     private fun handleChatNotification(
         message: RemoteMessage,
         data: Map<String, String>
@@ -74,14 +101,29 @@ class LinkerMessagingService : FirebaseMessagingService() {
         val senderName = data["senderName"] ?: data["title"] ?: "New Message"
         val senderId = data["senderId"] ?: ""
         val body = message.notification?.body ?: data["body"] ?: "Sent you a message"
+        val recipientId = data["recipientId"] ?: auth.currentUser?.uid ?: return
+        val chatType = data["chatType"] ?: "PRIVATE"
+        val isGroup = chatType == "GROUP"
 
-        val notificationId = if (senderId.isNotBlank()) senderId.hashCode() else chatId.hashCode()
-        ChatNotificationStore.addIncoming(notificationId, chatId, senderId, senderName, body)
+        ensureMessageChannel(recipientId)
+        val channelId = ChatNotificationHelper.channelIdForAccount(recipientId)
+        val notificationId = stableChatNotificationId(recipientId, chatId, senderId, isGroup)
+
+        ChatNotificationStore.addIncoming(
+            notificationId,
+            recipientUid = recipientId,
+            chatId = chatId,
+            senderId = senderId,
+            senderName = senderName,
+            message = body
+        )
         val state = ChatNotificationStore.get(notificationId)
         if (state != null) {
             val notification = ChatNotificationHelper.buildChatNotification(
                 context = this,
                 notificationId = notificationId,
+                channelId = channelId,
+                targetAccountUid = recipientId,
                 chatId = chatId,
                 messageId = messageId,
                 senderId = senderId,
@@ -91,7 +133,13 @@ class LinkerMessagingService : FirebaseMessagingService() {
             NotificationManagerCompat.from(this).notify(notificationId, notification)
         }
 
-        if (senderId.isNotBlank() && messageId.isNotBlank() && senderId != auth.currentUser?.uid) {
+        val current = auth.currentUser?.uid
+        if (messageId.isNotBlank() &&
+            senderId.isNotBlank() &&
+            senderId != current &&
+            current != null &&
+            current == recipientId
+        ) {
             serviceScope.launch {
                 try {
                     val now = System.currentTimeMillis()
@@ -99,18 +147,18 @@ class LinkerMessagingService : FirebaseMessagingService() {
                         .document(messageId)
                         .update(
                             mapOf(
-                                "messageStatus" to "DELIVERED",
-                                "deliveredAt" to now
+                                "deliveryReceipts.$current" to now,
+                                "deliveredAt" to now,
+                                "messageStatus" to "DELIVERED"
                             )
                         )
                 } catch (e: Exception) {
-                    android.util.Log.w(TAG, "Failed to update deliveredAt: ${e.message}")
+                    android.util.Log.w(TAG, "Failed to update delivery receipt: ${e.message}")
                 }
             }
         }
     }
 
-    // Properly cancel scope when service is destroyed
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
@@ -123,7 +171,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
         type: String
     ) {
         val title = data["title"] ?: message.notification?.title ?: "Linker"
-        val body = message.notification?.body ?: data["body"] ?: "New activity"
+        val body = data["body"] ?: message.notification?.body ?: "New activity"
         val targetId = data["targetEntityId"] ?: ""
 
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -149,7 +197,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             else -> R.drawable.ic_ai_homepage_outline
         }
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, CHANNEL_SOCIAL_ID)
             .setSmallIcon(icon)
             .setContentTitle(title)
             .setContentText(body)
@@ -176,7 +224,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, CHANNEL_SOCIAL_ID)
             .setSmallIcon(R.drawable.ic_ai_homepage_outline)
             .setContentTitle(title)
             .setContentText(body)
@@ -188,18 +236,19 @@ class LinkerMessagingService : FirebaseMessagingService() {
         getNotificationManager().notify(System.currentTimeMillis().toInt(), notification)
     }
 
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Linker Notifications",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Chat messages, likes, comments, and follow notifications"
-                enableLights(true)
-                enableVibration(true)
-            }
-            getNotificationManager().createNotificationChannel(channel)
+    private fun createDefaultChannels() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = getNotificationManager()
+        if (nm.getNotificationChannel(CHANNEL_SOCIAL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_SOCIAL_ID,
+                    "Social & general",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Likes, comments, follows, and general alerts"
+                }
+            )
         }
     }
 
@@ -209,6 +258,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "LinkerMessaging"
-        const val CHANNEL_ID = "linker_notifications"
+        private const val CHANNEL_SOCIAL_ID = "linker_social_general"
+        const val CHANNEL_ID: String = CHANNEL_SOCIAL_ID
     }
 }

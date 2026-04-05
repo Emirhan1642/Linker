@@ -102,7 +102,7 @@ import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatMessageScreen(
     chatId: String,
@@ -181,7 +181,7 @@ fun ChatMessageScreen(
                             if (replied != null) {
                                 ReplyPreviewHologram(
                                     preview = ReplyPreview(
-                                        senderName = if (replied.isSelf) "You" else if (uiState.isGroupChat) "User" else uiState.recipientName,
+                                        senderName = if (replied.isSelf) "You" else replied.senderDisplayName,
                                         previewText = replied.content ?: "[Media]",
                                         isSelf = replied.isSelf
                                     ),
@@ -218,10 +218,22 @@ fun ChatMessageScreen(
                         InfoRow("From → To", messageInfoState.fromTo)
                     }
                     InfoRow("Sent", messageInfoState.sentAt?.let { formatRelativeTimeEn(it) } ?: "-", R.drawable.ic_forward_outline)
-                    if (messageInfoState.deliveredAt != null) {
+                    if (messageInfoState.deliveredReceipts.isNotEmpty()) {
+                        Text("Delivered to", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        messageInfoState.deliveredReceipts.forEach { dr ->
+                            ReceiptParticipantRow(
+                                name = dr.userName,
+                                timeLabel = formatRelativeTimeEn(dr.atMillis),
+                                avatarUrl = dr.avatarUrl,
+                                onAvatarClick = {
+                                    if (dr.userId.isNotBlank()) onNavigateToUserProfile(dr.userId)
+                                }
+                            )
+                        }
+                    } else if (messageInfoState.deliveredAt != null) {
                         InfoRow("Delivered", formatRelativeTimeEn(messageInfoState.deliveredAt!!), R.drawable.ic_box_search_outline)
                     }
-                    if (messageInfoState.readAt != null) {
+                    if (!uiState.isGroupChat && messageInfoState.readReceipts.isEmpty() && messageInfoState.readAt != null) {
                         InfoRow("Seen", formatRelativeTimeEn(messageInfoState.readAt!!), R.drawable.ic_forward_bold)
                     }
                     if (messageInfoState.failedAt != null) {
@@ -231,7 +243,14 @@ fun ChatMessageScreen(
                     if (uiState.isGroupChat && messageInfoState.readReceipts.isNotEmpty()) {
                         Text("Seen By", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         messageInfoState.readReceipts.forEach { rr ->
-                            InfoRow(rr.userName, formatRelativeTimeEn(rr.readAt))
+                            ReceiptParticipantRow(
+                                name = rr.userName,
+                                timeLabel = formatRelativeTimeEn(rr.readAt),
+                                avatarUrl = rr.avatarUrl,
+                                onAvatarClick = {
+                                    if (rr.userId.isNotBlank()) onNavigateToUserProfile(rr.userId)
+                                }
+                            )
                         }
                     }
 
@@ -363,10 +382,8 @@ fun ChatMessageScreen(
                     text = messageText,
                     onTextChange = { messageText = it },
                     replyPreview = replyToMessage?.let { msg ->
-                        val senderName = if (msg.isSelf) {
-                            "You"
-                        } else {
-                            if (uiState.isGroupChat) "User" else uiState.recipientName
+                        val senderName = if (msg.isSelf) "You" else {
+                            if (uiState.isGroupChat) msg.senderDisplayName else uiState.recipientName
                         }
                         ReplyPreview(
                             senderName = senderName,
@@ -483,7 +500,7 @@ fun ChatMessageScreen(
                             val repliedName = if (replied.isSelf) {
                                 "You"
                             } else {
-                                if (uiState.isGroupChat) "User" else uiState.recipientName
+                                if (uiState.isGroupChat) replied.senderDisplayName else uiState.recipientName
                             }
                             Box(
                                 modifier = Modifier.fillMaxWidth(),
@@ -519,36 +536,54 @@ fun ChatMessageScreen(
                             Spacer(modifier = Modifier.height(4.dp))
                         }
 
-                        ChatBubble(
-                            message = MessageItem(
-                                text = msg.content ?: "",
-                                isSelf = msg.isSelf,
-                                status = msg.status,
-                                sessionId = sessionId,
-                                prevIsSelf = prevIsSelf,
-                                nextIsSelf = nextIsSelf
-                            ),
-                            coroutineScope = coroutineScope,
-                            onBubblePositioned = { bounds ->
-                                messageBounds[msg.messageId] = bounds
-                            },
-                            onLongPress = {
-                                selectedMessage = msg
-                                selectedMessageBounds = messageBounds[msg.messageId]
-                                showEmojiPicker = false
-                                showContextMenu = true
-                            },
-                            onSwipeReply = {
-                                replyToMessage = msg
-                                showContextMenu = false
-                                showEmojiPicker = false
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (msg.isSelf) Arrangement.End else Arrangement.Start,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            if (!msg.isSelf && uiState.isGroupChat) {
+                                LinkerAvatar(
+                                    imageUrl = msg.senderAvatarUrl,
+                                    size = 36.dp,
+                                    hasStory = false,
+                                    onClick = {
+                                        if (msg.senderId.isNotBlank()) {
+                                            onNavigateToUserProfile(msg.senderId)
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                             }
-                            ,
-                            isHighlighted = highlightMessageId == msg.messageId,
-                            onHaptic = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                        )
+                            ChatBubble(
+                                message = MessageItem(
+                                    text = msg.content ?: "",
+                                    isSelf = msg.isSelf,
+                                    status = msg.status,
+                                    sessionId = sessionId,
+                                    prevIsSelf = prevIsSelf,
+                                    nextIsSelf = nextIsSelf
+                                ),
+                                coroutineScope = coroutineScope,
+                                onBubblePositioned = { bounds ->
+                                    messageBounds[msg.messageId] = bounds
+                                },
+                                onLongPress = {
+                                    selectedMessage = msg
+                                    selectedMessageBounds = messageBounds[msg.messageId]
+                                    showEmojiPicker = false
+                                    showContextMenu = true
+                                },
+                                onSwipeReply = {
+                                    replyToMessage = msg
+                                    showContextMenu = false
+                                    showEmojiPicker = false
+                                },
+                                isHighlighted = highlightMessageId == msg.messageId,
+                                onHaptic = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            )
+                        }
 
                         val reactionSummary = buildReactionSummary(msg.reactions)
                         if (reactionSummary.isNotEmpty()) {
@@ -869,6 +904,7 @@ private fun MessageBubbleContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatBubble(
     message: MessageItem,
@@ -1123,6 +1159,33 @@ fun ChatInputBar(
 private fun formatMessageTimestamp(timestamp: Long): String {
     if (timestamp == 0L) return ""
     return SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(timestamp))
+}
+
+@Composable
+private fun ReceiptParticipantRow(
+    name: String,
+    timeLabel: String,
+    avatarUrl: String?,
+    onAvatarClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LinkerAvatar(
+            imageUrl = avatarUrl,
+            size = 40.dp,
+            hasStory = false,
+            onClick = onAvatarClick
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(timeLabel, color = TextSecondary, fontSize = 12.sp)
+        }
+    }
 }
 
 @Composable

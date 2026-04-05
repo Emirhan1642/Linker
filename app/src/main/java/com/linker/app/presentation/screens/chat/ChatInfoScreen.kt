@@ -1,8 +1,10 @@
 package com.linker.app.presentation.screens.chat
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -11,7 +13,16 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,7 +37,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.R
+import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.domain.model.ChatType
+import com.linker.app.domain.model.User
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.TextPrimary
@@ -34,6 +47,7 @@ import com.linker.app.presentation.theme.TextSecondary
 import com.linker.app.presentation.theme.LightGray
 import com.linker.app.presentation.theme.AccentGreen
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatInfoScreen(
     chatId: String,
@@ -43,9 +57,101 @@ fun ChatInfoScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var selectedTab by remember { mutableIntStateOf(0) }
+    val context = LocalContext.current
+    val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+    var memberMenuUser by remember { mutableStateOf<User?>(null) }
+    var showEditGroupName by remember { mutableStateOf(false) }
+    var groupNameField by remember { mutableStateOf("") }
 
     LaunchedEffect(chatId) {
         viewModel.loadChatInfo(chatId)
+    }
+
+    LaunchedEffect(uiState.feedbackMessage) {
+        val msg = uiState.feedbackMessage ?: return@LaunchedEffect
+        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        viewModel.clearFeedback()
+    }
+
+    LaunchedEffect(uiState.chatName) {
+        groupNameField = uiState.chatName
+    }
+
+    if (showEditGroupName) {
+        AlertDialog(
+            onDismissRequest = { showEditGroupName = false },
+            title = { Text("Group name", color = TextPrimary) },
+            text = {
+                OutlinedTextField(
+                    value = groupNameField,
+                    onValueChange = { groupNameField = it },
+                    singleLine = true,
+                    label = { Text("Name") }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateGroupName(groupNameField)
+                        showEditGroupName = false
+                    }
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditGroupName = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    memberMenuUser?.let { target ->
+        val isAdmin = uiState.groupAdminIds.contains(target.userId) ||
+            target.userId == uiState.groupCreatedBy
+        val canDemote = uiState.groupAdminIds.contains(target.userId) &&
+            target.userId != uiState.groupCreatedBy &&
+            uiState.groupAdminIds.size > 1
+        AlertDialog(
+            onDismissRequest = { memberMenuUser = null },
+            title = {
+                Text(
+                    target.displayName.ifBlank { target.username },
+                    color = TextPrimary
+                )
+            },
+            text = {
+                Column {
+                    if (!isAdmin) {
+                        TextButton(
+                            onClick = {
+                                viewModel.promoteMember(target.userId)
+                                memberMenuUser = null
+                            }
+                        ) { Text("Make admin", color = AccentGreen) }
+                    }
+                    if (canDemote) {
+                        TextButton(
+                            onClick = {
+                                viewModel.demoteMember(target.userId)
+                                memberMenuUser = null
+                            }
+                        ) { Text("Remove admin role") }
+                    }
+                    if (target.userId != uiState.groupCreatedBy) {
+                        TextButton(
+                            onClick = {
+                                viewModel.removeMember(target.userId)
+                                memberMenuUser = null
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            )
+                        ) { Text("Remove from group") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { memberMenuUser = null }) { Text("Close") }
+            }
+        )
     }
 
     Scaffold(
@@ -125,10 +231,19 @@ fun ChatInfoScreen(
                         ) {
                             Text("Members", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(bottom = 12.dp))
                             uiState.participants.forEach { participant ->
+                                val isMemberAdmin = uiState.groupAdminIds.contains(participant.userId) ||
+                                    participant.userId == uiState.groupCreatedBy
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onNavigateToUserProfile(participant.userId) }
+                                        .combinedClickable(
+                                            onClick = { onNavigateToUserProfile(participant.userId) },
+                                            onLongClick = {
+                                                if (uiState.canManageGroup && participant.userId != currentUserId) {
+                                                    memberMenuUser = participant
+                                                }
+                                            }
+                                        )
                                         .padding(vertical = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -138,15 +253,17 @@ fun ChatInfoScreen(
                                         storyState = com.linker.app.presentation.components.StoryState.NONE
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             participant.displayName.ifBlank { participant.username },
                                             color = TextPrimary,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Medium
                                         )
-                                        if (participant.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid) {
+                                        if (participant.userId == currentUserId) {
                                             Text("You", color = TextSecondary, fontSize = 11.sp)
+                                        } else if (isMemberAdmin) {
+                                            Text("Admin", color = AccentGreen, fontSize = 11.sp)
                                         }
                                     }
                                 }
@@ -166,6 +283,16 @@ fun ChatInfoScreen(
                                 title = "Profile",
                                 subtitle = uiState.otherParticipant?.username,
                                 onClick = { uiState.otherParticipant?.let { onNavigateToUserProfile(it.userId) } }
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
+
+                        if (uiState.isGroupChat && uiState.canManageGroup) {
+                            ChatInfoOption(
+                                icon = R.drawable.ic_user_edit_outline,
+                                title = "Edit group name",
+                                subtitle = uiState.chatName,
+                                onClick = { showEditGroupName = true }
                             )
                             Spacer(modifier = Modifier.height(20.dp))
                         }
@@ -352,10 +479,19 @@ fun ChatInfoScreen(
                     3 -> {
                         // Members tab (group chats only)
                         items(uiState.participants) { participant ->
+                            val isMemberAdmin = uiState.groupAdminIds.contains(participant.userId) ||
+                                participant.userId == uiState.groupCreatedBy
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onNavigateToUserProfile(participant.userId) }
+                                    .combinedClickable(
+                                        onClick = { onNavigateToUserProfile(participant.userId) },
+                                        onLongClick = {
+                                            if (uiState.canManageGroup && participant.userId != currentUserId) {
+                                                memberMenuUser = participant
+                                            }
+                                        }
+                                    )
                                     .padding(horizontal = 24.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -365,15 +501,17 @@ fun ChatInfoScreen(
                                     storyState = com.linker.app.presentation.components.StoryState.NONE
                                 )
                                 Spacer(modifier = Modifier.width(16.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         participant.displayName.ifBlank { participant.username },
                                         color = TextPrimary,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Medium
                                     )
-                                    if (participant.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid) {
+                                    if (participant.userId == currentUserId) {
                                         Text("You", color = AccentGreen, fontSize = 12.sp)
+                                    } else if (isMemberAdmin) {
+                                        Text("Admin", color = AccentGreen, fontSize = 12.sp)
                                     }
                                 }
                             }

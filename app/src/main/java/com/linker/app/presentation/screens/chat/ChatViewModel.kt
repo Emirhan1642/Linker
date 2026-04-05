@@ -5,15 +5,18 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.linker.app.data.repository.ChatRepositoryImpl
-import com.linker.app.data.repository.NoteRepositoryImpl
 import com.linker.app.domain.model.*
+import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.NoteRepository
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.tasks.await
@@ -67,7 +70,10 @@ data class MessageUiModel(
     val replyToMessageId: String? = null,
     val readAt: Long? = null,
     val reactions: Map<String, String> = emptyMap(),
-    val readReceipts: Map<String, Long> = emptyMap()
+    val readReceipts: Map<String, Long> = emptyMap(),
+    val senderId: String = "",
+    val senderDisplayName: String = "User",
+    val senderAvatarUrl: String? = null
 )
 
 data class MessageInfoUiState(
@@ -79,11 +85,19 @@ data class MessageInfoUiState(
     val fromTo: String = "",
     val sentAt: Long? = null,
     val deliveredAt: Long? = null,
+    val deliveredReceipts: List<ParticipantReceiptInfo> = emptyList(),
     val readAt: Long? = null,
     val failedAt: Long? = null,
     val replies: List<ReplyInfo> = emptyList(),
     val reactions: List<ReactionInfo> = emptyList(),
     val readReceipts: List<ReadReceiptInfo> = emptyList()
+)
+
+data class ParticipantReceiptInfo(
+    val userId: String,
+    val userName: String,
+    val atMillis: Long,
+    val avatarUrl: String?
 )
 
 data class ReplyInfo(
@@ -100,8 +114,10 @@ data class ReactionInfo(
 )
 
 data class ReadReceiptInfo(
+    val userId: String,
     val userName: String,
-    val readAt: Long
+    val readAt: Long,
+    val avatarUrl: String?
 )
 
 data class ReactionUserInfo(
@@ -121,8 +137,8 @@ data class MessageReactionsUiState(
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val chatRepository: ChatRepositoryImpl,
-    private val noteRepository: NoteRepositoryImpl,
+    private val chatRepository: ChatRepository,
+    private val noteRepository: NoteRepository,
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth
 ) : ViewModel() {
@@ -180,8 +196,8 @@ class ChatViewModel @Inject constructor(
                         }
                     }
 
-                    val lastMsgText = chatRepository.getChatLastMessageText(chat.chatId)
-                    
+                    val lastMsgText = chat.lastMessage?.content
+
                     ChatUiModel(
                         chatId = chat.chatId,
                         displayName = resolvedName,
@@ -319,7 +335,14 @@ class ChatViewModel @Inject constructor(
                             replyToMessageId = msg.replyToMessage?.messageId,
                             readAt = msg.readAt,
                             reactions = msg.reactions,
-                            readReceipts = emptyMap()
+                            readReceipts = emptyMap(),
+                            senderId = msg.sender.userId,
+                            senderDisplayName = if (msg.sender.userId == currentUserId) {
+                                "You"
+                            } else {
+                                msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
+                            },
+                            senderAvatarUrl = msg.sender.profileImageUrl
                         )
                     }
                 _messageState.value = _messageState.value.copy(
@@ -367,11 +390,18 @@ class ChatViewModel @Inject constructor(
                 } else {
                     resolveUserDisplayName(senderId)
                 }
-                val toName = if (_messageState.value.recipientName.isNotBlank()) _messageState.value.recipientName else "Chat"
-                val fromTo = if (senderId == currentUserId) {
-                    "You \u2192 $toName"
+
+                val fromTo = if (!replyToMessageId.isNullOrBlank()) {
+                    val parentDoc = firestore.collection("messages").document(replyToMessageId).get().await()
+                    val parentSenderId = parentDoc.getString("senderId") ?: ""
+                    val parentName = if (parentSenderId == currentUserId) {
+                        "You"
+                    } else {
+                        resolveUserDisplayName(parentSenderId)
+                    }
+                    "$senderName \u2192 $parentName"
                 } else {
-                    "$senderName \u2192 You"
+                    ""
                 }
 
                 val reactionsMap = (data["reactions"] as? Map<*, *>)?.mapNotNull { (k, v) ->
@@ -391,52 +421,90 @@ class ChatViewModel @Inject constructor(
                     userId to ts
                 }?.toMap() ?: emptyMap()
 
-                val readReceipts = readReceiptsMap.map { (userId, ts) ->
-                    val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
-                    ReadReceiptInfo(userName = name, readAt = ts)
-                }
+                val deliveryMap = (data["deliveryReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+                    val userId = k as? String ?: return@mapNotNull null
+                    val ts = (v as? Number)?.toLong() ?: return@mapNotNull null
+                    userId to ts
+                }?.toMap() ?: emptyMap()
 
-                val repliesSnapshot = firestore.collection("messages")
-                    .whereEqualTo("replyToMessageId", messageId)
-                    .get()
-                    .await()
+                coroutineScope {
+                    val readReceipts = readReceiptsMap.map { (userId, ts) ->
+                        async {
+                            val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
+                            val avatarUrl = try {
+                                firestore.collection("users").document(userId).get().await()
+                                    .getString("profileImageUrl")
+                            } catch (_: Exception) {
+                                null
+                            }
+                            ReadReceiptInfo(
+                                userId = userId,
+                                userName = name,
+                                readAt = ts,
+                                avatarUrl = avatarUrl
+                            )
+                        }
+                    }.awaitAll().sortedByDescending { it.readAt }
 
-                val replies = repliesSnapshot.documents.mapNotNull { replyDoc ->
-                    val replyData = replyDoc.data ?: return@mapNotNull null
-                    val replySenderId = replyData["senderId"] as? String ?: ""
-                    val replySenderName = if (replySenderId == currentUserId) {
-                        "You"
-                    } else {
-                        resolveUserDisplayName(replySenderId)
+                    val deliveredReceipts = deliveryMap.map { (userId, ts) ->
+                        async {
+                            val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
+                            val avatarUrl = try {
+                                firestore.collection("users").document(userId).get().await()
+                                    .getString("profileImageUrl")
+                            } catch (_: Exception) {
+                                null
+                            }
+                            ParticipantReceiptInfo(userId, name, ts, avatarUrl)
+                        }
+                    }.awaitAll().sortedByDescending { it.atMillis }
+
+                    val repliesSnapshot = firestore.collection("messages")
+                        .whereEqualTo("replyToMessageId", messageId)
+                        .get()
+                        .await()
+
+                    val replies = repliesSnapshot.documents.mapNotNull { replyDoc ->
+                        val replyData = replyDoc.data ?: return@mapNotNull null
+                        val replySenderId = replyData["senderId"] as? String ?: ""
+                        val replySenderName = if (replySenderId == currentUserId) {
+                            "You"
+                        } else {
+                            resolveUserDisplayName(replySenderId)
+                        }
+                        val replyAvatar = try {
+                            firestore.collection("users").document(replySenderId).get().await()
+                                .getString("profileImageUrl")
+                        } catch (_: Exception) {
+                            null
+                        }
+                        val preview = (replyData["content"] as? String)?.take(80) ?: "[Media]"
+                        ReplyInfo(
+                            messageId = replyDoc.id,
+                            senderId = replySenderId,
+                            senderName = replySenderName,
+                            preview = preview,
+                            avatarUrl = replyAvatar
+                        )
                     }
-                    val replyAvatar = try {
-                        firestore.collection("users").document(replySenderId).get().await().getString("profileImageUrl")
-                    } catch (_: Exception) { null }
-                    val preview = (replyData["content"] as? String)?.take(80) ?: "[Media]"
-                    ReplyInfo(
-                        messageId = replyDoc.id,
-                        senderId = replySenderId,
-                        senderName = replySenderName,
-                        preview = preview,
-                        avatarUrl = replyAvatar
+
+                    _messageInfoState.value = MessageInfoUiState(
+                        isLoading = false,
+                        messageId = messageId,
+                        replyToMessageId = replyToMessageId,
+                        content = content,
+                        isSelf = isSelf,
+                        fromTo = fromTo,
+                        sentAt = createdAt,
+                        deliveredAt = deliveredAt,
+                        deliveredReceipts = deliveredReceipts,
+                        readAt = readAt,
+                        failedAt = failedAt,
+                        replies = replies,
+                        reactions = reactions,
+                        readReceipts = readReceipts
                     )
                 }
-
-                _messageInfoState.value = MessageInfoUiState(
-                    isLoading = false,
-                    messageId = messageId,
-                    replyToMessageId = replyToMessageId,
-                    content = content,
-                    isSelf = isSelf,
-                    fromTo = fromTo,
-                    sentAt = createdAt,
-                    deliveredAt = deliveredAt,
-                    readAt = readAt,
-                    failedAt = failedAt,
-                    replies = replies,
-                    reactions = reactions,
-                    readReceipts = readReceipts
-                )
             } catch (_: Exception) {
                 _messageInfoState.value = MessageInfoUiState(isLoading = false)
             }

@@ -1,9 +1,18 @@
 package com.linker.app
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.linker.app.BuildConfig
 import com.linker.app.core.security.SecurityManager
+import com.linker.app.core.work.MessageQueueWorker
 import dagger.hilt.android.HiltAndroidApp
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -13,9 +22,15 @@ import javax.inject.Inject
  * Initializes core services and configurations.
  */
 @HiltAndroidApp
-class LinkerApp : Application() {
+class LinkerApp : Application(), Configuration.Provider {
 
     @Inject lateinit var securityManager: SecurityManager
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 
     override fun onCreate() {
         super.onCreate()
@@ -31,8 +46,23 @@ class LinkerApp : Application() {
             )
         }
 
+        scheduleMessageQueueSync()
+
         // TODO: Initialize crash reporting (e.g., Firebase Crashlytics)
         // TODO: Initialize analytics
-        // TODO: Set up WorkManager for background tasks
+    }
+
+    private fun scheduleMessageQueueSync() {
+        val constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .build()
+        val request = PeriodicWorkRequestBuilder<MessageQueueWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(constraints)
+            .build()
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "linker_message_queue_sync",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
     }
 }

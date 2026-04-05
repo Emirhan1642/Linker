@@ -57,7 +57,7 @@ sealed class Result<out T> {
     }
 
     /** Returns the data or a default value if not [Success]. */
-    fun getOrDefault(default: T): T = (this as? Success)?.data ?: default
+    fun getOrDefault(default: @UnsafeVariance T): T = (this as? Success)?.data ?: default
 
     /**
      * Transforms the [Success] data with [transform], leaving [Error] and
