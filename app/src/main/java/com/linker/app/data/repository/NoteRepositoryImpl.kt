@@ -19,7 +19,7 @@ import javax.inject.Singleton
 class NoteRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth
-) {
+) : NoteRepository {
     private val notesCollection = firestore.collection("notes")
 
     private val currentUserId: String

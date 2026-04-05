@@ -47,5 +47,22 @@ abstract class LinkerDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE users ADD COLUMN hideFollowLists INTEGER NOT NULL DEFAULT 0")
             }
         }
+
+        // ✅ NEW: Migration 4 to 5 - Added message reply and reaction support
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add reply support to messages
+                db.execSQL("ALTER TABLE messages ADD COLUMN replyToMessageId TEXT")
+                
+                // Add reaction support (stored as JSON in new column)
+                db.execSQL("ALTER TABLE messages ADD COLUMN reactions TEXT")
+                
+                // Add message status tracking
+                db.execSQL("ALTER TABLE messages ADD COLUMN messageStatus TEXT NOT NULL DEFAULT 'SENT'")
+                
+                // Add read receipts tracking
+                db.execSQL("ALTER TABLE messages ADD COLUMN readReceipts TEXT")
+            }
+        }
     }
 }

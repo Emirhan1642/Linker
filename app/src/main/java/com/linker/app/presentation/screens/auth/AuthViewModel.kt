@@ -18,6 +18,7 @@ import com.linker.app.domain.usecase.auth.SignInWithGoogleUseCase
 import com.linker.app.domain.usecase.auth.SignOutUseCase
 import com.linker.app.domain.usecase.auth.VerifyPhoneOtpUseCase
 import com.linker.app.core.notification.PushTokenRegistrar
+import com.linker.app.core.security.CredentialEncoder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -265,11 +266,10 @@ class AuthViewModel @Inject constructor(
     //     set edilemez (SDK bunu desteklemiyor)
     //
     // GÜVENLIK:
-    //   • "email::password" string'i Android Keystore AES-256-GCM ile şifrelenir
+    //   • CredentialEncoder kullanarak delimiter-free binary encoding
+    //   • Android Keystore AES-256-GCM ile şifrelenir
     //   • EncryptedSharedPreferences'da tutulur (ikinci katman şifreleme)
     //   • Anahtar material hiç bellekte/diskte açık tutulmaz
-    //   • Geçiş tamamlanır tamamlanmaz plain ByteArray sıfırlanır
-    //   • UI katmanına credential asla gönderilmez (encryptedToken = "" döner)
     //
     // KISIT: Google/Phone auth ile eklenen hesaplar için şifre yoktur.
     //        Bu hesaplar için henüz otomatik geçiş desteklenmiyor.
@@ -288,8 +288,8 @@ class AuthViewModel @Inject constructor(
                 return
             }
 
-            // Credential: "email::password"  (:: ayırıcı — şifreler : içerebilir)
-            val credential = "$email::$password"
+            // ✅ SECURITY: Use CredentialEncoder for delimiter-free encoding
+            val credential = CredentialEncoder.encode(email, password)
 
             accountRepository.addSession(
                 AccountSession(
@@ -297,10 +297,13 @@ class AuthViewModel @Inject constructor(
                     displayName    = displayName,
                     username       = username,
                     avatarUrl      = avatarUrl,
-                    encryptedToken = credential,   // repository Keystore ile şifreler
+                    encryptedToken = credential,   // Keystore ile şifrelenir
                     lastUsedAt     = System.currentTimeMillis()
                 )
             )
+
+            // Clear Base64 string from memory (best effort)
+            // Note: String immutability means we can't truly clear it, but we can drop references
         } catch (e: Exception) {
             android.util.Log.w("AuthViewModel", "saveSession failed: ${e.message}")
         }

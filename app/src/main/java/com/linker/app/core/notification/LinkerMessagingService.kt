@@ -17,6 +17,7 @@ import com.linker.app.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -36,12 +37,13 @@ class LinkerMessagingService : FirebaseMessagingService() {
     @Inject lateinit var firestore: FirebaseFirestore
     @Inject lateinit var auth: FirebaseAuth
 
-    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Service-scoped coroutine scope with proper lifecycle
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         android.util.Log.d(TAG, "FCM token refreshed: $token")
-        ioScope.launch {
+        serviceScope.launch {
             pushTokenRegistrar.registerToken(token)
         }
     }
@@ -90,7 +92,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
         }
 
         if (senderId.isNotBlank() && messageId.isNotBlank() && senderId != auth.currentUser?.uid) {
-            ioScope.launch {
+            serviceScope.launch {
                 try {
                     val now = System.currentTimeMillis()
                     firestore.collection("messages")
@@ -106,6 +108,13 @@ class LinkerMessagingService : FirebaseMessagingService() {
                 }
             }
         }
+    }
+
+    // Properly cancel scope when service is destroyed
+    override fun onDestroy() {
+        super.onDestroy()
+        serviceScope.cancel()
+        android.util.Log.d(TAG, "Service destroyed, scope cancelled")
     }
 
     private fun handleSocialNotification(

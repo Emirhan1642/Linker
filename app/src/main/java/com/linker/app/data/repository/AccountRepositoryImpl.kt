@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.google.firebase.auth.FirebaseAuth
+import com.linker.app.core.security.CredentialEncoder
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.safeCall
 import com.linker.app.domain.model.AccountSession
@@ -43,7 +44,7 @@ class AccountRepositoryImpl @Inject constructor(
         const val IV_LENGTH         = 12
         const val PREFS_FILE        = "linker_accounts_v2"
         const val KEY_JSON          = "sessions_json"
-        const val SEP               = "::"
+        // ✅ REMOVED: const val SEP = "::" - No longer using delimiter-based format
     }
 
     // ─── ÖNEMLI: Kotlin property'leri yukarıdan aşağıya initialize edilir.
@@ -153,13 +154,10 @@ class AccountRepositoryImpl @Inject constructor(
 
             val plainBytes = decryptWithKeystore(dto.encryptedToken)
             try {
-                val plain  = String(plainBytes, Charsets.UTF_8)
-                val sepIdx = plain.indexOf(SEP)
-                if (sepIdx == -1) throw IllegalStateException(
-                    "Geçersiz credential formatı. Hesabı kaldırıp tekrar ekleyin."
-                )
-                val email    = plain.substring(0, sepIdx)
-                val password = plain.substring(sepIdx + SEP.length)
+                // ✅ SECURITY: Use CredentialEncoder for delimiter-free decoding
+                val credential = String(plainBytes, Charsets.UTF_8)
+                val (email, password) = CredentialEncoder.decode(credential)
+
                 firebaseAuth.signInWithEmailAndPassword(email, password).await()
                 Log.d(TAG, "switchToAccount: giriş başarılı uid=$uid")
             } finally {

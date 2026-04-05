@@ -19,8 +19,12 @@ object DatabaseModule {
     @Singleton
     fun provideLinkerDatabase(@ApplicationContext context: Context): LinkerDatabase {
         return Room.databaseBuilder(context, LinkerDatabase::class.java, LinkerDatabase.DATABASE_NAME)
-            .addMigrations(LinkerDatabase.MIGRATION_2_3, LinkerDatabase.MIGRATION_3_4)
-            .fallbackToDestructiveMigration()
+            .addMigrations(
+                LinkerDatabase.MIGRATION_2_3,
+                LinkerDatabase.MIGRATION_3_4,
+                LinkerDatabase.MIGRATION_4_5
+            )
+            // ✅ REMOVED: fallbackToDestructiveMigration() - Data loss risk
             .build()
     }
 
