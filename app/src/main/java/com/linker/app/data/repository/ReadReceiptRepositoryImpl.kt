@@ -12,6 +12,8 @@ import javax.inject.Singleton
 /**
  * Implementation of ReadReceiptRepository
  * Handles read receipts and delivery receipts
+ *
+ * Firestore path: chats/{chatId}/messages/{messageId}
  */
 @Singleton
 class ReadReceiptRepositoryImpl @Inject constructor(
@@ -19,14 +21,15 @@ class ReadReceiptRepositoryImpl @Inject constructor(
     private val auth: FirebaseAuth
 ) : ReadReceiptRepository {
 
-    private val messagesCollection = firestore.collection("messages")
-
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
 
+    private fun messagesRef(chatId: String) =
+        firestore.collection("chats").document(chatId).collection("messages")
+
     override suspend fun markAsRead(messageId: String, chatId: String): Result<Unit> = safeCall {
         val now = System.currentTimeMillis()
-        messagesCollection.document(messageId).update(
+        messagesRef(chatId).document(messageId).update(
             mapOf(
                 "readReceipts.$currentUserId" to now,
                 "readAt" to now,
@@ -36,8 +39,7 @@ class ReadReceiptRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markChatAsReadUpTo(chatId: String, timestamp: Long): Result<Unit> = safeCall {
-        messagesCollection
-            .whereEqualTo("chatId", chatId)
+        messagesRef(chatId)
             .whereLessThanOrEqualTo("createdAt", timestamp)
             .get()
             .await()
@@ -51,8 +53,8 @@ class ReadReceiptRepositoryImpl @Inject constructor(
             }
     }
 
-    override suspend fun getReadReceipts(messageId: String): Result<Map<String, Long>> = safeCall {
-        val doc = messagesCollection.document(messageId).get().await()
+    override suspend fun getReadReceipts(chatId: String, messageId: String): Result<Map<String, Long>> = safeCall {
+        val doc = messagesRef(chatId).document(messageId).get().await()
         val receipts = doc.get("readReceipts") as? Map<String, Any> ?: emptyMap()
         receipts.mapNotNull { (k, v) ->
             val key = k as? String ?: return@mapNotNull null
@@ -61,8 +63,8 @@ class ReadReceiptRepositoryImpl @Inject constructor(
         }.toMap()
     }
 
-    override suspend fun getDeliveryReceipts(messageId: String): Result<Map<String, Long>> = safeCall {
-        val doc = messagesCollection.document(messageId).get().await()
+    override suspend fun getDeliveryReceipts(chatId: String, messageId: String): Result<Map<String, Long>> = safeCall {
+        val doc = messagesRef(chatId).document(messageId).get().await()
         val receipts = doc.get("deliveryReceipts") as? Map<String, Any> ?: emptyMap()
         receipts.mapNotNull { (k, v) ->
             val key = k as? String ?: return@mapNotNull null

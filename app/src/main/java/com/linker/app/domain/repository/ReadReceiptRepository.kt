@@ -14,8 +14,8 @@ interface ReadReceiptRepository {
     suspend fun markChatAsReadUpTo(chatId: String, timestamp: Long): Result<Unit>
 
     /** Get read receipts for a message */
-    suspend fun getReadReceipts(messageId: String): Result<Map<String, Long>>
+    suspend fun getReadReceipts(chatId: String, messageId: String): Result<Map<String, Long>>
 
     /** Get delivery receipts for a message */
-    suspend fun getDeliveryReceipts(messageId: String): Result<Map<String, Long>>
+    suspend fun getDeliveryReceipts(chatId: String, messageId: String): Result<Map<String, Long>>
 }

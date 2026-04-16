@@ -31,6 +31,10 @@ class NotificationRepositoryImpl @Inject constructor(
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
 
+    /** Returns the notifications subcollection for the current user */
+    private fun notificationsRef() =
+        firestore.collection("users").document(currentUserId).collection("notifications")
+
     override fun observeNotifications(): Flow<List<Notification>> = callbackFlow {
         if (currentUserId.isBlank()) {
             trySend(emptyList())
@@ -38,8 +42,7 @@ class NotificationRepositoryImpl @Inject constructor(
             return@callbackFlow
         }
 
-        val listener = firestore.collection("notifications")
-            .whereEqualTo("recipientId", currentUserId)
+        val listener = notificationsRef()
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -89,8 +92,7 @@ class NotificationRepositoryImpl @Inject constructor(
             return@callbackFlow
         }
 
-        val listener = firestore.collection("notifications")
-            .whereEqualTo("recipientId", currentUserId)
+        val listener = notificationsRef()
             .whereEqualTo("isRead", false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
@@ -103,15 +105,14 @@ class NotificationRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markAsRead(notificationId: String): Result<Unit> = safeCall {
-        firestore.collection("notifications").document(notificationId)
+        notificationsRef().document(notificationId)
             .update("isRead", true).await()
         notificationDao.markAsRead(notificationId)
     }
 
     override suspend fun markAllAsRead(): Result<Unit> = safeCall {
         val batch = firestore.batch()
-        val query = firestore.collection("notifications")
-            .whereEqualTo("recipientId", currentUserId)
+        val query = notificationsRef()
             .whereEqualTo("isRead", false)
             .get()
             .await()
@@ -124,8 +125,7 @@ class NotificationRepositoryImpl @Inject constructor(
     }
 
     override suspend fun clearAll(): Result<Unit> = safeCall {
-        val query = firestore.collection("notifications")
-            .whereEqualTo("recipientId", currentUserId)
+        val query = notificationsRef()
             .get()
             .await()
 

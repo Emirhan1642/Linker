@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -143,15 +144,30 @@ class LinkerMessagingService : FirebaseMessagingService() {
             serviceScope.launch {
                 try {
                     val now = System.currentTimeMillis()
-                    firestore.collection("messages")
-                        .document(messageId)
-                        .update(
+                    // chatId is in the FCM payload; use it directly for subcollection path
+                    if (chatId.isNotBlank()) {
+                        firestore.collection("chats").document(chatId)
+                            .collection("messages").document(messageId)
+                            .update(
+                                mapOf(
+                                    "deliveryReceipts.$current" to now,
+                                    "deliveredAt" to now,
+                                    "messageStatus" to "DELIVERED"
+                                )
+                            )
+                    } else {
+                        // Fallback: locate via collectionGroup
+                        val snap = firestore.collectionGroup("messages")
+                            .whereEqualTo("messageId", messageId)
+                            .limit(1).get().await()
+                        snap.documents.firstOrNull()?.reference?.update(
                             mapOf(
                                 "deliveryReceipts.$current" to now,
                                 "deliveredAt" to now,
                                 "messageStatus" to "DELIVERED"
                             )
                         )
+                    }
                 } catch (e: Exception) {
                     android.util.Log.w(TAG, "Failed to update delivery receipt: ${e.message}")
                 }

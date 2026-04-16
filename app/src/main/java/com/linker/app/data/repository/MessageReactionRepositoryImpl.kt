@@ -14,6 +14,8 @@ import javax.inject.Singleton
 /**
  * Implementation of MessageReactionRepository
  * Handles message reactions (emoji reactions)
+ *
+ * Firestore path: chats/{chatId}/messages/{messageId}
  */
 @Singleton
 class MessageReactionRepositoryImpl @Inject constructor(
@@ -22,29 +24,30 @@ class MessageReactionRepositoryImpl @Inject constructor(
     private val userCache: UserCache
 ) : MessageReactionRepository {
 
-    private val messagesCollection = firestore.collection("messages")
-
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
 
-    override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
-        val doc = messagesCollection.document(messageId).get().await()
+    private fun messagesRef(chatId: String) =
+        firestore.collection("chats").document(chatId).collection("messages")
+
+    override suspend fun reactToMessage(chatId: String, messageId: String, emoji: String?): Result<Unit> = safeCall {
+        val doc = messagesRef(chatId).document(messageId).get().await()
         val reactions = (doc.get("reactions") as? Map<String, String>)?.toMutableMap() ?: mutableMapOf()
         if (emoji == null) {
             reactions.remove(currentUserId)
         } else {
             reactions[currentUserId] = emoji
         }
-        messagesCollection.document(messageId).update("reactions", reactions).await()
+        messagesRef(chatId).document(messageId).update("reactions", reactions).await()
     }
 
-    override suspend fun getMessageReactions(messageId: String): Result<Map<String, String>> = safeCall {
-        val doc = messagesCollection.document(messageId).get().await()
+    override suspend fun getMessageReactions(chatId: String, messageId: String): Result<Map<String, String>> = safeCall {
+        val doc = messagesRef(chatId).document(messageId).get().await()
         (doc.get("reactions") as? Map<String, String>) ?: emptyMap()
     }
 
-    override suspend fun getReactionDetails(messageId: String): Result<List<ReactionDetail>> = safeCall {
-        val reactionsResult = getMessageReactions(messageId)
+    override suspend fun getReactionDetails(chatId: String, messageId: String): Result<List<ReactionDetail>> = safeCall {
+        val reactionsResult = getMessageReactions(chatId, messageId)
         if (reactionsResult is Result.Error) throw Exception("Failed to get reactions")
 
         val reactions = (reactionsResult as Result.Success).data

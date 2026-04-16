@@ -57,8 +57,11 @@ class MessageRepositoryImpl @Inject constructor(
     private val supabaseNotificationApi: SupabaseNotificationApi
 ) : MessageRepository {
 
-    private val messagesCollection = firestore.collection("messages")
     private val chatsCollection = firestore.collection("chats")
+
+    /** Returns the messages subcollection reference for a given chat */
+    private fun messagesRef(chatId: String) =
+        chatsCollection.document(chatId).collection("messages")
 
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
@@ -74,8 +77,7 @@ class MessageRepositoryImpl @Inject constructor(
 
     override fun observeMessages(chatId: String): Flow<List<Message>> {
         val firestoreFlow = callbackFlow {
-            val listener = messagesCollection
-                .whereEqualTo("chatId", chatId)
+            val listener = messagesRef(chatId)
                 .orderBy("createdAt", Query.Direction.ASCENDING)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
@@ -98,9 +100,15 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getMessageById(messageId: String): Result<Message> = safeCall {
-        val doc = messagesCollection.document(messageId).get().await()
-        val data = doc.data ?: throw Exception("Message not found")
-        mapToMessageSync(doc.id, data) ?: throw Exception("Message not found")
+        // Requires chatId — search across all chats via collectionGroup
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1)
+            .get()
+            .await()
+        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
+        mapToMessageSync(doc.id, doc.data ?: throw Exception("Message not found"))
+            ?: throw Exception("Message parse failed")
     }
 
     override suspend fun getMessagesPaged(
@@ -108,8 +116,7 @@ class MessageRepositoryImpl @Inject constructor(
         beforeTimestamp: Long?,
         limit: Int
     ): Result<List<Message>> = safeCall {
-        var query = messagesCollection
-            .whereEqualTo("chatId", chatId)
+        var query = messagesRef(chatId)
             .whereEqualTo("isDeleted", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(limit.toLong())
@@ -279,7 +286,7 @@ class MessageRepositoryImpl @Inject constructor(
         now: Long
     ) {
         val batch = firestore.batch()
-        batch.set(messagesCollection.document(messageId), messageData)
+        batch.set(messagesRef(chatId).document(messageId), messageData)
         val displayText = content ?: "[Media]"
         val chatUpdates = mutableMapOf<String, Any>(
             "lastMessageText" to displayText,
@@ -492,20 +499,21 @@ class MessageRepositoryImpl @Inject constructor(
             )
             android.util.Log.d("MessageRepository", "Notification sent to $recipientUserId")
 
-            saveNotificationToFirestoreAndLocal(senderName, messageText, chatId, messageId)
+            saveNotificationToFirestoreAndLocal(recipientUserId, senderName, messageText, chatId, messageId)
         } catch (e: Exception) {
             android.util.Log.w("MessageRepository", "Failed to send notification: ${e.message}")
         }
     }
 
     private suspend fun saveNotificationToFirestoreAndLocal(
+        recipientUserId: String,
         senderName: String,
         messageText: String,
         chatId: String,
         messageId: String
     ) {
+        val now = System.currentTimeMillis()
         val notificationData = hashMapOf(
-            "recipientId" to "",
             "senderId" to currentUserId,
             "type" to "MESSAGE",
             "title" to senderName,
@@ -513,9 +521,13 @@ class MessageRepositoryImpl @Inject constructor(
             "chatId" to chatId,
             "messageId" to messageId,
             "isRead" to false,
-            "createdAt" to System.currentTimeMillis()
+            "createdAt" to now
         )
-        firestore.collection("notifications").add(notificationData).await()
+        // Write to users/{recipientId}/notifications subcollection
+        firestore.collection("users").document(recipientUserId)
+            .collection("notifications")
+            .add(notificationData)
+            .await()
 
         val localNotification = com.linker.app.data.local.entity.NotificationEntity(
             notificationId = UUID.randomUUID().toString(),
@@ -528,14 +540,19 @@ class MessageRepositoryImpl @Inject constructor(
             imageUrl = null,
             actionUrl = "/chat/$chatId",
             isRead = false,
-            createdAt = System.currentTimeMillis()
+            createdAt = now
         )
         notificationRepository.insertNotification(localNotification)
     }
 
     override suspend fun editMessage(messageId: String, newContent: String): Result<Unit> = safeCall {
         val now = System.currentTimeMillis()
-        messagesCollection.document(messageId).update(
+        // Locate message via collectionGroup to get chatId
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1).get().await()
+        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
+        doc.reference.update(
             mapOf(
                 "content" to newContent,
                 "isEdited" to true,
@@ -546,10 +563,14 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
-        val messageDoc = messagesCollection.document(messageId).get().await()
-        val chatId = messageDoc.getString("chatId") ?: ""
+        // Locate message via collectionGroup to get chatId
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1).get().await()
+        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
+        val chatId = doc.getString("chatId") ?: ""
 
-        messagesCollection.document(messageId).update(
+        doc.reference.update(
             mapOf(
                 "isDeleted" to true,
                 "deletedForEveryone" to forEveryone
@@ -563,8 +584,7 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     private suspend fun updateChatLastMessageAfterDeletion(chatId: String) {
-        val lastSnapshot = messagesCollection
-            .whereEqualTo("chatId", chatId)
+        val lastSnapshot = messagesRef(chatId)
             .whereEqualTo("isDeleted", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(1)
@@ -604,7 +624,8 @@ class MessageRepositoryImpl @Inject constructor(
             .first()
             .forEach { entity ->
                 try {
-                    messagesCollection.document(entity.messageId).update(
+                    // Use chatId from local entity to target the correct subcollection
+                    messagesRef(entity.chatId).document(entity.messageId).update(
                         mapOf(
                             "messageStatus" to "SENT",
                             "updatedAt" to now
@@ -628,7 +649,7 @@ class MessageRepositoryImpl @Inject constructor(
                 // Update queue status
                 messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENDING, now)
 
-                // Reconstruct payload and push to Firestore
+                // Reconstruct payload and push to Firestore subcollection
                 val messageData = buildFirestoreMessagePayload(
                     messageId = messageEntity.messageId,
                     chatId = messageEntity.chatId,
@@ -719,8 +740,7 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun searchMessages(chatId: String, query: String): Result<List<Message>> = safeCall {
-        val snapshot = messagesCollection
-            .whereEqualTo("chatId", chatId)
+        val snapshot = messagesRef(chatId)
             .whereGreaterThanOrEqualTo("content", query)
             .whereLessThanOrEqualTo("content", query + "\uf8ff")
             .get()

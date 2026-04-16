@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
+    <!-- Known Kotlin 2.x / Lifecycle alpha binary incompatibility with Lint -->
     <issue id="NullSafeMutableLiveData" severity="ignore" />
+    <!-- Suppress RememberInCompositionDetector crash (IncompatibleClassChangeError with AGP 8.7+) -->
+    <issue id="RememberInComposition" severity="ignore" />
 </lint>

@@ -5,14 +5,14 @@ minSdk = "26"
 targetSdk = "35"
 
 # Core
-agp = "8.7.3"
+agp = "8.8.2"
 kotlin = "2.1.0"
 coreKtx = "1.15.0"
-lifecycleRuntimeKtx = "2.9.0-alpha10"
+lifecycleRuntimeKtx = "2.8.7"
 activityCompose = "1.9.3"
 
 # Compose
-composeBom = "2024.12.01"
+composeBom = "2025.01.01"
 composeNavigation = "2.8.5"
 
 # Dependency Injection

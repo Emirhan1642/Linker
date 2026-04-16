@@ -8,13 +8,13 @@ import com.linker.app.core.util.Result
 interface MessageReactionRepository {
 
     /** React to a message with emoji (null to remove reaction) */
-    suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit>
+    suspend fun reactToMessage(chatId: String, messageId: String, emoji: String?): Result<Unit>
 
     /** Get reactions for a message */
-    suspend fun getMessageReactions(messageId: String): Result<Map<String, String>>
+    suspend fun getMessageReactions(chatId: String, messageId: String): Result<Map<String, String>>
 
     /** Get detailed reaction info with user details */
-    suspend fun getReactionDetails(messageId: String): Result<List<ReactionDetail>>
+    suspend fun getReactionDetails(chatId: String, messageId: String): Result<List<ReactionDetail>>
 }
 
 data class ReactionDetail(

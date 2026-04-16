@@ -51,7 +51,10 @@ class ChatRepositoryImpl @Inject constructor(
 ) : ChatRepository {
 
     private val chatsCollection = firestore.collection("chats")
-    private val messagesCollection = firestore.collection("messages")
+
+    /** Returns the messages subcollection reference for a given chat */
+    private fun messagesRef(chatId: String) =
+        chatsCollection.document(chatId).collection("messages")
 
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
@@ -347,8 +350,13 @@ class ChatRepositoryImpl @Inject constructor(
         messageRepository.retryFailedMessages()
 
     // ✅ DELEGATED: Reaction operations to MessageReactionRepository
-    override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = 
-        messageReactionRepository.reactToMessage(messageId, emoji)
+    override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
+        // Requires chatId - find it via collectionGroup then delegate
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId).limit(1).get().await()
+        val chatId = snapshot.documents.firstOrNull()?.getString("chatId") ?: ""
+        messageReactionRepository.reactToMessage(chatId, messageId, emoji)
+    }
 
     // ✅ DELEGATED: Read receipt operations to ReadReceiptRepository
     override suspend fun markChatAsRead(chatId: String): Result<Unit> = safeCall {
@@ -802,8 +810,7 @@ class ChatRepositoryImpl @Inject constructor(
         beforeTimestamp: Long?,
         limit: Int
     ): Result<List<Message>> = safeCall {
-        var query = messagesCollection
-            .whereEqualTo("chatId", chatId)
+        var query = messagesRef(chatId)
             .whereEqualTo("isDeleted", false)
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(limit.toLong())
@@ -820,20 +827,28 @@ class ChatRepositoryImpl @Inject constructor(
 
     // ✅ Helper: Get single message by ID
     override suspend fun getMessageById(messageId: String): Message {
-        val doc = messagesCollection.document(messageId).get().await()
-        val data = doc.data ?: throw Exception("Message not found")
-        return mapToMessageSync(doc.id, data)
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1).get().await()
+        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
+        return mapToMessageSync(doc.id, doc.data ?: throw Exception("Message not found"))
     }
 
     // ✅ Helper: Get message reactions
     override suspend fun getMessageReactions(messageId: String): Map<String, String> {
-        val doc = messagesCollection.document(messageId).get().await()
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1).get().await()
+        val doc = snapshot.documents.firstOrNull() ?: return emptyMap()
         return (doc.get("reactions") as? Map<String, String>) ?: emptyMap()
     }
 
     // ✅ Helper: Get read receipts for a message
     override suspend fun getReadReceipts(messageId: String): Map<String, Long> {
-        val doc = messagesCollection.document(messageId).get().await()
+        val snapshot = firestore.collectionGroup("messages")
+            .whereEqualTo("messageId", messageId)
+            .limit(1).get().await()
+        val doc = snapshot.documents.firstOrNull() ?: return emptyMap()
         val receipts = doc.get("readReceipts") as? Map<String, Any> ?: emptyMap()
         return receipts.mapNotNull { (k, v) ->
             val key = k as? String ?: return@mapNotNull null
