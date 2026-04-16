@@ -1,28 +1,28 @@
 package com.linker.app.domain.model
 
 data class User(
-    val userId: String,
-    val username: String,
-    val displayName: String,
-    val email: String?,
-    val phoneNumber: String?,
-    val bio: String?,
-    val profileImageUrl: String?,
-    val coverImageUrl: String?,
-    val isVerified: Boolean,
-    val followersCount: Int,
-    val followingCount: Int,
-    val likesCount: Int,
-    val isFollowing: Boolean,
-    val isFollowedBy: Boolean,
-    val isBlocked: Boolean,
-    val isMuted: Boolean,
+    val userId: String = "",
+    val username: String = "",
+    val displayName: String = "",
+    val email: String? = null,
+    val phoneNumber: String? = null,
+    val bio: String? = null,
+    val profileImageUrl: String? = null,
+    val coverImageUrl: String? = null,
+    val isVerified: Boolean = false,
+    val followersCount: Int = 0,
+    val followingCount: Int = 0,
+    val likesCount: Int = 0,
+    val isFollowing: Boolean = false,
+    val isFollowedBy: Boolean = false,
+    val isBlocked: Boolean = false,
+    val isMuted: Boolean = false,
     val isPrivate: Boolean = false,
     val followRequestSent: Boolean = false,
     /** true → takip/takipçi listeleri herkes için gizli */
     val hideFollowLists: Boolean = false,
-    val createdAt: Long,
-    val updatedAt: Long
+    val createdAt: Long = 0,
+    val updatedAt: Long = 0
 )
 
 enum class FollowState {

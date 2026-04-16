@@ -351,10 +351,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     // ✅ DELEGATED: Reaction operations to MessageReactionRepository
     override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
-        // Requires chatId - find it via collectionGroup then delegate
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId).limit(1).get().await()
-        val chatId = snapshot.documents.firstOrNull()?.getString("chatId") ?: ""
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        val chatId = snap.getString("chatId") ?: ""
+        if (chatId.isBlank()) throw Exception("Message chatId missing")
         messageReactionRepository.reactToMessage(chatId, messageId, emoji)
     }
 
@@ -377,6 +377,27 @@ class ChatRepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private suspend fun resolveMessageRef(messageId: String): com.google.firebase.firestore.DocumentReference {
+        val local = messageDao.getMessageById(messageId)
+        if (local != null) {
+            return messagesRef(local.chatId).document(messageId)
+        }
+        if (currentUserId.isBlank()) throw Exception("Not signed in")
+
+        val chatSnapshots = chatsCollection
+            .whereArrayContains("participantIds", currentUserId)
+            .get()
+            .await()
+
+        for (chatDoc in chatSnapshots.documents) {
+            val ref = messagesRef(chatDoc.id).document(messageId)
+            val snap = ref.get().await()
+            if (snap.exists()) return ref
+        }
+
+        throw Exception("Message not found")
     }
 
     private fun mergeMessagesById(local: List<Message>, remote: List<Message>): List<Message> {
@@ -827,29 +848,26 @@ class ChatRepositoryImpl @Inject constructor(
 
     // ✅ Helper: Get single message by ID
     override suspend fun getMessageById(messageId: String): Message {
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1).get().await()
-        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
-        return mapToMessageSync(doc.id, doc.data ?: throw Exception("Message not found"))
+        return when (val result = messageRepository.getMessageById(messageId)) {
+            is Result.Success -> result.data
+            is Result.Error -> throw Exception(result.message ?: "Message not found")
+            is Result.Loading -> throw Exception("Message loading")
+        }
     }
 
     // ✅ Helper: Get message reactions
     override suspend fun getMessageReactions(messageId: String): Map<String, String> {
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1).get().await()
-        val doc = snapshot.documents.firstOrNull() ?: return emptyMap()
-        return (doc.get("reactions") as? Map<String, String>) ?: emptyMap()
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        @Suppress("UNCHECKED_CAST")
+        return (snap.get("reactions") as? Map<String, String>) ?: emptyMap()
     }
 
     // ✅ Helper: Get read receipts for a message
     override suspend fun getReadReceipts(messageId: String): Map<String, Long> {
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1).get().await()
-        val doc = snapshot.documents.firstOrNull() ?: return emptyMap()
-        val receipts = doc.get("readReceipts") as? Map<String, Any> ?: emptyMap()
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        val receipts = snap.get("readReceipts") as? Map<String, Any> ?: emptyMap()
         return receipts.mapNotNull { (k, v) ->
             val key = k as? String ?: return@mapNotNull null
             val value = (v as? Number)?.toLong() ?: return@mapNotNull null

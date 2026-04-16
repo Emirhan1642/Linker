@@ -301,20 +301,28 @@ fun ChatMessageScreen(
                                 uiState.messages.indexOfFirst { it.messageId == id }
                             } ?: -1
 
-                            if (repliedIndex >= 0) {
-                                val replied = uiState.messages[repliedIndex]
-                                val repliedName = if (replied.isSelf) {
-                                    "You"
-                                } else {
-                                    if (uiState.isGroupChat) replied.senderDisplayName else uiState.recipientName
-                                }
-                                // Show reply preview
-                                ReplyPreviewHologram(
-                                    preview = ReplyPreview(
+                            if (!msg.replyToMessageId.isNullOrBlank()) {
+                                val preview = if (repliedIndex >= 0) {
+                                    val replied = uiState.messages[repliedIndex]
+                                    val repliedName = if (replied.isSelf) {
+                                        "You"
+                                    } else {
+                                        if (uiState.isGroupChat) replied.senderDisplayName else uiState.recipientName
+                                    }
+                                    ReplyPreview(
                                         senderName = repliedName,
                                         previewText = replied.content ?: "[Media]",
                                         isSelf = replied.isSelf
-                                    ),
+                                    )
+                                } else {
+                                    ReplyPreview(
+                                        senderName = "Replied message",
+                                        previewText = "[Previous message]",
+                                        isSelf = false
+                                    )
+                                }
+                                ReplyPreviewHologram(
+                                    preview = preview,
                                     alignEnd = msg.isSelf,
                                     alpha = 0.7f
                                 )

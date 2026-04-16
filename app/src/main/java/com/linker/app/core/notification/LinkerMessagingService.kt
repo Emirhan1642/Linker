@@ -144,8 +144,8 @@ class LinkerMessagingService : FirebaseMessagingService() {
             serviceScope.launch {
                 try {
                     val now = System.currentTimeMillis()
-                    // chatId is in the FCM payload; use it directly for subcollection path
-                    if (chatId.isNotBlank()) {
+                    // chatId/messageId should be in the FCM payload; use them directly for subcollection path
+                    if (chatId.isNotBlank() && messageId.isNotBlank()) {
                         firestore.collection("chats").document(chatId)
                             .collection("messages").document(messageId)
                             .update(
@@ -155,18 +155,6 @@ class LinkerMessagingService : FirebaseMessagingService() {
                                     "messageStatus" to "DELIVERED"
                                 )
                             )
-                    } else {
-                        // Fallback: locate via collectionGroup
-                        val snap = firestore.collectionGroup("messages")
-                            .whereEqualTo("messageId", messageId)
-                            .limit(1).get().await()
-                        snap.documents.firstOrNull()?.reference?.update(
-                            mapOf(
-                                "deliveryReceipts.$current" to now,
-                                "deliveredAt" to now,
-                                "messageStatus" to "DELIVERED"
-                            )
-                        )
                     }
                 } catch (e: Exception) {
                     android.util.Log.w(TAG, "Failed to update delivery receipt: ${e.message}")

@@ -183,16 +183,15 @@ fun MessageBubbleContent(
                 )
             }
 
-            // Status indicators
-            Row(
-                modifier = Modifier.padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                if (message.isSelf) {
-                    MessageStatusIcon(status = message.status)
-                }
-            }
+//            // Status indicators
+//            Row(
+//                modifier = Modifier.padding(top = 4.dp),
+//                horizontalArrangement = Arrangement.Center
+//            ) {
+//                if (message.isSelf) {
+//                    MessageStatusIcon(status = message.status)
+//                }
+//            }
         }
     }
 }

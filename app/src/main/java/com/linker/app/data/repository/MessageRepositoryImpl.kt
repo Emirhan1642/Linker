@@ -101,14 +101,18 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun getMessageById(messageId: String): Result<Message> = safeCall {
         // Requires chatId — search across all chats via collectionGroup
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1)
-            .get()
-            .await()
-        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
-        mapToMessageSync(doc.id, doc.data ?: throw Exception("Message not found"))
-            ?: throw Exception("Message parse failed")
+        val local = messageDao.getMessageById(messageId)
+        if (local != null) {
+            val snap = messagesRef(local.chatId).document(messageId).get().await()
+            val data = snap.data
+            val parsed = if (snap.exists() && data != null) mapToMessageSync(snap.id, data) else null
+            parsed ?: messageEntityToDomainSync(local)
+        } else {
+            val ref = resolveMessageRef(messageId)
+            val snap = ref.get().await()
+            mapToMessageSync(snap.id, snap.data ?: throw Exception("Message not found"))
+                ?: throw Exception("Message parse failed")
+        }
     }
 
     override suspend fun getMessagesPaged(
@@ -149,8 +153,9 @@ class MessageRepositoryImpl @Inject constructor(
             return Result.Error(Exception("Chat not found").toString())
         }
         
-        val chat = chatDoc.toObject(Chat::class.java)
+        val chatData = chatDoc.data
             ?: return Result.Error(Exception("Failed to parse chat").toString())
+        val chat = mapToChatSync(chatId, chatData)
 
         val isConnected = hasValidatedInternet()
         val deliveryMethod = if (isConnected) DeliveryMethod.ONLINE else DeliveryMethod.BLE
@@ -547,12 +552,8 @@ class MessageRepositoryImpl @Inject constructor(
 
     override suspend fun editMessage(messageId: String, newContent: String): Result<Unit> = safeCall {
         val now = System.currentTimeMillis()
-        // Locate message via collectionGroup to get chatId
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1).get().await()
-        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
-        doc.reference.update(
+        val ref = resolveMessageRef(messageId)
+        ref.update(
             mapOf(
                 "content" to newContent,
                 "isEdited" to true,
@@ -563,14 +564,11 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
-        // Locate message via collectionGroup to get chatId
-        val snapshot = firestore.collectionGroup("messages")
-            .whereEqualTo("messageId", messageId)
-            .limit(1).get().await()
-        val doc = snapshot.documents.firstOrNull() ?: throw Exception("Message not found")
-        val chatId = doc.getString("chatId") ?: ""
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        val chatId = snap.getString("chatId") ?: ""
 
-        doc.reference.update(
+        ref.update(
             mapOf(
                 "isDeleted" to true,
                 "deletedForEveryone" to forEveryone
@@ -756,6 +754,10 @@ class MessageRepositoryImpl @Inject constructor(
             val senderId = data["senderId"] as? String ?: return null
             val chatId = data["chatId"] as? String ?: return null
             val sender = mapToUserSync(senderId, data)
+            val replyToMessageId = data["replyToMessageId"] as? String
+            val replyStub = replyToMessageId
+                ?.takeIf { it.isNotBlank() }
+                ?.let { Message(messageId = it, chatId = chatId) }
 
             Message(
                 messageId = messageId,
@@ -769,7 +771,7 @@ class MessageRepositoryImpl @Inject constructor(
                 mediaHeight = (data["mediaHeight"] as? Number)?.toInt(),
                 mediaDuration = (data["mediaDuration"] as? Number)?.toInt(),
                 sharedLink = null,
-                replyToMessage = null,
+                replyToMessage = replyStub,
                 reactions = (data["reactions"] as? Map<String, String>) ?: emptyMap(),
                 isEdited = data["isEdited"] as? Boolean ?: false,
                 isDeleted = data["isDeleted"] as? Boolean ?: false,
@@ -816,6 +818,9 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     private fun messageEntityToDomainSync(entity: MessageEntity): Message {
+        val replyStub = entity.replyToMessageId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { Message(messageId = it, chatId = entity.chatId) }
         return Message(
             messageId = entity.messageId,
             chatId = entity.chatId,
@@ -850,7 +855,7 @@ class MessageRepositoryImpl @Inject constructor(
             mediaHeight = entity.mediaHeight,
             mediaDuration = entity.mediaDuration,
             sharedLink = null,
-            replyToMessage = null,
+            replyToMessage = replyStub,
             reactions = entity.reactions,
             isEdited = entity.isEdited,
             isDeleted = entity.isDeleted,
@@ -869,6 +874,65 @@ class MessageRepositoryImpl @Inject constructor(
         local.forEach { merged[it.messageId] = it }
         remote.forEach { merged[it.messageId] = it }
         return merged.values.sortedBy { it.createdAt }
+    }
+
+    private fun mapToChatSync(chatId: String, data: Map<String, Any?>): Chat {
+        val participantIds = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+        val participants = participantIds.map { uid -> User(userId = uid) }
+
+        val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
+        val chatType = if (chatTypeStr == "GROUP") ChatType.GROUP else ChatType.PRIVATE
+
+        val unreadCounts = data["unreadCounts"] as? Map<*, *>
+        val resolvedUnread = (unreadCounts?.get(currentUserId) as? Number)?.toInt()
+            ?: (data["unreadCount"] as? Number)?.toInt()
+
+        val archivedBy = data["archivedBy"] as? List<*> ?: emptyList<Any>()
+        val pinnedBy = data["pinnedBy"] as? List<*> ?: emptyList<Any>()
+        val mutedBy = data["mutedBy"] as? List<*> ?: emptyList<Any>()
+        val blockedBy = data["blockedBy"] as? List<*> ?: emptyList<Any>()
+        val favoritedBy = data["favoritedBy"] as? List<*> ?: emptyList<Any>()
+
+        return Chat(
+            chatId = chatId,
+            chatType = chatType,
+            chatName = data["chatName"] as? String,
+            chatImageUrl = data["chatImageUrl"] as? String,
+            participants = participants,
+            lastMessage = null,
+            unreadCount = resolvedUnread ?: 0,
+            isPinned = pinnedBy.contains(currentUserId) || (data["isPinned"] as? Boolean ?: false),
+            isMuted = mutedBy.contains(currentUserId) || (data["isMuted"] as? Boolean ?: false),
+            isArchived = archivedBy.contains(currentUserId) || (data["isArchived"] as? Boolean ?: false),
+            isBlocked = blockedBy.contains(currentUserId) || (data["isBlocked"] as? Boolean ?: false),
+            isFavorited = favoritedBy.contains(currentUserId) || (data["isFavorited"] as? Boolean ?: false),
+            theme = data["theme"] as? String,
+            createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
+            updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
+            groupAdminIds = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
+            groupCreatedBy = data["createdBy"] as? String
+        )
+    }
+
+    private suspend fun resolveMessageRef(messageId: String): com.google.firebase.firestore.DocumentReference {
+        val local = messageDao.getMessageById(messageId)
+        if (local != null) {
+            return messagesRef(local.chatId).document(messageId)
+        }
+        if (currentUserId.isBlank()) throw Exception("Not signed in")
+
+        val chatSnapshots = chatsCollection
+            .whereArrayContains("participantIds", currentUserId)
+            .get()
+            .await()
+
+        for (chatDoc in chatSnapshots.documents) {
+            val ref = messagesRef(chatDoc.id).document(messageId)
+            val snap = ref.get().await()
+            if (snap.exists()) return ref
+        }
+
+        throw Exception("Message not found")
     }
 
     private fun buildFirestoreMessagePayload(

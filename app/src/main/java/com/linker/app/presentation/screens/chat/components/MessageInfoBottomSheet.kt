@@ -1,8 +1,8 @@
 package com.linker.app.presentation.screens.chat.components
 
-import android.graphics.drawable.Icon
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,9 +27,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
@@ -39,6 +42,8 @@ import com.linker.app.presentation.screens.chat.ReactionUserInfo
 import com.linker.app.presentation.screens.chat.ReadReceiptInfo
 import com.linker.app.presentation.screens.chat.ReplyInfo
 import com.linker.app.presentation.screens.chat.ReplyPreview
+import com.linker.app.presentation.theme.AccentGreen
+import com.linker.app.presentation.theme.InfoBlue
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 
@@ -122,13 +127,10 @@ fun MessageInfoBottomSheet(
 @Composable
 fun MessagePreviewSection(state: MessageInfoState) {
     Column {
-        if (!state.replyToMessageId.isNullOrBlank()) {
+        val replyPreview = state.replyPreview
+        if (replyPreview != null) {
             ReplyPreviewHologram(
-                preview = com.linker.app.presentation.screens.chat.ReplyPreview(
-                    senderName = "Replied message",
-                    previewText = "[Previous message]",
-                    isSelf = false
-                ),
+                preview = replyPreview,
                 alignEnd = state.isSelf,
                 alpha = 0.7f
             )
@@ -153,7 +155,46 @@ fun MessagePreviewSection(state: MessageInfoState) {
 
 @Composable
 fun ReplyPreviewHologram(preview: ReplyPreview, alignEnd: Boolean, alpha: Float) {
-    TODO("Not yet implemented")
+    val contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart
+    val backgroundColor = if (preview.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = contentAlignment
+    ){
+        Text(
+            text = preview.senderName + " replied to " + preview.senderName,
+            color = Color(0x88FFFFFF),
+            fontSize = 10.sp,
+            maxLines = 1,
+        )
+    }
+
+    Spacer(modifier = Modifier.height(2.dp))
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = contentAlignment
+    ) {
+        Row(
+            modifier = Modifier
+                .alpha(alpha)
+                .clip(RoundedCornerShape(12.dp))
+                .background(backgroundColor.copy(alpha = 0.8f))
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            Column(modifier = Modifier.widthIn(max = 240.dp)) {
+                Text(
+                    text = preview.previewText,
+                    color = TextPrimary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
 }
 
 @Composable

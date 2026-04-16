@@ -85,6 +85,7 @@ data class MessageInfoState(
     val isLoading: Boolean = false,
     val messageId: String = "",
     val replyToMessageId: String? = null,
+    val replyPreview: ReplyPreview? = null,
     val content: String = "",
     val isSelf: Boolean = false,
     val fromTo: String = "",
@@ -376,10 +377,32 @@ class ChatViewModel @Inject constructor(
             when (val result = loadMessageInfoUseCase(messageId)) {
                 is Result.Success -> {
                     val info = result.data
+                    val replyId = info.message.replyToMessage?.messageId
+                    val replyPreview = if (!replyId.isNullOrBlank()) {
+                        try {
+                            val replied = chatRepository.getMessageById(replyId)
+                            val repliedSenderId = replied.sender.userId
+                            val name = when {
+                                repliedSenderId.isBlank() -> "User"
+                                repliedSenderId == currentUserId -> "You"
+                                else -> replied.sender.displayName
+                                    .ifBlank { replied.sender.username }
+                                    .ifBlank { resolveUserDisplayName(repliedSenderId) }
+                            }
+                            ReplyPreview(
+                                senderName = name,
+                                previewText = replied.content ?: "[Media]",
+                                isSelf = repliedSenderId == currentUserId
+                            )
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else null
                     _messageInfoState.value = MessageInfoState(
                         isLoading = false,
                         messageId = messageId,
-                        replyToMessageId = info.message.replyToMessage?.messageId,
+                        replyToMessageId = replyId,
+                        replyPreview = replyPreview,
                         content = info.message.content ?: "[Media]",
                         isSelf = info.message.sender.userId == currentUserId,
                         sentAt = info.message.createdAt,
