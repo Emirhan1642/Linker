@@ -1,17 +1,18 @@
 package com.linker.app.presentation.screens.splash
 
 import androidx.lifecycle.ViewModel
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.linker.app.domain.model.AccountSession
 import com.linker.app.domain.repository.AccountRepository
+import com.linker.app.domain.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
-    private val accountRepository: AccountRepository
+    private val accountRepository: AccountRepository,
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     /**
@@ -35,20 +36,8 @@ class SplashViewModel @Inject constructor(
      * uygulama açılışlarında kaybolmaz.
      */
     suspend fun resolveStartDestination(): SplashDestination {
-        val firebaseUser = FirebaseAuth.getInstance().currentUser
-            ?: return SplashDestination.AUTH
-
-        val hasCompleteProfile = try {
-            val doc = FirebaseFirestore.getInstance()
-                .collection("users")
-                .document(firebaseUser.uid)
-                .get()
-                .await()
-            !doc.getString("username").isNullOrBlank()
-        } catch (e: Exception) {
-            false
-        }
-
+        val user = userRepository.getCurrentUser().firstOrNull() ?: return SplashDestination.AUTH
+        val hasCompleteProfile = user.username.isNotBlank()
         return if (hasCompleteProfile) SplashDestination.HOME else SplashDestination.AUTH
     }
 }

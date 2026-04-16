@@ -68,7 +68,11 @@ enum class MessageType {
     VIDEO,
     GIF,
     LINK,  // Shared Link post
-    AUDIO
+    AUDIO,
+    FILE,
+    LOCATION,
+    CONTACT,
+    STICKER
 }
 
 enum class MessageStatus {
@@ -82,5 +86,7 @@ enum class MessageStatus {
 enum class DeliveryMethod {
     ONLINE,      // Via internet
     BLE,         // Via Bluetooth mesh
-    WIFI_DIRECT  // Via Wi-Fi Direct
+    WIFI_DIRECT,  // Via Wi-Fi Direct
+    MESH,        // Via Bluetooth mesh
+    P2P_WIFI     // Via Wi-Fi Direct
 }

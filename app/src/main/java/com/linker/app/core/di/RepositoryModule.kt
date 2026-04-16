@@ -3,19 +3,27 @@ package com.linker.app.core.di
 import com.linker.app.data.repository.AccountRepositoryImpl
 import com.linker.app.data.repository.AuthRepositoryImpl
 import com.linker.app.data.repository.ChatRepositoryImpl
+import com.linker.app.data.repository.ChatSettingsRepositoryImpl
 import com.linker.app.data.repository.CommentRepositoryImpl
 import com.linker.app.data.repository.LinkRepositoryImpl
+import com.linker.app.data.repository.MessageReactionRepositoryImpl
+import com.linker.app.data.repository.MessageRepositoryImpl
 import com.linker.app.data.repository.NoteRepositoryImpl
 import com.linker.app.data.repository.NotificationRepositoryImpl
+import com.linker.app.data.repository.ReadReceiptRepositoryImpl
 import com.linker.app.data.repository.StoryRepositoryImpl
 import com.linker.app.data.repository.UserRepositoryImpl
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.domain.repository.AuthRepository
 import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.ChatSettingsRepository
 import com.linker.app.domain.repository.CommentRepository
 import com.linker.app.domain.repository.LinkRepository
+import com.linker.app.domain.repository.MessageReactionRepository
+import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.repository.NoteRepository
 import com.linker.app.domain.repository.NotificationRepository
+import com.linker.app.domain.repository.ReadReceiptRepository
 import com.linker.app.domain.repository.StoryRepository
 import com.linker.app.domain.repository.UserRepository
 import dagger.Binds
@@ -64,4 +72,17 @@ abstract class RepositoryModule {
     // ✅ NEW: Comment Repository binding
     @Binds @Singleton
     abstract fun bindCommentRepository(impl: CommentRepositoryImpl): CommentRepository
+
+    // ✅ NEW: Message Repository bindings (Split from ChatRepository)
+    @Binds @Singleton
+    abstract fun bindMessageRepository(impl: MessageRepositoryImpl): MessageRepository
+
+    @Binds @Singleton
+    abstract fun bindMessageReactionRepository(impl: MessageReactionRepositoryImpl): MessageReactionRepository
+
+    @Binds @Singleton
+    abstract fun bindReadReceiptRepository(impl: ReadReceiptRepositoryImpl): ReadReceiptRepository
+
+    @Binds @Singleton
+    abstract fun bindChatSettingsRepository(impl: ChatSettingsRepositoryImpl): ChatSettingsRepository
 }

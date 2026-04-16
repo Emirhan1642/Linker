@@ -2,16 +2,15 @@ package com.linker.app.presentation.screens.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
+import com.linker.app.domain.repository.UserRepository
 import com.linker.app.domain.model.User
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
-import javax.inject.Inject
+import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 
 data class NewChatUiState(
     val query: String = "",
@@ -21,8 +20,7 @@ data class NewChatUiState(
 
 @HiltViewModel
 class NewChatViewModel @Inject constructor(
-    private val firestore: FirebaseFirestore,
-    private val auth: FirebaseAuth
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NewChatUiState(isLoading = true))
@@ -39,40 +37,15 @@ class NewChatViewModel @Inject constructor(
     private fun loadSuggested() {
         viewModelScope.launch {
             try {
-                val myUid = auth.currentUser?.uid
-                val snapshot = firestore.collection("users")
-                    .limit(40)
-                    .get()
-                    .await()
-                val users = snapshot.documents.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    val uid = doc.id
-                    if (uid == myUid) return@mapNotNull null
-                    User(
-                        userId = uid,
-                        username = data["username"] as? String ?: "",
-                        displayName = data["displayName"] as? String ?: "User",
-                        email = data["email"] as? String,
-                        phoneNumber = data["phoneNumber"] as? String,
-                        bio = data["bio"] as? String,
-                        profileImageUrl = data["profileImageUrl"] as? String,
-                        coverImageUrl = data["coverImageUrl"] as? String,
-                        isVerified = data["isVerified"] as? Boolean ?: false,
-                        followersCount = (data["followersCount"] as? Number)?.toInt() ?: 0,
-                        followingCount = (data["followingCount"] as? Number)?.toInt() ?: 0,
-                        likesCount = (data["likesCount"] as? Number)?.toInt() ?: 0,
-                        isFollowing = data["isFollowing"] as? Boolean ?: false,
-                        isFollowedBy = data["isFollowedBy"] as? Boolean ?: false,
-                        isBlocked = data["isBlocked"] as? Boolean ?: false,
-                        isMuted = data["isMuted"] as? Boolean ?: false,
-                        isPrivate = data["isPrivate"] as? Boolean ?: false,
-                        followRequestSent = data["followRequestSent"] as? Boolean ?: false,
-                        hideFollowLists = data["hideFollowLists"] as? Boolean ?: false,
-                        createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
-                        updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L
-                    )
+                when(val result = userRepository.searchUsers("", 40)) {
+                    is Result.Success -> {
+                        _uiState.value = _uiState.value.copy(isLoading = false, suggested = result.data)
+                    }
+                    is Result.Error -> {
+                        _uiState.value = _uiState.value.copy(isLoading = false)
+                    }
+                    else -> {}
                 }
-                _uiState.value = _uiState.value.copy(isLoading = false, suggested = users)
             } catch (_: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }

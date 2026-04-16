@@ -1,0 +1,1004 @@
+package com.linker.app.data.repository
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import androidx.compose.remote.creation.first
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
+import com.linker.app.BuildConfig
+import com.linker.app.core.di.ChatNotificationRequest
+import com.linker.app.core.di.SupabaseNotificationApi
+import com.linker.app.core.util.Result
+import com.linker.app.core.util.safeCall
+import com.linker.app.data.local.dao.ChatDao
+import com.linker.app.data.local.dao.MessageDao
+import com.linker.app.data.local.dao.MessageQueueDao
+import com.linker.app.data.local.dao.UserDao
+import com.linker.app.data.local.entity.ChatEntity
+import com.linker.app.data.local.entity.ChatType as EntityChatType
+import com.linker.app.data.local.entity.DeliveryMethod as EntityDeliveryMethod
+import com.linker.app.data.local.entity.MessageEntity
+import com.linker.app.data.local.entity.MessageStatus as EntityMessageStatus
+import com.linker.app.data.local.entity.QueueStatus
+import com.linker.app.data.local.mapper.toDomain
+import com.linker.app.domain.model.*
+import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.MessageRepository
+import com.linker.app.domain.repository.NotificationRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Implementation of MessageRepository
+ * Handles all message-related operations (CRUD, sending, editing, deleting)
+ */
+@Singleton
+class MessageRepositoryImpl @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    private val firestore: FirebaseFirestore,
+    private val auth: FirebaseAuth,
+    private val chatDao: ChatDao,
+    private val messageDao: MessageDao,
+    private val messageQueueDao: MessageQueueDao,
+    private val userDao: UserDao,
+    private val notificationRepository: NotificationRepository,
+    private val supabaseNotificationApi: SupabaseNotificationApi
+) : MessageRepository {
+
+    private val messagesCollection = firestore.collection("messages")
+    private val chatsCollection = firestore.collection("chats")
+
+    private val currentUserId: String
+        get() = auth.currentUser?.uid ?: ""
+
+    private fun hasValidatedInternet(): Boolean {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    override fun observeMessages(chatId: String): Flow<List<Message>> {
+        val firestoreFlow = callbackFlow {
+            val listener = messagesCollection
+                .whereEqualTo("chatId", chatId)
+                .orderBy("createdAt", Query.Direction.ASCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        trySend(emptyList())
+                        return@addSnapshotListener
+                    }
+                    val messages = snapshot?.documents?.mapNotNull { doc ->
+                        doc.data?.let { mapToMessageSync(doc.id, it) }
+                    } ?: emptyList()
+                    trySend(messages)
+                }
+            awaitClose { listener.remove() }
+        }
+        val roomFlow = messageDao.observeMessagesByChat(chatId).map { entities ->
+            entities.map { entity -> messageEntityToDomainSync(entity) }
+        }
+        return combine(firestoreFlow, roomFlow) { remote, local ->
+            mergeMessagesById(local, remote)
+        }
+    }
+
+    override suspend fun getMessageById(messageId: String): Result<Message> = safeCall {
+        val doc = messagesCollection.document(messageId).get().await()
+        val data = doc.data ?: throw Exception("Message not found")
+        mapToMessageSync(doc.id, data) ?: throw Exception("Message not found")
+    }
+
+    override suspend fun getMessagesPaged(
+        chatId: String,
+        beforeTimestamp: Long?,
+        limit: Int
+    ): Result<List<Message>> = safeCall {
+        var query = messagesCollection
+            .whereEqualTo("chatId", chatId)
+            .whereEqualTo("isDeleted", false)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(limit.toLong())
+
+        if (beforeTimestamp != null) {
+            query = query.whereLessThan("createdAt", beforeTimestamp)
+        }
+
+        val snapshot = query.get().await()
+        snapshot.documents.mapNotNull { doc ->
+            doc.data?.let { mapToMessageSync(doc.id, it) }
+        }.reversed()
+    }
+
+    override suspend fun sendMessage(
+        chatId: String,
+        messageType: MessageType,
+        content: String,
+        mediaUrl: String?,
+        replyToMessageId: String?
+    ): Result<Message> {
+        // Get chat directly from Firestore to avoid dependency cycle
+        val chatDoc = try {
+            chatsCollection.document(chatId).get().await()
+        } catch (e: Exception) {
+            return Result.Error(e.toString())
+        }
+        
+        if (!chatDoc.exists()) {
+            return Result.Error(Exception("Chat not found").toString())
+        }
+        
+        val chat = chatDoc.toObject(Chat::class.java)
+            ?: return Result.Error(Exception("Failed to parse chat").toString())
+
+        val isConnected = hasValidatedInternet()
+        val deliveryMethod = if (isConnected) DeliveryMethod.ONLINE else DeliveryMethod.BLE
+
+        return safeCall {
+            val messageId = UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+            val domainMsgStatus = if (isConnected) MessageStatus.SENT else MessageStatus.SENDING
+            val entityMsgStatus = if (isConnected) EntityMessageStatus.SENT else EntityMessageStatus.SENDING
+
+            // Ensure chat exists locally
+            ensureChatExistsLocally(chat, now)
+
+            // Ensure sender exists locally
+            ensureSenderExistsLocally(now)
+
+            val participantIds = chat.participants.map { it.userId }
+            val messageData = buildFirestoreMessagePayload(
+                messageId = messageId,
+                chatId = chatId,
+                senderId = currentUserId,
+                messageType = messageType,
+                content = content,
+                mediaUrl = mediaUrl,
+                thumbnailUrl = null,
+                mediaWidth = null,
+                mediaHeight = null,
+                mediaDuration = null,
+                sharedLinkId = null,
+                replyToMessageId = replyToMessageId,
+                forwardedFromMessageId = null,
+                participantIds = participantIds,
+                deliveryMethod = deliveryMethod,
+                messageStatus = domainMsgStatus,
+                createdAt = now,
+                updatedAt = now
+            )
+
+            if (deliveryMethod == DeliveryMethod.ONLINE) {
+                sendMessageOnline(chatId, messageId, messageData, content, participantIds, now)
+            } else {
+                queueMessageForOffline(messageId, chatId, content, now, chat)
+            }
+
+            val sender = getSender()
+            val message = createMessageDomainObject(
+                messageId, chatId, sender, messageType, content,
+                mediaUrl, domainMsgStatus, deliveryMethod, now
+            )
+
+            saveMessageLocally(messageId, chatId, messageType, content,
+                entityMsgStatus, deliveryMethod, replyToMessageId, now)
+
+            updateChatLastMessage(chatId, messageId, content, now)
+
+            // Sync with Firestore if offline
+            if (!isConnected) {
+                syncOfflineMessageToFirestore(chatId, messageId, content, participantIds, now)
+            }
+
+            // Send notifications
+            sendNotificationsIfNeeded(chat, sender, content, chatId, messageId, deliveryMethod)
+
+            message
+        }
+    }
+
+    private suspend fun ensureChatExistsLocally(chat: Chat, now: Long) {
+        val localChat = chatDao.getChatById(chat.chatId)
+        if (localChat == null) {
+            chatDao.insertChat(
+                ChatEntity(
+                    chatId = chat.chatId,
+                    chatType = if (chat.chatType == ChatType.GROUP) EntityChatType.GROUP else EntityChatType.PRIVATE,
+                    chatName = chat.chatName,
+                    chatImageUrl = chat.chatImageUrl,
+                    participantIds = chat.participants.map { it.userId },
+                    lastMessageId = chat.lastMessage?.messageId,
+                    lastMessageText = chat.lastMessage?.content,
+                    lastMessageAt = chat.lastMessage?.createdAt,
+                    unreadCount = chat.unreadCount,
+                    isPinned = chat.isPinned,
+                    isMuted = chat.isMuted,
+                    isArchived = chat.isArchived,
+                    isBlocked = chat.isBlocked,
+                    isFavorited = chat.isFavorited,
+                    theme = chat.theme,
+                    createdAt = chat.createdAt,
+                    updatedAt = chat.updatedAt
+                )
+            )
+        }
+    }
+
+    private suspend fun ensureSenderExistsLocally(now: Long) {
+        val existingSender = userDao.getUserById(currentUserId)
+        if (existingSender == null) {
+            val firebaseUser = auth.currentUser
+            userDao.insertUser(
+                com.linker.app.data.local.entity.UserEntity(
+                    userId = currentUserId,
+                    username = firebaseUser?.displayName ?: "",
+                    displayName = firebaseUser?.displayName ?: "",
+                    email = firebaseUser?.email,
+                    phoneNumber = firebaseUser?.phoneNumber,
+                    bio = null,
+                    profileImageUrl = firebaseUser?.photoUrl?.toString(),
+                    coverImageUrl = null,
+                    isVerified = false,
+                    followersCount = 0,
+                    followingCount = 0,
+                    likesCount = 0,
+                    isFollowing = false,
+                    isFollowedBy = false,
+                    isBlocked = false,
+                    isMuted = false,
+                    isPrivate = false,
+                    followRequestSent = false,
+                    hideFollowLists = false,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+        }
+    }
+
+    private suspend fun sendMessageOnline(
+        chatId: String,
+        messageId: String,
+        messageData: Map<String, Any?>,
+        content: String?,
+        participantIds: List<String>,
+        now: Long
+    ) {
+        val batch = firestore.batch()
+        batch.set(messagesCollection.document(messageId), messageData)
+        val displayText = content ?: "[Media]"
+        val chatUpdates = mutableMapOf<String, Any>(
+            "lastMessageText" to displayText,
+            "lastMessageAt" to now,
+            "lastMessageId" to messageId,
+            "updatedAt" to now,
+            "unreadCounts.$currentUserId" to 0
+        )
+        participantIds
+            .filter { it.isNotBlank() && it != currentUserId }
+            .forEach { uid ->
+                chatUpdates["unreadCounts.$uid"] = FieldValue.increment(1)
+            }
+        batch.update(chatsCollection.document(chatId), chatUpdates)
+        batch.commit().await()
+    }
+
+    private suspend fun queueMessageForOffline(
+        messageId: String,
+        chatId: String,
+        content: String?,
+        now: Long,
+        chat: Chat
+    ) {
+        val queueItem = com.linker.app.data.local.entity.MessageQueueEntity(
+            queueId = UUID.randomUUID().toString(),
+            messageId = messageId,
+            chatId = chatId,
+            recipientId = chat.participants.firstOrNull { it.userId != currentUserId }?.userId ?: "",
+            messagePayload = content ?: "",
+            queueStatus = QueueStatus.PENDING,
+            deliveryMethod = EntityDeliveryMethod.BLE,
+            retryCount = 0,
+            maxRetries = 3,
+            priority = 0,
+            ttl = 5,
+            createdAt = now
+        )
+        messageQueueDao.insertQueueItem(queueItem)
+    }
+
+    private suspend fun getSender(): User {
+        val senderEntity = userDao.getUserById(currentUserId)
+        return senderEntity?.toDomain() ?: User(
+            userId = currentUserId, username = "", displayName = "",
+            email = null, phoneNumber = null, bio = null,
+            profileImageUrl = null, coverImageUrl = null,
+            isVerified = false, followersCount = 0, followingCount = 0,
+            likesCount = 0, isFollowing = false, isFollowedBy = false,
+            isBlocked = false, isMuted = false,
+            isPrivate = false, followRequestSent = false, hideFollowLists = false,
+            createdAt = 0L, updatedAt = 0L
+        )
+    }
+
+    private fun createMessageDomainObject(
+        messageId: String,
+        chatId: String,
+        sender: User,
+        messageType: MessageType,
+        content: String?,
+        mediaUrl: String?,
+        domainMsgStatus: MessageStatus,
+        deliveryMethod: DeliveryMethod,
+        now: Long
+    ): Message {
+        return Message(
+            messageId = messageId,
+            chatId = chatId,
+            sender = sender,
+            messageType = messageType,
+            content = content,
+            mediaUrl = mediaUrl,
+            thumbnailUrl = null,
+            mediaWidth = null,
+            mediaHeight = null,
+            mediaDuration = null,
+            sharedLink = null,
+            replyToMessage = null,
+            reactions = emptyMap(),
+            isEdited = false,
+            isDeleted = false,
+            deletedForEveryone = false,
+            messageStatus = domainMsgStatus,
+            deliveryMethod = deliveryMethod,
+            createdAt = now,
+            updatedAt = now,
+            deliveredAt = null,
+            readAt = null
+        )
+    }
+
+    private suspend fun saveMessageLocally(
+        messageId: String,
+        chatId: String,
+        messageType: MessageType,
+        content: String?,
+        entityMsgStatus: EntityMessageStatus,
+        deliveryMethod: DeliveryMethod,
+        replyToMessageId: String?,
+        now: Long
+    ) {
+        val localMessage = MessageEntity(
+            messageId = messageId,
+            chatId = chatId,
+            senderId = currentUserId,
+            messageType = domainMessageTypeToEntity(messageType),
+            content = content,
+            mediaUrl = null,
+            thumbnailUrl = null,
+            mediaWidth = null,
+            mediaHeight = null,
+            mediaDuration = null,
+            sharedLinkId = null,
+            replyToMessageId = replyToMessageId,
+            forwardedFromMessageId = null,
+            reactions = emptyMap(),
+            isEdited = false,
+            isDeleted = false,
+            deletedForEveryone = false,
+            messageStatus = entityMsgStatus,
+            deliveryMethod = domainDeliveryToEntity(deliveryMethod),
+            encryptedContent = null,
+            createdAt = now,
+            updatedAt = now,
+            deliveredAt = null,
+            readAt = null
+        )
+        messageDao.insertMessage(localMessage)
+    }
+
+    private suspend fun updateChatLastMessage(chatId: String, messageId: String, content: String?, now: Long) {
+        val displayText = content ?: "[Media]"
+        chatDao.updateLastMessage(chatId, messageId, displayText, now)
+    }
+
+    private suspend fun syncOfflineMessageToFirestore(
+        chatId: String,
+        messageId: String,
+        content: String?,
+        participantIds: List<String>,
+        now: Long
+    ) {
+        val updates = mutableMapOf<String, Any>(
+            "lastMessageText" to (content ?: "[Media]"),
+            "lastMessageAt" to now,
+            "lastMessageId" to messageId,
+            "updatedAt" to now,
+            "unreadCounts.$currentUserId" to 0
+        )
+        participantIds
+            .filter { it.isNotBlank() && it != currentUserId }
+            .forEach { uid ->
+                updates["unreadCounts.$uid"] = FieldValue.increment(1)
+            }
+        chatsCollection.document(chatId).update(updates).await()
+    }
+
+    private suspend fun sendNotificationsIfNeeded(
+        chat: Chat,
+        sender: User,
+        content: String?,
+        chatId: String,
+        messageId: String,
+        deliveryMethod: DeliveryMethod
+    ) {
+        val otherParticipants = chat.participants.filter { it.userId != currentUserId }
+        if (otherParticipants.isNotEmpty() && deliveryMethod == DeliveryMethod.ONLINE) {
+            val senderName = sender.displayName.ifBlank { sender.username }
+            val displayText = content ?: "[Media]"
+            val notificationMessage = when (chat.chatType) {
+                ChatType.PRIVATE -> senderName
+                ChatType.GROUP -> "$senderName: ${displayText.take(50)}"
+            }
+            for (participant in otherParticipants) {
+                sendChatNotification(
+                    recipientUserId = participant.userId,
+                    senderName = senderName,
+                    messageText = notificationMessage,
+                    chatId = chatId,
+                    messageId = messageId,
+                    chatType = chat.chatType
+                )
+            }
+        }
+    }
+
+    private suspend fun sendChatNotification(
+        recipientUserId: String,
+        senderName: String,
+        messageText: String,
+        chatId: String,
+        messageId: String,
+        chatType: ChatType
+    ) {
+        try {
+            val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
+            supabaseNotificationApi.sendChatNotification(
+                auth = "Bearer $key",
+                apiKey = key,
+                request = ChatNotificationRequest(
+                    recipientId = recipientUserId,
+                    senderId = currentUserId,
+                    senderName = senderName,
+                    message = messageText,
+                    chatId = chatId,
+                    messageId = messageId,
+                    chatType = chatType.name
+                )
+            )
+            android.util.Log.d("MessageRepository", "Notification sent to $recipientUserId")
+
+            saveNotificationToFirestoreAndLocal(senderName, messageText, chatId, messageId)
+        } catch (e: Exception) {
+            android.util.Log.w("MessageRepository", "Failed to send notification: ${e.message}")
+        }
+    }
+
+    private suspend fun saveNotificationToFirestoreAndLocal(
+        senderName: String,
+        messageText: String,
+        chatId: String,
+        messageId: String
+    ) {
+        val notificationData = hashMapOf(
+            "recipientId" to "",
+            "senderId" to currentUserId,
+            "type" to "MESSAGE",
+            "title" to senderName,
+            "body" to messageText,
+            "chatId" to chatId,
+            "messageId" to messageId,
+            "isRead" to false,
+            "createdAt" to System.currentTimeMillis()
+        )
+        firestore.collection("notifications").add(notificationData).await()
+
+        val localNotification = com.linker.app.data.local.entity.NotificationEntity(
+            notificationId = UUID.randomUUID().toString(),
+            notificationType = com.linker.app.data.local.entity.NotificationType.MESSAGE,
+            actorId = currentUserId,
+            targetEntityId = messageId,
+            targetEntityType = "message",
+            title = senderName,
+            message = messageText,
+            imageUrl = null,
+            actionUrl = "/chat/$chatId",
+            isRead = false,
+            createdAt = System.currentTimeMillis()
+        )
+        notificationRepository.insertNotification(localNotification)
+    }
+
+    override suspend fun editMessage(messageId: String, newContent: String): Result<Unit> = safeCall {
+        val now = System.currentTimeMillis()
+        messagesCollection.document(messageId).update(
+            mapOf(
+                "content" to newContent,
+                "isEdited" to true,
+                "updatedAt" to now
+            )
+        ).await()
+        messageDao.editMessage(messageId, newContent, now)
+    }
+
+    override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
+        val messageDoc = messagesCollection.document(messageId).get().await()
+        val chatId = messageDoc.getString("chatId") ?: ""
+
+        messagesCollection.document(messageId).update(
+            mapOf(
+                "isDeleted" to true,
+                "deletedForEveryone" to forEveryone
+            )
+        ).await()
+        messageDao.markAsDeleted(messageId, forEveryone)
+
+        if (chatId.isNotBlank()) {
+            updateChatLastMessageAfterDeletion(chatId)
+        }
+    }
+
+    private suspend fun updateChatLastMessageAfterDeletion(chatId: String) {
+        val lastSnapshot = messagesCollection
+            .whereEqualTo("chatId", chatId)
+            .whereEqualTo("isDeleted", false)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(1)
+            .get()
+            .await()
+
+        val lastDoc = lastSnapshot.documents.firstOrNull()
+        if (lastDoc != null) {
+            val lastText = lastDoc.getString("content") ?: "[Media]"
+            val lastAt = lastDoc.getLong("createdAt") ?: 0L
+            chatsCollection.document(chatId).update(
+                mapOf(
+                    "lastMessageText" to lastText,
+                    "lastMessageAt" to lastAt,
+                    "lastMessageId" to lastDoc.id,
+                    "updatedAt" to lastAt
+                )
+            ).await()
+            chatDao.updateLastMessage(chatId, lastDoc.id, lastText, lastAt)
+        } else {
+            chatsCollection.document(chatId).update(
+                mapOf(
+                    "lastMessageText" to null,
+                    "lastMessageAt" to null,
+                    "lastMessageId" to null
+                )
+            ).await()
+            chatDao.clearLastMessage(chatId)
+        }
+    }
+
+    override suspend fun retryFailedMessages(): Result<Unit> = safeCall {
+        val now = System.currentTimeMillis()
+
+        // 1. Retry plain SENDING state items that failed quick edits
+        messageDao.observeMessagesByStatus(status = EntityMessageStatus.SENDING)
+            .first()
+            .forEach { entity ->
+                try {
+                    messagesCollection.document(entity.messageId).update(
+                        mapOf(
+                            "messageStatus" to "SENT",
+                            "updatedAt" to now
+                        )
+                    ).await()
+                    messageDao.updateMessageStatus(entity.messageId, EntityMessageStatus.SENT)
+                } catch (_: Exception) {
+                    // Keep as SENDING for retry later
+                }
+            }
+
+        // 2. Process PENDING WorkManager Queue Items from BLE offline insertions
+        val pendingQueueItems = messageQueueDao.getQueueItemsByStatus(QueueStatus.PENDING)
+        pendingQueueItems.forEach { queueItem ->
+            try {
+                // Fetch the full message locally to reconstruct the payload
+                val messageEntity = messageDao.getMessageById(queueItem.messageId) ?: return@forEach
+                val chatEntity = chatDao.getChatById(queueItem.chatId)
+                val participantIds = chatEntity?.participantIds ?: listOf(currentUserId, queueItem.recipientId)
+
+                // Update queue status
+                messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENDING, now)
+
+                // Reconstruct payload and push to Firestore
+                val messageData = buildFirestoreMessagePayload(
+                    messageId = messageEntity.messageId,
+                    chatId = messageEntity.chatId,
+                    senderId = messageEntity.senderId,
+                    messageType = entityMessageTypeToDomain(messageEntity.messageType),
+                    content = messageEntity.content,
+                    mediaUrl = messageEntity.mediaUrl,
+                    thumbnailUrl = messageEntity.thumbnailUrl,
+                    mediaWidth = messageEntity.mediaWidth,
+                    mediaHeight = messageEntity.mediaHeight,
+                    mediaDuration = messageEntity.mediaDuration,
+                    sharedLinkId = messageEntity.sharedLinkId,
+                    replyToMessageId = messageEntity.replyToMessageId,
+                    forwardedFromMessageId = messageEntity.forwardedFromMessageId,
+                    participantIds = participantIds,
+                    deliveryMethod = DeliveryMethod.ONLINE,
+                    messageStatus = MessageStatus.SENT,
+                    createdAt = messageEntity.createdAt,
+                    updatedAt = now
+                )
+                sendMessageOnline(
+                    chatId = messageEntity.chatId,
+                    messageId = messageEntity.messageId,
+                    messageData = messageData,
+                    content = messageEntity.content,
+                    participantIds = participantIds,
+                    now = now
+                )
+
+                // After successful send, clear queue and update local status
+                messageDao.updateMessageStatus(messageEntity.messageId, EntityMessageStatus.SENT)
+                messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENT, now)
+
+                // Send push notification 
+                val sender = getSender()
+                val chat = Chat(
+                    chatId = queueItem.chatId,
+                    chatType = if (chatEntity?.chatType == EntityChatType.GROUP) ChatType.GROUP else ChatType.PRIVATE,
+                    chatName = chatEntity?.chatName ?: "",
+                    chatImageUrl = chatEntity?.chatImageUrl,
+                    participants = participantIds.map {
+                        userDao.getUserById(it)?.toDomain()!!
+                    },
+                    lastMessage = null,
+                    unreadCount = 0,
+                    isPinned = false,
+                    isMuted = false,
+                    isArchived = false,
+                    isBlocked = false,
+                    isFavorited = false,
+                    theme = "default",
+                    createdAt = 0L,
+                    updatedAt = 0L
+                )
+                sendNotificationsIfNeeded(chat, sender, messageEntity.content, messageEntity.chatId, messageEntity.messageId, DeliveryMethod.ONLINE)
+
+            } catch (e: Exception) {
+                messageQueueDao.incrementRetryCount(queueItem.queueId, now, e.message)
+                if (queueItem.retryCount >= queueItem.maxRetries) {
+                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.FAILED, now)
+                    messageDao.updateMessageStatus(queueItem.messageId, EntityMessageStatus.FAILED)
+                }
+            }
+        }
+    }
+
+    override suspend fun forwardMessage(
+        messageId: String,
+        targetChatId: String
+    ): Result<Message> = safeCall<Message> {
+        val originalResult = getMessageById(messageId)
+        if (originalResult is Result.Error) throw Exception("Original message not found")
+        val original = (originalResult as Result.Success).data
+
+        val result = sendMessage(
+            chatId = targetChatId,
+            messageType = original.messageType,
+            content = original.content ?: "",
+            mediaUrl = original.mediaUrl,
+            replyToMessageId = null
+        )
+        
+        when (result) {
+            is Result.Success -> result.data
+            is Result.Error -> throw Exception("Failed to forward message")
+            is Result.Loading -> throw Exception("Unexpected loading state")
+        }
+    }
+
+    override suspend fun searchMessages(chatId: String, query: String): Result<List<Message>> = safeCall {
+        val snapshot = messagesCollection
+            .whereEqualTo("chatId", chatId)
+            .whereGreaterThanOrEqualTo("content", query)
+            .whereLessThanOrEqualTo("content", query + "\uf8ff")
+            .get()
+            .await()
+        snapshot.documents.mapNotNull { doc ->
+            doc.data?.let { mapToMessageSync(doc.id, it) }
+        }
+    }
+
+    // Helper methods (copied from ChatRepositoryImpl)
+    private fun mapToMessageSync(messageId: String, data: Map<String, Any?>): Message? {
+        return try {
+            val senderId = data["senderId"] as? String ?: return null
+            val chatId = data["chatId"] as? String ?: return null
+            val sender = mapToUserSync(senderId, data)
+
+            Message(
+                messageId = messageId,
+                chatId = chatId,
+                sender = sender,
+                messageType = mapMessageType(data["messageType"] as? String),
+                content = data["content"] as? String,
+                mediaUrl = data["mediaUrl"] as? String,
+                thumbnailUrl = data["thumbnailUrl"] as? String,
+                mediaWidth = (data["mediaWidth"] as? Number)?.toInt(),
+                mediaHeight = (data["mediaHeight"] as? Number)?.toInt(),
+                mediaDuration = (data["mediaDuration"] as? Number)?.toInt(),
+                sharedLink = null,
+                replyToMessage = null,
+                reactions = (data["reactions"] as? Map<String, String>) ?: emptyMap(),
+                isEdited = data["isEdited"] as? Boolean ?: false,
+                isDeleted = data["isDeleted"] as? Boolean ?: false,
+                deletedForEveryone = data["deletedForEveryone"] as? Boolean ?: false,
+                messageStatus = parseMessageStatus(data["messageStatus"] as? String),
+                deliveryMethod = parseDeliveryMethod(data["deliveryMethod"] as? String),
+                createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
+                updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
+                deliveredAt = (data["deliveredAt"] as? Number)?.toLong(),
+                readAt = (data["readAt"] as? Number)?.toLong()
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun mapToUserSync(senderId: String, messageData: Map<String, Any?>): User {
+        val senderMap = messageData["sender"] as? Map<String, Any?>
+        return User(
+            userId = senderId,
+            username = (senderMap?.get("username") as? String) ?: "",
+            displayName = (senderMap?.get("displayName") as? String)
+                ?: (senderMap?.get("username") as? String)
+                ?: "",
+            email = senderMap?.get("email") as? String,
+            phoneNumber = senderMap?.get("phoneNumber") as? String,
+            bio = senderMap?.get("bio") as? String,
+            profileImageUrl = senderMap?.get("profileImageUrl") as? String,
+            coverImageUrl = senderMap?.get("coverImageUrl") as? String,
+            isVerified = senderMap?.get("isVerified") as? Boolean ?: false,
+            followersCount = (senderMap?.get("followersCount") as? Number)?.toInt() ?: 0,
+            followingCount = (senderMap?.get("followingCount") as? Number)?.toInt() ?: 0,
+            likesCount = (senderMap?.get("likesCount") as? Number)?.toInt() ?: 0,
+            isFollowing = senderMap?.get("isFollowing") as? Boolean ?: false,
+            isFollowedBy = senderMap?.get("isFollowedBy") as? Boolean ?: false,
+            isBlocked = senderMap?.get("isBlocked") as? Boolean ?: false,
+            isMuted = senderMap?.get("isMuted") as? Boolean ?: false,
+            isPrivate = senderMap?.get("isPrivate") as? Boolean ?: false,
+            followRequestSent = senderMap?.get("followRequestSent") as? Boolean ?: false,
+            hideFollowLists = senderMap?.get("hideFollowLists") as? Boolean ?: false,
+            createdAt = (senderMap?.get("createdAt") as? Number)?.toLong() ?: 0L,
+            updatedAt = (senderMap?.get("updatedAt") as? Number)?.toLong() ?: 0L
+        )
+    }
+
+    private fun messageEntityToDomainSync(entity: MessageEntity): Message {
+        return Message(
+            messageId = entity.messageId,
+            chatId = entity.chatId,
+            sender = User(
+                userId = entity.senderId,
+                username = "",
+                displayName = "",
+                email = null,
+                phoneNumber = null,
+                bio = null,
+                profileImageUrl = null,
+                coverImageUrl = null,
+                isVerified = false,
+                followersCount = 0,
+                followingCount = 0,
+                likesCount = 0,
+                isFollowing = false,
+                isFollowedBy = false,
+                isBlocked = false,
+                isMuted = false,
+                isPrivate = false,
+                followRequestSent = false,
+                hideFollowLists = false,
+                createdAt = 0L,
+                updatedAt = 0L
+            ),
+            messageType = entityMessageTypeToDomain(entity.messageType),
+            content = entity.content,
+            mediaUrl = entity.mediaUrl,
+            thumbnailUrl = entity.thumbnailUrl,
+            mediaWidth = entity.mediaWidth,
+            mediaHeight = entity.mediaHeight,
+            mediaDuration = entity.mediaDuration,
+            sharedLink = null,
+            replyToMessage = null,
+            reactions = entity.reactions,
+            isEdited = entity.isEdited,
+            isDeleted = entity.isDeleted,
+            deletedForEveryone = entity.deletedForEveryone,
+            messageStatus = entityMessageStatusToDomain(entity.messageStatus),
+            deliveryMethod = entityDeliveryMethodToDomain(entity.deliveryMethod),
+            createdAt = entity.createdAt,
+            updatedAt = entity.updatedAt,
+            deliveredAt = entity.deliveredAt,
+            readAt = entity.readAt
+        )
+    }
+
+    private fun mergeMessagesById(local: List<Message>, remote: List<Message>): List<Message> {
+        val merged = mutableMapOf<String, Message>()
+        local.forEach { merged[it.messageId] = it }
+        remote.forEach { merged[it.messageId] = it }
+        return merged.values.sortedBy { it.createdAt }
+    }
+
+    private fun buildFirestoreMessagePayload(
+        messageId: String,
+        chatId: String,
+        senderId: String,
+        messageType: MessageType,
+        content: String?,
+        mediaUrl: String?,
+        thumbnailUrl: String?,
+        mediaWidth: Int?,
+        mediaHeight: Int?,
+        mediaDuration: Int?,
+        sharedLinkId: String?,
+        replyToMessageId: String?,
+        forwardedFromMessageId: String?,
+        participantIds: List<String>,
+        deliveryMethod: DeliveryMethod,
+        messageStatus: MessageStatus,
+        createdAt: Long,
+        updatedAt: Long
+    ): Map<String, Any?> {
+        return hashMapOf(
+            "messageId" to messageId,
+            "chatId" to chatId,
+            "senderId" to senderId,
+            "sender" to mapOf(
+                "userId" to senderId,
+                "username" to (auth.currentUser?.displayName ?: ""),
+                "displayName" to (auth.currentUser?.displayName ?: ""),
+                "profileImageUrl" to (auth.currentUser?.photoUrl?.toString())
+            ),
+            "messageType" to messageType.name,
+            "content" to content,
+            "mediaUrl" to mediaUrl,
+            "thumbnailUrl" to thumbnailUrl,
+            "mediaWidth" to mediaWidth,
+            "mediaHeight" to mediaHeight,
+            "mediaDuration" to mediaDuration,
+            "sharedLinkId" to sharedLinkId,
+            "replyToMessageId" to replyToMessageId,
+            "forwardedFromMessageId" to forwardedFromMessageId,
+            "participantIds" to participantIds,
+            "reactions" to emptyMap<String, String>(),
+            "isEdited" to false,
+            "isDeleted" to false,
+            "deletedForEveryone" to false,
+            "messageStatus" to messageStatus.name,
+            "deliveryMethod" to deliveryMethod.name,
+            "createdAt" to createdAt,
+            "updatedAt" to updatedAt,
+            "deliveredAt" to null,
+            "readAt" to null,
+            "readReceipts" to emptyMap<String, Long>(),
+            "deliveryReceipts" to emptyMap<String, Long>()
+        )
+    }
+
+    private fun mapMessageType(type: String?): MessageType {
+        return when (type) {
+            "TEXT" -> MessageType.TEXT
+            "IMAGE" -> MessageType.IMAGE
+            "VIDEO" -> MessageType.VIDEO
+            "AUDIO" -> MessageType.AUDIO
+            "FILE" -> MessageType.FILE
+            "LOCATION" -> MessageType.LOCATION
+            "CONTACT" -> MessageType.CONTACT
+            "STICKER" -> MessageType.STICKER
+            else -> MessageType.TEXT
+        }
+    }
+
+    private fun parseMessageStatus(status: String?): MessageStatus {
+        return when (status) {
+            "SENDING" -> MessageStatus.SENDING
+            "SENT" -> MessageStatus.SENT
+            "DELIVERED" -> MessageStatus.DELIVERED
+            "READ" -> MessageStatus.READ
+            "FAILED" -> MessageStatus.FAILED
+            else -> MessageStatus.SENT
+        }
+    }
+
+    private fun parseDeliveryMethod(method: String?): DeliveryMethod {
+        return when (method) {
+            "ONLINE" -> DeliveryMethod.ONLINE
+            "BLE" -> DeliveryMethod.BLE
+            "MESH" -> DeliveryMethod.MESH
+            "P2P_WIFI" -> DeliveryMethod.P2P_WIFI
+            else -> DeliveryMethod.ONLINE
+        }
+    }
+
+    private fun domainMessageTypeToEntity(type: MessageType): com.linker.app.data.local.entity.MessageType {
+        return when (type) {
+            MessageType.TEXT -> com.linker.app.data.local.entity.MessageType.TEXT
+            MessageType.IMAGE -> com.linker.app.data.local.entity.MessageType.IMAGE
+            MessageType.VIDEO -> com.linker.app.data.local.entity.MessageType.VIDEO
+            MessageType.GIF -> com.linker.app.data.local.entity.MessageType.GIF
+            MessageType.LINK -> com.linker.app.data.local.entity.MessageType.LINK
+            MessageType.AUDIO -> com.linker.app.data.local.entity.MessageType.AUDIO
+            MessageType.FILE -> com.linker.app.data.local.entity.MessageType.FILE
+            MessageType.LOCATION -> com.linker.app.data.local.entity.MessageType.LOCATION
+            MessageType.CONTACT -> com.linker.app.data.local.entity.MessageType.CONTACT
+            MessageType.STICKER -> com.linker.app.data.local.entity.MessageType.STICKER
+        }
+    }
+
+    private fun entityMessageTypeToDomain(type: com.linker.app.data.local.entity.MessageType): MessageType {
+        return when (type) {
+            com.linker.app.data.local.entity.MessageType.TEXT -> MessageType.TEXT
+            com.linker.app.data.local.entity.MessageType.IMAGE -> MessageType.IMAGE
+            com.linker.app.data.local.entity.MessageType.VIDEO -> MessageType.VIDEO
+            com.linker.app.data.local.entity.MessageType.GIF -> MessageType.GIF
+            com.linker.app.data.local.entity.MessageType.LINK -> MessageType.LINK
+            com.linker.app.data.local.entity.MessageType.AUDIO -> MessageType.AUDIO
+            com.linker.app.data.local.entity.MessageType.FILE -> MessageType.FILE
+            com.linker.app.data.local.entity.MessageType.LOCATION -> MessageType.LOCATION
+            com.linker.app.data.local.entity.MessageType.CONTACT -> MessageType.CONTACT
+            com.linker.app.data.local.entity.MessageType.STICKER -> MessageType.STICKER
+        }
+    }
+
+    private fun domainDeliveryToEntity(method: DeliveryMethod): EntityDeliveryMethod {
+        return when (method) {
+            DeliveryMethod.ONLINE -> EntityDeliveryMethod.ONLINE
+            DeliveryMethod.BLE -> EntityDeliveryMethod.BLE
+            DeliveryMethod.WIFI_DIRECT -> EntityDeliveryMethod.WIFI_DIRECT
+            DeliveryMethod.MESH -> EntityDeliveryMethod.MESH
+            DeliveryMethod.P2P_WIFI -> EntityDeliveryMethod.P2P_WIFI
+        }
+    }
+
+    private fun entityDeliveryMethodToDomain(method: EntityDeliveryMethod): DeliveryMethod {
+        return when (method) {
+            EntityDeliveryMethod.ONLINE -> DeliveryMethod.ONLINE
+            EntityDeliveryMethod.BLE -> DeliveryMethod.BLE
+            EntityDeliveryMethod.WIFI_DIRECT -> DeliveryMethod.WIFI_DIRECT
+            EntityDeliveryMethod.MESH -> DeliveryMethod.MESH
+            EntityDeliveryMethod.P2P_WIFI -> DeliveryMethod.P2P_WIFI
+        }
+    }
+
+    private fun entityMessageStatusToDomain(status: EntityMessageStatus): MessageStatus {
+        return when (status) {
+            EntityMessageStatus.SENDING -> MessageStatus.SENDING
+            EntityMessageStatus.SENT -> MessageStatus.SENT
+            EntityMessageStatus.DELIVERED -> MessageStatus.DELIVERED
+            EntityMessageStatus.READ -> MessageStatus.READ
+            EntityMessageStatus.FAILED -> MessageStatus.FAILED
+        }
+    }
+}

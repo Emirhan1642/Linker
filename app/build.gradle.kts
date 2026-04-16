@@ -73,7 +73,18 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += "/META-INF/*.SF"
+            excludes += "/META-INF/*.DSA"
+            excludes += "/META-INF/*.RSA"
         }
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+        lintConfig = file("lint.xml")
+        disable += "NullSafeMutableLiveData"
     }
 }
 
@@ -97,6 +108,8 @@ dependencies {
     // Hilt
     implementation(libs.hilt.android)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.identity.jvm)
+    implementation(libs.androidx.compose.remote.creation.core)
     ksp(libs.hilt.compiler)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)

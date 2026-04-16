@@ -61,4 +61,23 @@ interface MessageDao {
     
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND (content LIKE '%' || :query || '%') AND isDeleted = 0 ORDER BY createdAt DESC")
     suspend fun searchMessagesInChat(chatId: String, query: String): List<MessageEntity>
+
+    // ✅ PAGINATION: Load messages before a specific timestamp
+    @Query("""
+        SELECT * FROM messages 
+        WHERE chatId = :chatId 
+        AND createdAt < :beforeTimestamp 
+        AND isDeleted = 0 
+        ORDER BY createdAt DESC 
+        LIMIT :limit
+    """)
+    suspend fun getMessagesBeforeTimestamp(
+        chatId: String,
+        beforeTimestamp: Long,
+        limit: Int = 50
+    ): List<MessageEntity>
+
+    // ✅ PAGINATION: Get oldest message timestamp for loading more
+    @Query("SELECT MIN(createdAt) FROM messages WHERE chatId = :chatId AND isDeleted = 0")
+    suspend fun getOldestMessageTimestamp(chatId: String): Long?
 }

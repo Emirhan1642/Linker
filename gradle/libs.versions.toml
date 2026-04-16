@@ -8,7 +8,7 @@ targetSdk = "35"
 agp = "8.7.3"
 kotlin = "2.1.0"
 coreKtx = "1.15.0"
-lifecycleRuntimeKtx = "2.8.7"
+lifecycleRuntimeKtx = "2.9.0-alpha10"
 activityCompose = "1.9.3"
 
 # Compose
@@ -68,6 +68,8 @@ espressoCore = "3.6.1"
 mockk = "1.13.13"
 foundation = "1.10.5"
 emoji2 = "1.6.0"
+identityJvm = "202411.1"
+remoteCreationCore = "1.0.0-alpha07"
 
 [libraries]
 # Core
@@ -154,6 +156,8 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation", version.ref = "foundation" }
 androidx-emoji2-emojipicker = { group = "androidx.emoji2", name = "emoji2-emojipicker", version.ref = "emoji2" }
+identity-jvm = { group = "com.android.identity", name = "identity-jvm", version.ref = "identityJvm" }
+androidx-compose-remote-creation-core = { group = "androidx.compose.remote", name = "remote-creation-core", version.ref = "remoteCreationCore" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

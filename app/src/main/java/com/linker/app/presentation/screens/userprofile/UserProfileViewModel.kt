@@ -4,7 +4,6 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.toRoute
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.FollowState
 import com.linker.app.domain.model.Link
@@ -12,6 +11,7 @@ import com.linker.app.domain.model.User
 import com.linker.app.domain.model.followState
 import com.linker.app.domain.repository.LinkRepository
 import com.linker.app.domain.repository.UserRepository
+import com.linker.app.domain.usecase.user.CurrentUserProvider
 import com.linker.app.presentation.navigation.Route
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -43,6 +43,7 @@ sealed class UserProfileEffect {
 class UserProfileViewModel @Inject constructor(
     private val userRepository: UserRepository,
     private val linkRepository: LinkRepository,
+    private val currentUserProvider: CurrentUserProvider,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -56,7 +57,7 @@ class UserProfileViewModel @Inject constructor(
 
     /** Aktif kullanıcının kendi profili mi görüntüleniyor? */
     val isOwnProfile: Boolean
-        get() = FirebaseAuth.getInstance().currentUser?.uid == userId
+        get() = currentUserProvider.getCurrentUserId() == userId
 
     init { loadUser() }
 

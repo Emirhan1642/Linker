@@ -3,6 +3,7 @@ package com.linker.app.core.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import com.linker.app.domain.repository.AccountRepository
@@ -34,33 +35,48 @@ class NotificationActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ChatNotificationHelper.ACTION_REPLY ->
                 ioScope.launch {
-                    ensureActiveAccount(targetAccountUid)
-                    handleReply(context, chatId, messageId, senderId, senderName, notificationId, intent)
+                    if (ensureActiveAccount(context, targetAccountUid)) {
+                        handleReply(context, chatId, messageId, senderId, senderName, notificationId, intent)
+                    }
                 }
             ChatNotificationHelper.ACTION_LIKE ->
                 ioScope.launch {
-                    ensureActiveAccount(targetAccountUid)
-                    handleLike(messageId)
+                    if (ensureActiveAccount(context, targetAccountUid)) {
+                        handleLike(messageId)
+                    }
                 }
             ChatNotificationHelper.ACTION_READ ->
                 ioScope.launch {
-                    ensureActiveAccount(targetAccountUid)
-                    handleRead(context, chatId, notificationId)
+                    if (ensureActiveAccount(context, targetAccountUid)) {
+                        handleRead(context, chatId, notificationId)
+                    }
                 }
         }
     }
 
-    private suspend fun ensureActiveAccount(targetUid: String) {
-        if (targetUid.isBlank()) return
+    private suspend fun ensureActiveAccount(context: Context, targetUid: String): Boolean {
+        if (targetUid.isBlank()) return false
         val active = accountRepository.getActiveUid()
-        if (active != targetUid) {
-            when (val r = accountRepository.switchToAccount(targetUid)) {
-                is LinkerResult.Error -> android.util.Log.w(
-                    "NotificationAction",
-                    "switchToAccount failed: ${r.message}"
-                )
-                else -> { }
+        if (active == targetUid) return true
+
+        return when (val r = accountRepository.switchToAccount(targetUid)) {
+            is LinkerResult.Success -> {
+                // If the app is open / foreground, let the user know why the UI is swapping!
+                launchToast(context, "Switched to account to perform action.")
+                true
             }
+            is LinkerResult.Error -> {
+                launchToast(context, "Could not perform action. Account switch failed.")
+                android.util.Log.w("NotificationAction", "switchToAccount failed: ${r.message}")
+                false
+            }
+            else -> false
+        }
+    }
+
+    private fun launchToast(context: Context, message: String) {
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
 

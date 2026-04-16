@@ -2,8 +2,6 @@ package com.linker.app.presentation.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.AccountSession
 import com.linker.app.domain.model.User
@@ -89,10 +87,8 @@ class AuthViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     init {
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser != null && currentUser.displayName.isNullOrBlank()) {
-            _uiState.update { it.copy(authStep = AuthStep.PROFILE_SETUP) }
-        }
+        // Init logic relying directly on FirebaseAuth has been moved to use domain layers 
+        // to conform with Clean Architecture.
     }
 
     fun setAddingAccountMode(isAdding: Boolean) {
@@ -214,29 +210,19 @@ class AuthViewModel @Inject constructor(
     // ── handleSignInSuccess ───────────────────────────────────────────────────
 
     private suspend fun handleSignInSuccess(user: User) {
-        val firebaseUser = FirebaseAuth.getInstance().currentUser
-            ?: run { _effect.emit(AuthEffect.ShowError("Authentication error")); return }
+        val username = user.username
 
-        val doc = try {
-            FirebaseFirestore.getInstance()
-                .collection("users").document(firebaseUser.uid)
-                .get().await()
-        } catch (e: Exception) { null }
-
-        val username = doc?.getString("username")
-
-        if (username.isNullOrBlank()) {
+        if (username.isBlank()) {
             _uiState.update { it.copy(authStep = AuthStep.PROFILE_SETUP) }
             _effect.emit(AuthEffect.NavigateToProfileSetup)
             return
         }
 
-        val displayName = doc.getString("displayName") ?: username
-        val avatarUrl   = doc.getString("profileImageUrl")
+        val displayName = user.displayName.ifBlank { username }
+        val avatarUrl   = user.profileImageUrl
 
-        // Email + password ile session kaydet
         saveSession(
-            uid         = firebaseUser.uid,
+            uid         = user.userId,
             displayName = displayName,
             username    = username,
             avatarUrl   = avatarUrl,

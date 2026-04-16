@@ -166,6 +166,10 @@ fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when 
     com.linker.app.data.local.entity.MessageType.GIF   -> MessageType.GIF
     com.linker.app.data.local.entity.MessageType.LINK  -> MessageType.LINK
     com.linker.app.data.local.entity.MessageType.AUDIO -> MessageType.AUDIO
+    com.linker.app.data.local.entity.MessageType.FILE  -> MessageType.FILE
+    com.linker.app.data.local.entity.MessageType.LOCATION -> MessageType.LOCATION
+    com.linker.app.data.local.entity.MessageType.CONTACT -> MessageType.CONTACT
+    com.linker.app.data.local.entity.MessageType.STICKER -> MessageType.STICKER
 }
 
 fun com.linker.app.data.local.entity.MessageStatus.toDomain(): MessageStatus = when (this) {
@@ -180,6 +184,8 @@ fun com.linker.app.data.local.entity.DeliveryMethod.toDomain(): DeliveryMethod =
     com.linker.app.data.local.entity.DeliveryMethod.ONLINE      -> DeliveryMethod.ONLINE
     com.linker.app.data.local.entity.DeliveryMethod.BLE         -> DeliveryMethod.BLE
     com.linker.app.data.local.entity.DeliveryMethod.WIFI_DIRECT -> DeliveryMethod.WIFI_DIRECT
+    com.linker.app.data.local.entity.DeliveryMethod.MESH        -> DeliveryMethod.MESH
+    com.linker.app.data.local.entity.DeliveryMethod.P2P_WIFI    -> DeliveryMethod.P2P_WIFI
 }
 
 fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = when (this) {

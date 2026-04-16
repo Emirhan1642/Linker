@@ -55,6 +55,6 @@ data class Message(
     val readAt: Long?
 )
 
-enum class MessageType  { TEXT, IMAGE, VIDEO, GIF, LINK, AUDIO }
+enum class MessageType  { TEXT, IMAGE, VIDEO, GIF, LINK, AUDIO, FILE, LOCATION, CONTACT, STICKER }
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
-enum class DeliveryMethod { ONLINE, BLE, WIFI_DIRECT }
+enum class DeliveryMethod { ONLINE, BLE, WIFI_DIRECT, MESH, P2P_WIFI }

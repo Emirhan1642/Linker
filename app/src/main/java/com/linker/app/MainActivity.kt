@@ -75,12 +75,19 @@ class MainActivity : ComponentActivity() {
     private suspend fun applyLaunchIntent(intent: Intent?) {
         val target = intent?.getStringExtra(ChatNotificationHelper.EXTRA_TARGET_ACCOUNT_UID)
         if (!target.isNullOrBlank()) {
-            when (val r = accountRepository.switchToAccount(target)) {
-                is LinkerResult.Error -> android.util.Log.w(
-                    "MainActivity",
-                    "switchToAccount failed: ${r.message}"
-                )
-                else -> { }
+            val active = accountRepository.getActiveUid()
+            if (active != target) {
+                when (val r = accountRepository.switchToAccount(target)) {
+                    is LinkerResult.Success -> {
+                        pendingChatId = intent.getStringExtra("chat_id")
+                    }
+                    is LinkerResult.Error -> {
+                        android.util.Log.w("MainActivity", "switchToAccount failed: ${r.message}")
+                        pendingChatId = null
+                    }
+                    else -> {}
+                }
+                return
             }
         }
         pendingChatId = intent?.getStringExtra("chat_id")

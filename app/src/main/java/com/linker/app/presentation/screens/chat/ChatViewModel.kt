@@ -3,11 +3,13 @@ package com.linker.app.presentation.screens.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import com.linker.app.domain.model.*
 import com.linker.app.domain.repository.ChatRepository
 import com.linker.app.domain.repository.NoteRepository
+import com.linker.app.domain.usecase.chat.LoadMessageInfoUseCase
+import com.linker.app.domain.repository.UserRepository
+import com.linker.app.domain.usecase.user.CurrentUserProvider
+import com.linker.app.domain.usecase.user.GetUserDisplayNameUseCase
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
+
 
 data class ChatListUiState(
     val isLoading: Boolean = true,
@@ -63,6 +66,7 @@ data class ChatMessageUiState(
 
 data class MessageUiModel(
     val messageId: String,
+    val chatId: String = "",
     val content: String?,
     val isSelf: Boolean,
     val timestamp: Long,
@@ -73,10 +77,11 @@ data class MessageUiModel(
     val readReceipts: Map<String, Long> = emptyMap(),
     val senderId: String = "",
     val senderDisplayName: String = "User",
-    val senderAvatarUrl: String? = null
+    val senderAvatarUrl: String? = null,
+    val isDeleted: Boolean = false
 )
 
-data class MessageInfoUiState(
+data class MessageInfoState(
     val isLoading: Boolean = false,
     val messageId: String = "",
     val replyToMessageId: String? = null,
@@ -89,7 +94,7 @@ data class MessageInfoUiState(
     val readAt: Long? = null,
     val failedAt: Long? = null,
     val replies: List<ReplyInfo> = emptyList(),
-    val reactions: List<ReactionInfo> = emptyList(),
+    val reactions: List<ReactionUserInfo> = emptyList(),
     val readReceipts: List<ReadReceiptInfo> = emptyList()
 )
 
@@ -103,9 +108,23 @@ data class ParticipantReceiptInfo(
 data class ReplyInfo(
     val messageId: String,
     val senderId: String,
-    val senderName: String,
     val preview: String,
     val avatarUrl: String?
+)
+
+data class ReplyPreview(
+    val senderName: String,
+    val previewText: String,
+    val isSelf: Boolean
+)
+
+data class MessageItem(
+    val text: String,
+    val isSelf: Boolean,
+    val status: MessageStatus = MessageStatus.SENT,
+    val sessionId: String = "",
+    val prevIsSelf: Boolean = false,
+    val nextIsSelf: Boolean = false
 )
 
 data class ReactionInfo(
@@ -139,8 +158,10 @@ data class MessageReactionsUiState(
 class ChatViewModel @Inject constructor(
     private val chatRepository: ChatRepository,
     private val noteRepository: NoteRepository,
-    private val firestore: FirebaseFirestore,
-    private val auth: FirebaseAuth
+    private val currentUserProvider: CurrentUserProvider,
+    private val getUserDisplayNameUseCase: GetUserDisplayNameUseCase,
+    private val loadMessageInfoUseCase: LoadMessageInfoUseCase,
+    private val userRepository: UserRepository
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -149,29 +170,21 @@ class ChatViewModel @Inject constructor(
     private val _messageState = MutableStateFlow(ChatMessageUiState())
     val messageState: StateFlow<ChatMessageUiState> = _messageState.asStateFlow()
 
-    private val _messageInfoState = MutableStateFlow(MessageInfoUiState())
-    val messageInfoState: StateFlow<MessageInfoUiState> = _messageInfoState.asStateFlow()
+    private val _messageInfoState = MutableStateFlow(MessageInfoState())
+    val messageInfoState: StateFlow<MessageInfoState> = _messageInfoState.asStateFlow()
 
     private val _messageReactionsState = MutableStateFlow(MessageReactionsUiState())
     val messageReactionsState: StateFlow<MessageReactionsUiState> = _messageReactionsState.asStateFlow()
 
     private var lastMarkedReadAt: Long = 0L
     private var chatsJob: Job? = null
-    private var authListener: FirebaseAuth.AuthStateListener? = null
 
     private val currentUserId: String
-        get() = auth.currentUser?.uid ?: ""
+        get() = currentUserProvider.getCurrentUserId() ?: ""
 
     init {
         observeChats()
         observeNotes()
-        authListener = FirebaseAuth.AuthStateListener {
-            // Reset and reload chats when account changes
-            chatsJob?.cancel()
-            _chatListState.value = ChatListUiState(isLoading = true, chats = emptyList(), notes = _chatListState.value.notes)
-            observeChats()
-        }
-        auth.addAuthStateListener(authListener!!)
     }
 
     // ── Chat List ──────────────────────────────────────────────────────────
@@ -223,17 +236,11 @@ class ChatViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        authListener?.let { auth.removeAuthStateListener(it) }
         super.onCleared()
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
-        return try {
-            val doc = firestore.collection("users").document(userId).get().await()
-            doc.getString("displayName") ?: doc.getString("username") ?: "User"
-        } catch (_: Exception) {
-            "User"
-        }
+        return getUserDisplayNameUseCase(userId)
     }
 
     // ── Notes ──────────────────────────────────────────────────────────────
@@ -335,7 +342,6 @@ class ChatViewModel @Inject constructor(
                             replyToMessageId = msg.replyToMessage?.messageId,
                             readAt = msg.readAt,
                             reactions = msg.reactions,
-                            readReceipts = emptyMap(),
                             senderId = msg.sender.userId,
                             senderDisplayName = if (msg.sender.userId == currentUserId) {
                                 "You"
@@ -364,149 +370,43 @@ class ChatViewModel @Inject constructor(
 
     fun loadMessageInfo(messageId: String) {
         if (messageId.isBlank()) return
-        _messageInfoState.value = MessageInfoUiState(isLoading = true, messageId = messageId)
+        _messageInfoState.value = MessageInfoState(isLoading = true, messageId = messageId)
 
         viewModelScope.launch {
-            try {
-                val doc = firestore.collection("messages").document(messageId).get().await()
-                val data = doc.data ?: run {
-                    _messageInfoState.value = MessageInfoUiState(isLoading = false)
-                    return@launch
-                }
-
-                val senderId = data["senderId"] as? String ?: ""
-                val isSelf = senderId == currentUserId
-                val replyToMessageId = data["replyToMessageId"] as? String
-                val content = data["content"] as? String ?: "[Media]"
-                val createdAt = (data["createdAt"] as? Number)?.toLong()
-                val deliveredAt = (data["deliveredAt"] as? Number)?.toLong()
-                val readAt = (data["readAt"] as? Number)?.toLong()
-                val statusStr = data["messageStatus"] as? String ?: "SENT"
-                val isFailed = statusStr == "FAILED"
-                val failedAt = if (isFailed) (data["updatedAt"] as? Number)?.toLong() else null
-
-                val senderName = if (senderId == currentUserId) {
-                    "You"
-                } else {
-                    resolveUserDisplayName(senderId)
-                }
-
-                val fromTo = if (!replyToMessageId.isNullOrBlank()) {
-                    val parentDoc = firestore.collection("messages").document(replyToMessageId).get().await()
-                    val parentSenderId = parentDoc.getString("senderId") ?: ""
-                    val parentName = if (parentSenderId == currentUserId) {
-                        "You"
-                    } else {
-                        resolveUserDisplayName(parentSenderId)
-                    }
-                    "$senderName \u2192 $parentName"
-                } else {
-                    ""
-                }
-
-                val reactionsMap = (data["reactions"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-                    val userId = k as? String ?: return@mapNotNull null
-                    val emoji = v as? String ?: return@mapNotNull null
-                    userId to emoji
-                }?.toMap() ?: emptyMap()
-
-                val reactions = reactionsMap.map { (userId, emoji) ->
-                    val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
-                    ReactionInfo(userName = name, emoji = emoji)
-                }
-
-                val readReceiptsMap = (data["readReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-                    val userId = k as? String ?: return@mapNotNull null
-                    val ts = (v as? Number)?.toLong() ?: return@mapNotNull null
-                    userId to ts
-                }?.toMap() ?: emptyMap()
-
-                val deliveryMap = (data["deliveryReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-                    val userId = k as? String ?: return@mapNotNull null
-                    val ts = (v as? Number)?.toLong() ?: return@mapNotNull null
-                    userId to ts
-                }?.toMap() ?: emptyMap()
-
-                coroutineScope {
-                    val readReceipts = readReceiptsMap.map { (userId, ts) ->
-                        async {
-                            val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
-                            val avatarUrl = try {
-                                firestore.collection("users").document(userId).get().await()
-                                    .getString("profileImageUrl")
-                            } catch (_: Exception) {
-                                null
-                            }
-                            ReadReceiptInfo(
-                                userId = userId,
-                                userName = name,
-                                readAt = ts,
-                                avatarUrl = avatarUrl
-                            )
-                        }
-                    }.awaitAll().sortedByDescending { it.readAt }
-
-                    val deliveredReceipts = deliveryMap.map { (userId, ts) ->
-                        async {
-                            val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
-                            val avatarUrl = try {
-                                firestore.collection("users").document(userId).get().await()
-                                    .getString("profileImageUrl")
-                            } catch (_: Exception) {
-                                null
-                            }
-                            ParticipantReceiptInfo(userId, name, ts, avatarUrl)
-                        }
-                    }.awaitAll().sortedByDescending { it.atMillis }
-
-                    val repliesSnapshot = firestore.collection("messages")
-                        .whereEqualTo("replyToMessageId", messageId)
-                        .get()
-                        .await()
-
-                    val replies = repliesSnapshot.documents.mapNotNull { replyDoc ->
-                        val replyData = replyDoc.data ?: return@mapNotNull null
-                        val replySenderId = replyData["senderId"] as? String ?: ""
-                        val replySenderName = if (replySenderId == currentUserId) {
-                            "You"
-                        } else {
-                            resolveUserDisplayName(replySenderId)
-                        }
-                        val replyAvatar = try {
-                            firestore.collection("users").document(replySenderId).get().await()
-                                .getString("profileImageUrl")
-                        } catch (_: Exception) {
-                            null
-                        }
-                        val preview = (replyData["content"] as? String)?.take(80) ?: "[Media]"
-                        ReplyInfo(
-                            messageId = replyDoc.id,
-                            senderId = replySenderId,
-                            senderName = replySenderName,
-                            preview = preview,
-                            avatarUrl = replyAvatar
-                        )
-                    }
-
-                    _messageInfoState.value = MessageInfoUiState(
+            when (val result = loadMessageInfoUseCase(messageId)) {
+                is Result.Success -> {
+                    val info = result.data
+                    _messageInfoState.value = MessageInfoState(
                         isLoading = false,
                         messageId = messageId,
-                        replyToMessageId = replyToMessageId,
-                        content = content,
-                        isSelf = isSelf,
-                        fromTo = fromTo,
-                        sentAt = createdAt,
-                        deliveredAt = deliveredAt,
-                        deliveredReceipts = deliveredReceipts,
-                        readAt = readAt,
-                        failedAt = failedAt,
-                        replies = replies,
-                        reactions = reactions,
-                        readReceipts = readReceipts
+                        replyToMessageId = info.message.replyToMessage?.messageId,
+                        content = info.message.content ?: "[Media]",
+                        isSelf = info.message.sender.userId == currentUserId,
+                        sentAt = info.message.createdAt,
+                        deliveredAt = info.message.deliveredAt,
+                        readAt = info.message.readAt,
+                        reactions = info.reactions.map { (userId, emoji) ->
+                            ReactionUserInfo(
+                                userId = userId,
+                                userName = if (userId == currentUserId) "You" else resolveUserDisplayName(userId),
+                                avatarUrl = null,
+                                emoji = emoji
+                            )
+                        },
+                        readReceipts = info.readReceipts.map { (userId, timestamp) ->
+                            ReadReceiptInfo(
+                                userId = userId,
+                                userName = if (userId == currentUserId) "You" else resolveUserDisplayName(userId),
+                                readAt = timestamp,
+                                avatarUrl = null
+                            )
+                        }
                     )
                 }
-            } catch (_: Exception) {
-                _messageInfoState.value = MessageInfoUiState(isLoading = false)
+                is Result.Error -> {
+                    _messageInfoState.value = MessageInfoState(isLoading = false, messageId = messageId)
+                }
+                is Result.Loading -> {}
             }
         }
     }
@@ -520,7 +420,8 @@ class ChatViewModel @Inject constructor(
                 val list = reactions.map { (userId, emoji) ->
                     val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
                     val avatarUrl = try {
-                        firestore.collection("users").document(userId).get().await().getString("profileImageUrl")
+                        val result = userRepository.getUserById(userId)
+                        if (result is Result.Success) result.data.profileImageUrl else null
                     } catch (_: Exception) { null }
                     ReactionUserInfo(
                         userId = userId,

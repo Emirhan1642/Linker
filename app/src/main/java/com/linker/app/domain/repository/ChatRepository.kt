@@ -89,6 +89,22 @@ interface ChatRepository {
     /** Retries all failed messages for a specific delivery method. */
     suspend fun retryFailedMessages(preferredMethod: DeliveryMethod): Result<Unit>
 
+    // ✅ PAGINATION: Load messages with cursor-based pagination
+    suspend fun getMessagesPaged(
+        chatId: String,
+        beforeTimestamp: Long? = null,
+        limit: Int = 50
+    ): Result<List<Message>>
+
+    /** Get single message by ID */
+    suspend fun getMessageById(messageId: String): Message
+
+    /** Get reactions for a message */
+    suspend fun getMessageReactions(messageId: String): Map<String, String>
+
+    /** Get read receipts for a message */
+    suspend fun getReadReceipts(messageId: String): Map<String, Long>
+
     // ── Group management (admin) ───────────────────────────────────────────
 
     /** [userId] kullanıcısını grup yöneticisi yapar (yalnızca mevcut yöneticiler). */
