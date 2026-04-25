@@ -62,6 +62,8 @@ fun ChatInfoScreen(
     var memberMenuUser by remember { mutableStateOf<User?>(null) }
     var showEditGroupName by remember { mutableStateOf(false) }
     var groupNameField by remember { mutableStateOf("") }
+    var showLeaveGroupConfirm by remember { mutableStateOf(false) }
+    var showRemoveFromListConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(chatId) {
         viewModel.loadChatInfo(chatId)
@@ -75,6 +77,13 @@ fun ChatInfoScreen(
 
     LaunchedEffect(uiState.chatName) {
         groupNameField = uiState.chatName
+    }
+
+    LaunchedEffect(uiState.shouldCloseScreen) {
+        if (uiState.shouldCloseScreen) {
+            viewModel.consumeCloseScreen()
+            onNavigateBack()
+        }
     }
 
     if (showEditGroupName) {
@@ -99,6 +108,59 @@ fun ChatInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showEditGroupName = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showLeaveGroupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLeaveGroupConfirm = false },
+            title = { Text("Leave group?", color = TextPrimary) },
+            text = {
+                Text(
+                    text = "Are you sure you want to leave this group?",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLeaveGroupConfirm = false
+                        showRemoveFromListConfirm = true
+                    }
+                ) { Text("Yes") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveGroupConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showRemoveFromListConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRemoveFromListConfirm = false },
+            title = { Text("Remove from list?", color = TextPrimary) },
+            text = {
+                Text(
+                    text = "Do you also want to remove this group from your chat list?",
+                    color = TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRemoveFromListConfirm = false
+                        viewModel.leaveGroup(removeFromList = true)
+                    }
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRemoveFromListConfirm = false
+                        viewModel.leaveGroup(removeFromList = false)
+                    }
+                ) { Text("Keep") }
             }
         )
     }
@@ -342,14 +404,16 @@ fun ChatInfoScreen(
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Disappearing messages
-                        ChatInfoOption(
-                            icon = R.drawable.ic_ai_sand_timer_outline,
-                            title = "Disappearing messages",
-                            subtitle = "Off",
-                            onClick = { /* TODO */ }
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        if (!uiState.isGroupChat) {
+                            // Disappearing messages are private-chat specific.
+                            ChatInfoOption(
+                                icon = R.drawable.ic_ai_sand_timer_outline,
+                                title = "Disappearing messages",
+                                subtitle = "Off",
+                                onClick = { /* TODO */ }
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
 
                         // Security
                         ChatInfoOption(
@@ -361,14 +425,16 @@ fun ChatInfoScreen(
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
-                        // Block User
-                        ChatInfoOption(
-                            icon = R.drawable.ic_forbidden_outline,
-                            title = "Block User",
-                            subtitle = if (uiState.isBlocked) "UnBlock" else "Block",
-                            onClick = { viewModel.toggleBlock() }
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        if (!uiState.isGroupChat) {
+                            // Blocking is private-chat specific.
+                            ChatInfoOption(
+                                icon = R.drawable.ic_forbidden_outline,
+                                title = "Block User",
+                                subtitle = if (uiState.isBlocked) "UnBlock" else "Block",
+                                onClick = { viewModel.toggleBlock() }
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
 
                         // Nicknames
                         ChatInfoOption(
@@ -398,6 +464,16 @@ fun ChatInfoScreen(
                             onClick = { viewModel.toggleFavorite() }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
+
+                        if (uiState.isGroupChat) {
+                            ChatInfoOption(
+                                icon = R.drawable.ic_close_circle_outline,
+                                title = "Leave Group",
+                                subtitle = null,
+                                onClick = { showLeaveGroupConfirm = true }
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+                        }
                     }
                 }
 

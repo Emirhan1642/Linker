@@ -184,8 +184,6 @@ fun com.linker.app.data.local.entity.DeliveryMethod.toDomain(): DeliveryMethod =
     com.linker.app.data.local.entity.DeliveryMethod.ONLINE      -> DeliveryMethod.ONLINE
     com.linker.app.data.local.entity.DeliveryMethod.BLE         -> DeliveryMethod.BLE
     com.linker.app.data.local.entity.DeliveryMethod.WIFI_DIRECT -> DeliveryMethod.WIFI_DIRECT
-    com.linker.app.data.local.entity.DeliveryMethod.MESH        -> DeliveryMethod.MESH
-    com.linker.app.data.local.entity.DeliveryMethod.P2P_WIFI    -> DeliveryMethod.P2P_WIFI
 }
 
 fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = when (this) {

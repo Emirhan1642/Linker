@@ -146,7 +146,6 @@ fun MessagePreviewSection(state: MessageInfoState) {
                 message = com.linker.app.presentation.screens.chat.MessageItem(
                     text = state.content,
                     isSelf = state.isSelf,
-                    sessionId = ""
                 )
             )
         }

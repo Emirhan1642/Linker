@@ -88,6 +88,10 @@ android {
     }
 }
 
+ksp {
+    arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
+}
+
 dependencies {
     // Core
     implementation(libs.androidx.core.ktx)

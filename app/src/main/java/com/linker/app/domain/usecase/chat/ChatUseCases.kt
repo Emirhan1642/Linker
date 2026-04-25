@@ -70,11 +70,12 @@ class CreateGroupChatUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         name: String,
-        participantIds: List<String>
+        participantIds: List<String>,
+        permissions: Map<String, Any>? = null
     ): Result<Chat> {
         if (name.isBlank()) return Result.Error("Group name cannot be empty")
         if (participantIds.size < 2) return Result.Error("A group needs at least 2 other participants")
-        return chatRepository.createGroupChat(name, participantIds)
+        return chatRepository.createGroupChat(name, participantIds, permissions)
     }
 }
 
@@ -118,6 +119,15 @@ class MarkChatAsReadUseCase @Inject constructor(
         chatRepository.markChatAsRead(chatId)
 }
 
+// ─── Mark Chat as Read Up To ──────────────────────────────────────────────────
+
+class MarkChatAsReadUpToUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) {
+    suspend operator fun invoke(chatId: String, upToTimestamp: Long): Result<Unit> =
+        chatRepository.markChatAsReadUpTo(chatId, upToTimestamp)
+}
+
 // ─── Search Messages ──────────────────────────────────────────────────────────
 
 class SearchMessagesUseCase @Inject constructor(
@@ -145,4 +155,22 @@ class RetryFailedMessagesUseCase @Inject constructor(
     suspend operator fun invoke(
         preferredMethod: DeliveryMethod = DeliveryMethod.BLE
     ): Result<Unit> = chatRepository.retryFailedMessages(preferredMethod)
+}
+
+// ─── Get Chat By Id ───────────────────────────────────────────────────────────
+
+class GetChatByIdUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) {
+    suspend operator fun invoke(chatId: String): Result<Chat> =
+        chatRepository.getChatById(chatId)
+}
+
+// ─── Get Message By Id ────────────────────────────────────────────────────────
+
+class GetMessageByIdUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) {
+    suspend operator fun invoke(messageId: String): Message =
+        chatRepository.getMessageById(messageId)
 }

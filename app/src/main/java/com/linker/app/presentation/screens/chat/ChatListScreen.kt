@@ -78,6 +78,7 @@ fun ChatListScreen(
         }
     }
 
+    val normalizedQuery = searchQuery.trim()
     val filteredChats = when (selectedFilter) {
         "Unreads" -> uiState.chats.filter { !it.isArchived && it.unreadCount > 0 }
         "Favorites" -> uiState.chats.filter { !it.isArchived && it.isFavorited }
@@ -85,6 +86,11 @@ fun ChatListScreen(
         "Archived" -> uiState.chats.filter { it.isArchived }
         else -> uiState.chats.filter { !it.isArchived }
     }
+        .filter { chat ->
+            normalizedQuery.isBlank() ||
+                chat.displayName.contains(normalizedQuery, ignoreCase = true) ||
+                (chat.lastMessage?.contains(normalizedQuery, ignoreCase = true) == true)
+        }
         .sortedWith(
             if (selectedFilter == "All") {
                 compareByDescending<ChatUiModel> { it.isPinned }

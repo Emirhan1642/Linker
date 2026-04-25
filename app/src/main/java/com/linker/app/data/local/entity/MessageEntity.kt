@@ -18,12 +18,6 @@ import androidx.room.PrimaryKey
             parentColumns = ["chatId"],
             childColumns = ["chatId"],
             onDelete = ForeignKey.CASCADE
-        ),
-        ForeignKey(
-            entity = UserEntity::class,
-            parentColumns = ["userId"],
-            childColumns = ["senderId"],
-            onDelete = ForeignKey.CASCADE
         )
     ],
     indices = [
@@ -86,7 +80,5 @@ enum class MessageStatus {
 enum class DeliveryMethod {
     ONLINE,      // Via internet
     BLE,         // Via Bluetooth mesh
-    WIFI_DIRECT,  // Via Wi-Fi Direct
-    MESH,        // Via Bluetooth mesh
-    P2P_WIFI     // Via Wi-Fi Direct
+    WIFI_DIRECT  // Via Wi-Fi Direct
 }

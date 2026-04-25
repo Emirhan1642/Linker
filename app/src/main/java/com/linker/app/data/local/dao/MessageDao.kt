@@ -14,19 +14,19 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE messageId = :messageId")
     suspend fun getMessageById(messageId: String): MessageEntity?
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND isDeleted = 0 ORDER BY createdAt ASC")
     fun observeMessagesByChat(chatId: String): Flow<List<MessageEntity>>
     
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND isDeleted = 0 ORDER BY createdAt ASC LIMIT :limit OFFSET :offset")
     suspend fun getMessagesByChat(chatId: String, limit: Int = 50, offset: Int = 0): List<MessageEntity>
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND messageStatus = :status")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND messageStatus = :status AND isDeleted = 0")
     suspend fun getMessagesByStatus(chatId: String, status: MessageStatus): List<MessageEntity>
     
-    @Query("SELECT * FROM messages WHERE messageStatus = :status")
+    @Query("SELECT * FROM messages WHERE messageStatus = :status AND isDeleted = 0")
     fun observeMessagesByStatus(status: MessageStatus): Flow<List<MessageEntity>>
     
-    @Query("SELECT * FROM messages WHERE replyToMessageId = :messageId")
+    @Query("SELECT * FROM messages WHERE replyToMessageId = :messageId AND isDeleted = 0")
     suspend fun getReplies(messageId: String): List<MessageEntity>
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -53,8 +53,8 @@ interface MessageDao {
     @Query("UPDATE messages SET content = :content, isEdited = 1, updatedAt = :timestamp WHERE messageId = :messageId")
     suspend fun editMessage(messageId: String, content: String, timestamp: Long)
     
-    @Query("UPDATE messages SET messageStatus = :status WHERE chatId = :chatId AND senderId != :currentUserId AND messageStatus != 'READ'")
-    suspend fun markChatMessagesAsRead(chatId: String, currentUserId: String, status: MessageStatus)
+    @Query("UPDATE messages SET messageStatus = :status WHERE chatId = :chatId AND senderId != :currentUserId AND messageStatus != :readStatus")
+    suspend fun markChatMessagesAsRead(chatId: String, currentUserId: String, status: MessageStatus, readStatus: MessageStatus = MessageStatus.READ)
     
     @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND isDeleted = 0")
     suspend fun getMessageCount(chatId: String): Int

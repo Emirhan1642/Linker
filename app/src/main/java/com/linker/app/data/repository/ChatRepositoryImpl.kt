@@ -481,8 +481,6 @@ class ChatRepositoryImpl @Inject constructor(
         DeliveryMethod.ONLINE -> EntityDeliveryMethod.ONLINE
         DeliveryMethod.BLE -> EntityDeliveryMethod.BLE
         DeliveryMethod.WIFI_DIRECT -> EntityDeliveryMethod.WIFI_DIRECT
-        DeliveryMethod.P2P_WIFI -> EntityDeliveryMethod.P2P_WIFI
-        DeliveryMethod.MESH -> EntityDeliveryMethod.MESH
     }
 
     private fun buildFirestoreMessagePayload(
@@ -604,7 +602,8 @@ class ChatRepositoryImpl @Inject constructor(
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
             groupAdminIds = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-            groupCreatedBy = data["createdBy"] as? String
+            groupCreatedBy = data["createdBy"] as? String,
+            groupPermissions = (data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any } ?: emptyMap()
         )
     }
 
@@ -670,7 +669,8 @@ class ChatRepositoryImpl @Inject constructor(
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
             groupAdminIds = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
-            groupCreatedBy = data["createdBy"] as? String
+            groupCreatedBy = data["createdBy"] as? String,
+            groupPermissions = (data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any } ?: emptyMap()
         )
     }
 
@@ -762,7 +762,12 @@ class ChatRepositoryImpl @Inject constructor(
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
             deliveredAt = (data["deliveredAt"] as? Number)?.toLong(),
-            readAt = (data["readAt"] as? Number)?.toLong()
+            readAt = (data["readAt"] as? Number)?.toLong(),
+            readReceipts = (data["readReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+                val userId = k as? String ?: return@mapNotNull null
+                val seenAt = (v as? Number)?.toLong() ?: return@mapNotNull null
+                userId to seenAt
+            }?.toMap() ?: emptyMap()
         )
     }
 
@@ -799,6 +804,39 @@ class ChatRepositoryImpl @Inject constructor(
         val updates = mutableMapOf<String, Any>(
             "participantIds" to participants,
             "adminIds" to admins,
+            "updatedAt" to System.currentTimeMillis()
+        )
+        unreadCounts.forEach { (k, v) -> updates["unreadCounts.$k"] = v }
+        chatsCollection.document(chatId).update(updates).await()
+    }
+
+    override suspend fun leaveGroup(chatId: String): Result<Unit> = safeCall {
+        val doc = chatsCollection.document(chatId).get().await()
+        val data = doc.data ?: throw Exception("Chat not found")
+        if ((data["chatType"] as? String) != "GROUP") throw Exception("Not a group chat")
+
+        val participants = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String }
+            ?: throw Exception("Invalid participants")
+        if (!participants.contains(currentUserId)) return@safeCall Unit
+        if (participants.size <= 1) throw Exception("The group cannot be left by the last participant")
+
+        val admins = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+        val remainingParticipants = participants.filter { it != currentUserId }
+        val remainingAdmins = admins.filter { it != currentUserId }.toMutableList()
+
+        if (remainingAdmins.isEmpty()) {
+            remainingAdmins += remainingParticipants.first()
+        }
+
+        val unreadCounts = (data["unreadCounts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+            val key = k as? String ?: return@mapNotNull null
+            if (key == currentUserId) return@mapNotNull null
+            key to (v as? Number ?: return@mapNotNull null)
+        }?.toMap() ?: emptyMap()
+
+        val updates = mutableMapOf<String, Any>(
+            "participantIds" to remainingParticipants,
+            "adminIds" to remainingAdmins,
             "updatedAt" to System.currentTimeMillis()
         )
         unreadCounts.forEach { (k, v) -> updates["unreadCounts.$k"] = v }

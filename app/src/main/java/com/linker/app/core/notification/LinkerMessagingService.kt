@@ -146,15 +146,18 @@ class LinkerMessagingService : FirebaseMessagingService() {
                     val now = System.currentTimeMillis()
                     // chatId/messageId should be in the FCM payload; use them directly for subcollection path
                     if (chatId.isNotBlank() && messageId.isNotBlank()) {
-                        firestore.collection("chats").document(chatId)
+                        val messageRef = firestore.collection("chats").document(chatId)
                             .collection("messages").document(messageId)
-                            .update(
+                        val snapshot = messageRef.get().await()
+                        if (snapshot.exists()) {
+                            messageRef.update(
                                 mapOf(
                                     "deliveryReceipts.$current" to now,
                                     "deliveredAt" to now,
                                     "messageStatus" to "DELIVERED"
                                 )
-                            )
+                            ).await()
+                        }
                     }
                 } catch (e: Exception) {
                     android.util.Log.w(TAG, "Failed to update delivery receipt: ${e.message}")
@@ -228,7 +231,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_SOCIAL_ID)
+        val notification = NotificationCompat.Builder(this, CHANNEL_GENERAL_ID)
             .setSmallIcon(R.drawable.ic_ai_homepage_outline)
             .setContentTitle(title)
             .setContentText(body)
@@ -237,7 +240,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .build()
 
-        getNotificationManager().notify(System.currentTimeMillis().toInt(), notification)
+        getNotificationManager().notify(java.util.UUID.randomUUID().hashCode(), notification)
     }
 
     private fun createDefaultChannels() {
@@ -247,10 +250,21 @@ class LinkerMessagingService : FirebaseMessagingService() {
             nm.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_SOCIAL_ID,
-                    "Social & general",
+                    "Social",
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
-                    description = "Likes, comments, follows, and general alerts"
+                    description = "Likes, comments, follows"
+                }
+            )
+        }
+        if (nm.getNotificationChannel(CHANNEL_GENERAL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_GENERAL_ID,
+                    "General alerts",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "System notifications and general alerts"
                 }
             )
         }
@@ -262,7 +276,8 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "LinkerMessaging"
-        private const val CHANNEL_SOCIAL_ID = "linker_social_general"
+        private const val CHANNEL_SOCIAL_ID = "linker_social"
+        private const val CHANNEL_GENERAL_ID = "linker_general"
         const val CHANNEL_ID: String = CHANNEL_SOCIAL_ID
     }
 }

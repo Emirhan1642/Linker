@@ -3,7 +3,6 @@ package com.linker.app.data.repository
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import androidx.compose.remote.creation.first
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
@@ -156,6 +155,13 @@ class MessageRepositoryImpl @Inject constructor(
         val chatData = chatDoc.data
             ?: return Result.Error(Exception("Failed to parse chat").toString())
         val chat = mapToChatSync(chatId, chatData)
+        if (chat.chatType == ChatType.GROUP) {
+            val restrictToAdmins = (chat.groupPermissions["canSendMessages"] as? Boolean) == false
+            val isCurrentUserAdmin = chat.groupAdminIds.contains(currentUserId) || chat.groupCreatedBy == currentUserId
+            if (restrictToAdmins && !isCurrentUserAdmin) {
+                return Result.Error("Only admins can send messages")
+            }
+        }
 
         val isConnected = hasValidatedInternet()
         val deliveryMethod = if (isConnected) DeliveryMethod.ONLINE else DeliveryMethod.BLE
@@ -581,6 +587,77 @@ class MessageRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun reactToMessage(
+        messageId: String,
+        emoji: String?
+    ): Result<Unit> = safeCall {
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        if (!snap.exists()) throw Exception("Message not found")
+
+        if (emoji == null) {
+            // Remove reaction
+            ref.update("reactions.$currentUserId", com.google.firebase.firestore.FieldValue.delete()).await()
+        } else {
+            // Add/update reaction
+            ref.update("reactions.$currentUserId", emoji).await()
+        }
+
+        // Update local cache via copy+update (Map field requires TypeConverter, not a raw @Query)
+        val localMsg = messageDao.getMessageById(messageId)
+        if (localMsg != null) {
+            val updatedReactions = localMsg.reactions.toMutableMap()
+            if (emoji == null) updatedReactions.remove(currentUserId)
+            else updatedReactions[currentUserId] = emoji
+            messageDao.updateMessage(localMsg.copy(reactions = updatedReactions))
+        }
+    }
+
+    override suspend fun markMessageAsRead(messageId: String): Result<Unit> = safeCall {
+        val now = System.currentTimeMillis()
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        if (!snap.exists()) throw Exception("Message not found")
+
+        ref.update(
+            mapOf(
+                "readReceipts.$currentUserId" to now,
+                "messageStatus" to "READ",
+                "readAt" to now
+            )
+        ).await()
+        messageDao.updateMessageStatus(messageId, com.linker.app.data.local.entity.MessageStatus.READ)
+    }
+
+    override suspend fun markChatAsRead(chatId: String): Result<Unit> = safeCall {
+        val now = System.currentTimeMillis()
+        // Reset unread count in Firestore
+        chatsCollection.document(chatId)
+            .update("unreadCounts.$currentUserId", 0)
+            .await()
+        // Mark all unread messages as READ
+        val allMessages = messagesRef(chatId)
+            .whereEqualTo("isDeleted", false)
+            .get()
+            .await()
+        val batch = firestore.batch()
+        for (doc in allMessages.documents) {
+            val senderId = doc.getString("senderId")
+            if (senderId == currentUserId) continue
+            val status = doc.getString("messageStatus")
+            if (status != "READ") {
+                batch.update(doc.reference, mapOf(
+                    "readReceipts.$currentUserId" to now,
+                    "messageStatus" to "READ",
+                    "readAt" to now
+                ))
+            }
+        }
+        batch.commit().await()
+        // Update Room
+        chatDao.markAsRead(chatId)
+    }
+
     private suspend fun updateChatLastMessageAfterDeletion(chatId: String) {
         val lastSnapshot = messagesRef(chatId)
             .whereEqualTo("isDeleted", false)
@@ -635,8 +712,12 @@ class MessageRepositoryImpl @Inject constructor(
                 }
             }
 
-        // 2. Process PENDING WorkManager Queue Items from BLE offline insertions
-        val pendingQueueItems = messageQueueDao.getQueueItemsByStatus(QueueStatus.PENDING)
+        // 2. Process queued items from BLE/offline insertions
+        val pendingQueueItems = (
+            messageQueueDao.getQueueItemsByStatus(QueueStatus.PENDING) +
+                messageQueueDao.getQueueItemsByStatus(QueueStatus.FAILED)
+            )
+            .distinctBy { it.queueId }
         pendingQueueItems.forEach { queueItem ->
             try {
                 // Fetch the full message locally to reconstruct the payload
@@ -688,8 +769,8 @@ class MessageRepositoryImpl @Inject constructor(
                     chatType = if (chatEntity?.chatType == EntityChatType.GROUP) ChatType.GROUP else ChatType.PRIVATE,
                     chatName = chatEntity?.chatName ?: "",
                     chatImageUrl = chatEntity?.chatImageUrl,
-                    participants = participantIds.map {
-                        userDao.getUserById(it)?.toDomain()!!
+                    participants = participantIds.map { participantId ->
+                        userDao.getUserById(participantId)?.toDomain() ?: User(userId = participantId)
                     },
                     lastMessage = null,
                     unreadCount = 0,
@@ -706,9 +787,12 @@ class MessageRepositoryImpl @Inject constructor(
 
             } catch (e: Exception) {
                 messageQueueDao.incrementRetryCount(queueItem.queueId, now, e.message)
-                if (queueItem.retryCount >= queueItem.maxRetries) {
+                val newRetryCount = queueItem.retryCount + 1
+                if (newRetryCount >= queueItem.maxRetries) {
                     messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.FAILED, now)
                     messageDao.updateMessageStatus(queueItem.messageId, EntityMessageStatus.FAILED)
+                } else {
+                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.PENDING, now)
                 }
             }
         }
@@ -781,7 +865,12 @@ class MessageRepositoryImpl @Inject constructor(
                 createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
                 updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
                 deliveredAt = (data["deliveredAt"] as? Number)?.toLong(),
-                readAt = (data["readAt"] as? Number)?.toLong()
+                readAt = (data["readAt"] as? Number)?.toLong(),
+                readReceipts = (data["readReceipts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
+                    val userId = k as? String ?: return@mapNotNull null
+                    val seenAt = (v as? Number)?.toLong() ?: return@mapNotNull null
+                    userId to seenAt
+                }?.toMap() ?: emptyMap()
             )
         } catch (_: Exception) {
             null
@@ -865,7 +954,8 @@ class MessageRepositoryImpl @Inject constructor(
             createdAt = entity.createdAt,
             updatedAt = entity.updatedAt,
             deliveredAt = entity.deliveredAt,
-            readAt = entity.readAt
+            readAt = entity.readAt,
+            readReceipts = emptyMap()
         )
     }
 
@@ -1020,8 +1110,7 @@ class MessageRepositoryImpl @Inject constructor(
         return when (method) {
             "ONLINE" -> DeliveryMethod.ONLINE
             "BLE" -> DeliveryMethod.BLE
-            "MESH" -> DeliveryMethod.MESH
-            "P2P_WIFI" -> DeliveryMethod.P2P_WIFI
+            "WIFI_DIRECT" -> DeliveryMethod.WIFI_DIRECT
             else -> DeliveryMethod.ONLINE
         }
     }
@@ -1061,8 +1150,6 @@ class MessageRepositoryImpl @Inject constructor(
             DeliveryMethod.ONLINE -> EntityDeliveryMethod.ONLINE
             DeliveryMethod.BLE -> EntityDeliveryMethod.BLE
             DeliveryMethod.WIFI_DIRECT -> EntityDeliveryMethod.WIFI_DIRECT
-            DeliveryMethod.MESH -> EntityDeliveryMethod.MESH
-            DeliveryMethod.P2P_WIFI -> EntityDeliveryMethod.P2P_WIFI
         }
     }
 
@@ -1071,8 +1158,6 @@ class MessageRepositoryImpl @Inject constructor(
             EntityDeliveryMethod.ONLINE -> DeliveryMethod.ONLINE
             EntityDeliveryMethod.BLE -> DeliveryMethod.BLE
             EntityDeliveryMethod.WIFI_DIRECT -> DeliveryMethod.WIFI_DIRECT
-            EntityDeliveryMethod.MESH -> DeliveryMethod.MESH
-            EntityDeliveryMethod.P2P_WIFI -> DeliveryMethod.P2P_WIFI
         }
     }
 

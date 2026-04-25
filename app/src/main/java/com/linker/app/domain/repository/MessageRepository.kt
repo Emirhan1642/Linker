@@ -39,6 +39,15 @@ interface MessageRepository {
     /** Delete message */
     suspend fun deleteMessage(messageId: String, forEveryone: Boolean = false): Result<Unit>
 
+    /** Add or remove an emoji reaction to a message */
+    suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit>
+
+    /** Mark a single message as read */
+    suspend fun markMessageAsRead(messageId: String): Result<Unit>
+
+    /** Mark all messages in a chat as read */
+    suspend fun markChatAsRead(chatId: String): Result<Unit>
+
     /** Retry failed messages */
     suspend fun retryFailedMessages(): Result<Unit>
 

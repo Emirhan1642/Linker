@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,7 +40,8 @@ data class ChatInfoUiState(
     val canManageGroup: Boolean = false,
     val groupAdminIds: List<String> = emptyList(),
     val groupCreatedBy: String? = null,
-    val feedbackMessage: String? = null
+    val feedbackMessage: String? = null,
+    val shouldCloseScreen: Boolean = false
 )
 
 data class SharedMediaItem(
@@ -70,6 +72,12 @@ class ChatInfoViewModel @Inject constructor(
         get() = FirebaseAuth.getInstance().currentUser?.uid ?: ""
 
     private var currentChatId: String = ""
+    private var mediaObserverJob: Job? = null
+
+    override fun onCleared() {
+        mediaObserverJob?.cancel()
+        super.onCleared()
+    }
 
     fun loadChatInfo(chatId: String) {
         val chatIdChanged = chatId != currentChatId
@@ -92,6 +100,12 @@ class ChatInfoViewModel @Inject constructor(
                     chat = chatResult.data
                 }
                 is Result.Error -> {
+                    if (!isChatNotFoundError(chatResult)) {
+                        _uiState.update {
+                            it.copy(isLoading = false, error = chatResult.message)
+                        }
+                        return@launch
+                    }
                     // Chat doesn't exist — treat chatId as recipientUserId and create new chat
                     when (val newChatResult = chatRepository.createPrivateChat(chatId)) {
                         is Result.Success -> {
@@ -108,7 +122,7 @@ class ChatInfoViewModel @Inject constructor(
                         is Result.Loading -> { return@launch }
                     }
                 }
-                is Result.Loading -> {}
+                is Result.Loading -> return@launch
             }
 
             if (chat == null) {
@@ -162,7 +176,8 @@ class ChatInfoViewModel @Inject constructor(
     }
 
     private fun loadSharedMedia(chatId: String) {
-        chatRepository.observeMessages(chatId)
+        mediaObserverJob?.cancel()
+        mediaObserverJob = chatRepository.observeMessages(chatId)
             .onEach { messages ->
                 val mediaItems = messages
                     .filter { !it.isDeleted && it.mediaUrl != null }
@@ -200,6 +215,11 @@ class ChatInfoViewModel @Inject constructor(
                 }
             }
             .launchIn(viewModelScope)
+    }
+
+    private fun isChatNotFoundError(error: Result.Error): Boolean {
+        return error.code == com.linker.app.core.util.ErrorCodes.NOT_FOUND ||
+            error.message.contains("Chat not found", ignoreCase = true)
     }
 
     fun toggleMute() {
@@ -272,6 +292,10 @@ class ChatInfoViewModel @Inject constructor(
         _uiState.update { it.copy(feedbackMessage = null) }
     }
 
+    fun consumeCloseScreen() {
+        _uiState.update { it.copy(shouldCloseScreen = false) }
+    }
+
     fun promoteMember(userId: String) {
         viewModelScope.launch {
             when (val r = chatRepository.promoteGroupAdmin(currentChatId, userId)) {
@@ -304,6 +328,30 @@ class ChatInfoViewModel @Inject constructor(
                 is Result.Success -> {
                     _uiState.update { it.copy(feedbackMessage = "Removed from group") }
                     loadChatInfo(currentChatId)
+                }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
+    fun leaveGroup(removeFromList: Boolean) {
+        viewModelScope.launch {
+            if (removeFromList) {
+                // Archive before leaving so it disappears from local list immediately.
+                chatRepository.updateChatSettings(
+                    chatId = currentChatId,
+                    isArchived = true
+                )
+            }
+            when (val r = chatRepository.leaveGroup(currentChatId)) {
+                is Result.Success -> {
+                    _uiState.update {
+                        it.copy(
+                            feedbackMessage = "You left the group",
+                            shouldCloseScreen = true
+                        )
+                    }
                 }
                 is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
                 is Result.Loading -> {}

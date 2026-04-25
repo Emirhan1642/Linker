@@ -22,7 +22,9 @@ data class Chat(
     /** Grup sohbetlerinde yönetici uid listesi (Firestore `adminIds`). */
     val groupAdminIds: List<String> = emptyList(),
     /** Grubu oluşturan kullanıcı (Firestore `createdBy`). */
-    val groupCreatedBy: String? = null
+    val groupCreatedBy: String? = null,
+    /** Grup izinleri (Firestore `groupPermissions`): canSendMessages, canEditSettings, vb. */
+    val groupPermissions: Map<String, Any> = emptyMap()
 )
 
 enum class ChatType { PRIVATE, GROUP }
@@ -52,9 +54,10 @@ data class Message(
     val createdAt: Long = 0,
     val updatedAt: Long = 0,
     val deliveredAt: Long? = null,
-    val readAt: Long? = null
+    val readAt: Long? = null,
+    val readReceipts: Map<String, Long> = emptyMap()
 )
 
 enum class MessageType  { TEXT, IMAGE, VIDEO, GIF, LINK, AUDIO, FILE, LOCATION, CONTACT, STICKER }
 enum class MessageStatus { SENDING, SENT, DELIVERED, READ, FAILED }
-enum class DeliveryMethod { ONLINE, BLE, WIFI_DIRECT, MESH, P2P_WIFI }
+enum class DeliveryMethod { ONLINE, BLE, WIFI_DIRECT }

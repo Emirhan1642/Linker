@@ -94,9 +94,41 @@ service cloud.firestore {
         allow read: if isChatParticipant(chatId);
         allow create: if isChatParticipant(chatId)
           && request.resource.data.senderId == request.auth.uid;
-        // Sender can edit their own message; participants can update
-        // system fields (reactions, readReceipts, deliveryReceipts, messageStatus)
-        allow update: if isChatParticipant(chatId);
+        // Sender can edit/delete own message; participants can only update receipt/reaction system fields.
+        allow update: if isChatParticipant(chatId)
+          && request.resource.data.chatId == resource.data.chatId
+          && request.resource.data.senderId == resource.data.senderId
+          && request.resource.data.messageId == resource.data.messageId
+          && (
+            (
+              resource.data.senderId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'content',
+                'isEdited',
+                'updatedAt',
+                'isDeleted',
+                'deletedForEveryone',
+                'reactions',
+                'readReceipts',
+                'deliveryReceipts',
+                'messageStatus',
+                'readAt',
+                'deliveredAt'
+              ])
+            )
+            ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'reactions',
+                'readReceipts',
+                'deliveryReceipts',
+                'messageStatus',
+                'readAt',
+                'deliveredAt',
+                'updatedAt'
+              ])
+            )
+          );
         allow delete: if isChatParticipant(chatId)
           && resource.data.senderId == request.auth.uid;
       }

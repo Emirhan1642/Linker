@@ -116,6 +116,9 @@ interface ChatRepository {
     /** Üyeyi gruptan çıkarır (yönetici; kendini çıkarmaz — [leaveGroup] kullanın). */
     suspend fun removeGroupMember(chatId: String, userId: String): Result<Unit>
 
+    /** Mevcut kullanıcının gruptan ayrılmasını sağlar. */
+    suspend fun leaveGroup(chatId: String): Result<Unit>
+
     /** Grup adı / görseli (yönetici). */
     suspend fun updateGroupProfile(chatId: String, name: String?, imageUrl: String?): Result<Unit>
 }

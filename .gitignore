@@ -92,9 +92,5 @@ linker-d02d0-f6e467e35636.json
 *.local
 apikey.properties
 
-.agents/
-.kotlin/
-.firebaserc
-firebase.json
+.kotlin
 .linker-cache.json
-firestore.rules

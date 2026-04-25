@@ -16,11 +16,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -51,7 +55,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,7 +76,7 @@ import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.UUID
+import android.widget.Toast
 
 // Data classes imported directly from ChatViewModel
 import com.linker.app.presentation.screens.chat.MessageUiModel
@@ -101,8 +107,9 @@ fun ChatMessageScreen(
     val coroutineScope = rememberCoroutineScope()
     val inputFocusRequester = remember { FocusRequester() }
     val haptic = LocalHapticFeedback.current
+    val clipboardManager = LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
     var highlightMessageId by remember { mutableStateOf<String?>(null) }
-    val sessionId = remember { UUID.randomUUID().toString() }
 
     // UI States
     var showContextMenu by remember { mutableStateOf(false) }
@@ -112,8 +119,10 @@ fun ChatMessageScreen(
     var showEmojiPicker by remember { mutableStateOf(false) }
     var showMessageInfo by remember { mutableStateOf(false) }
     var showReactionsSheet by remember { mutableStateOf(false) }
+    var showSeenBySheet by remember { mutableStateOf(false) }
     var reactionsMessageId by remember { mutableStateOf<String?>(null) }
     var replyToMessage by remember { mutableStateOf<MessageUiModel?>(null) }
+    var seenByUsersForSheet by remember { mutableStateOf<List<SeenByUserUi>>(emptyList()) }
     var quickReactions by rememberSaveable {
         mutableStateOf(listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F"))
     }
@@ -126,13 +135,16 @@ fun ChatMessageScreen(
         viewModel.openChat(chatId)
     }
 
-    LaunchedEffect(uiState.messages.size) {
-        if (uiState.messages.isNotEmpty()) {
-            val targetIndex = uiState.messages.size
-            try {
-                listState.animateScrollToItem(targetIndex)
-            } catch (_: Exception) { }
-        }
+    LaunchedEffect(uiState.messages.size, uiState.isSending) {
+        val headerCount = 1
+        val emptyMessageCount = if (uiState.messages.isEmpty()) 1 else 0
+        val sendingCount = if (uiState.isSending) 1 else 0
+        val errorCount = if (uiState.sendError != null) 1 else 0
+        val totalItems = headerCount + emptyMessageCount + uiState.messages.size + sendingCount + errorCount
+        val targetIndex = if (totalItems > 0) totalItems - 1 else 0
+        try {
+            listState.animateScrollToItem(targetIndex)
+        } catch (_: Exception) { }
     }
 
     LaunchedEffect(replyToMessage?.messageId) {
@@ -186,7 +198,104 @@ fun ChatMessageScreen(
                 if (messageReactionsState.isLoading) {
                     CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp))
                 } else {
-                    // Reaction list implementation
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().height(250.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(messageReactionsState.reactions.size) { index ->
+                            val reaction = messageReactionsState.reactions[index]
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LinkerAvatar(
+                                    imageUrl = reaction.avatarUrl,
+                                    size = 40.dp,
+                                    hasStory = false,
+                                    onClick = { 
+                                        if (reaction.userId.isNotBlank()) {
+                                            onNavigateToUserProfile(reaction.userId)
+                                            showReactionsSheet = false
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = reaction.userName,
+                                    color = TextPrimary,
+                                    fontSize = 16.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = reaction.emoji,
+                                    fontSize = 24.sp
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+        }
+    }
+
+    if (showSeenBySheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSeenBySheet = false },
+            containerColor = Color(0xFF1C1C20)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Seen by",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (seenByUsersForSheet.isEmpty()) {
+                    Text(
+                        text = "No viewers yet",
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(seenByUsersForSheet) { viewer ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                LinkerAvatar(
+                                    imageUrl = viewer.avatarUrl,
+                                    size = 40.dp,
+                                    hasStory = false
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = viewer.displayName,
+                                        color = TextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = formatSeenLabel(viewer.seenAt),
+                                        color = TextSecondary,
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -219,30 +328,50 @@ fun ChatMessageScreen(
                 .then(if (showContextMenu) Modifier.blur(14.dp) else Modifier),
             containerColor = Color.Transparent,
             bottomBar = {
-                ChatInputBar(
-                    text = messageText,
-                    onTextChange = { messageText = it },
-                    replyPreview = replyToMessage?.let { msg ->
-                        val senderName = if (msg.isSelf) "You" else {
-                            if (uiState.isGroupChat) msg.senderDisplayName else uiState.recipientName
-                        }
-                        ReplyPreview(
-                            senderName = senderName,
-                            previewText = msg.content ?: "[Media]",
-                            isSelf = msg.isSelf
+                if (!uiState.canSendMessages) {
+                    // Group restriction: only admins can send messages
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFF1C1C20))
+                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .navigationBarsPadding()
+                            .imePadding(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Only admins can send messages",
+                            color = TextSecondary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
                         )
-                    },
-                    onCancelReply = { replyToMessage = null },
-                    onSend = {
-                        if (messageText.isNotBlank() && !uiState.isSending) {
-                            viewModel.sendMessage(messageText, replyToMessage?.messageId)
-                            replyToMessage = null
-                            messageText = ""
-                        }
-                    },
-                    isSending = uiState.isSending,
-                    focusRequester = inputFocusRequester
-                )
+                    }
+                } else {
+                    ChatInputBar(
+                        text = messageText,
+                        onTextChange = { messageText = it },
+                        replyPreview = replyToMessage?.let { msg ->
+                            val senderName = if (msg.isSelf) "You" else {
+                                if (uiState.isGroupChat) msg.senderDisplayName else uiState.recipientName
+                            }
+                            ReplyPreview(
+                                senderName = senderName,
+                                previewText = msg.content ?: "[Media]",
+                                isSelf = msg.isSelf
+                            )
+                        },
+                        onCancelReply = { replyToMessage = null },
+                        onSend = {
+                            if (messageText.isNotBlank() && !uiState.isSending) {
+                                viewModel.sendMessage(messageText, replyToMessage?.messageId)
+                                replyToMessage = null
+                                messageText = ""
+                            }
+                        },
+                        isSending = uiState.isSending,
+                        focusRequester = inputFocusRequester
+                    )
+                }
             }
         ) { paddingValues ->
             Column(
@@ -355,7 +484,6 @@ fun ChatMessageScreen(
                                         text = msg.content ?: "",
                                         isSelf = msg.isSelf,
                                         status = msg.status,
-                                        sessionId = sessionId,
                                         prevIsSelf = prevIsSelf,
                                         nextIsSelf = nextIsSelf
                                     ),
@@ -402,15 +530,42 @@ fun ChatMessageScreen(
                             // Seen indicator for last self message
                             val isLastSelfMessage = msg.isSelf && uiState.messages.drop(index + 1).none { it.isSelf }
                             if (isLastSelfMessage && msg.readAt != null) {
-                                Text(
-                                    text = "Seen ${formatRelativeTime(msg.readAt)}",
-                                    color = TextSecondary,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(end = 12.dp, top = 2.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.End
-                                )
+                                if (uiState.isGroupChat && msg.seenByUsers.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        msg.seenByUsers.take(5).forEachIndexed { viewerIndex, viewer ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .offset(x = if (viewerIndex == 0) 0.dp else (-8).dp)
+                                                    .clickable {
+                                                        seenByUsersForSheet = msg.seenByUsers
+                                                        showSeenBySheet = true
+                                                    }
+                                            ) {
+                                                LinkerAvatar(
+                                                    imageUrl = viewer.avatarUrl,
+                                                    size = 18.dp,
+                                                    hasStory = false
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        text = formatSeenLabel(msg.readAt),
+                                        color = TextSecondary,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(end = 12.dp, top = 2.dp),
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                    )
+                                }
                             }
                         }
 
@@ -468,8 +623,16 @@ fun ChatMessageScreen(
                     replyToMessage = selectedMessage
                     showContextMenu = false
                 },
-                onCopy = { showContextMenu = false },
-                onForward = { showContextMenu = false },
+                onCopy = { 
+                    selectedMessage?.content?.let { text ->
+                        clipboardManager.setText(AnnotatedString(text))
+                    }
+                    showContextMenu = false 
+                },
+                onForward = {
+                    Toast.makeText(context, "Forward feature coming soon!", Toast.LENGTH_SHORT).show()
+                    showContextMenu = false 
+                },
                 onInfo = {
                     viewModel.loadMessageInfo(selectedMessage!!.messageId)
                     showMessageInfo = true
@@ -487,7 +650,7 @@ fun ChatMessageScreen(
                     showEmojiPicker = false
                 },
                 onShowMoreReactions = {
-                    showEmojiPicker = !showEmojiPicker
+                    showEmojiPicker = true
                 },
                 showEmojiPicker = showEmojiPicker
             )
@@ -534,5 +697,17 @@ private fun formatRelativeTime(timestamp: Long): String {
         diff < 86400000 -> "${diff / 3600000}h ago"
         diff < 604800000 -> "${diff / 86400000}d ago"
         else -> "${diff / 604800000}w ago"
+    }
+}
+
+private fun formatSeenLabel(timestamp: Long): String {
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    val days = diff / 86_400_000L
+    return when {
+        diff < 60_000L -> "Just seen"
+        days == 1L -> "Seen yesterday"
+        days > 1L -> "Seen ${days}d ago"
+        else -> "Seen ${formatRelativeTime(timestamp)}"
     }
 }

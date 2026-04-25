@@ -125,13 +125,11 @@ fun ChatBubble(
                     onLongPress()
                 }
             )
-            .onGloballyPositioned { coordinates ->
-                onBubblePositioned(coordinates.boundsInRoot())
-            }
     ) {
         MessageBubbleContent(
             message = message,
-            highlightAlpha = highlightAlpha.value
+            highlightAlpha = highlightAlpha.value,
+            onBubblePositioned = onBubblePositioned
         )
     }
 }
@@ -140,6 +138,7 @@ fun ChatBubble(
 fun MessageBubbleContent(
     message: MessageItem,
     highlightAlpha: Float = 0f,
+    onBubblePositioned: ((Rect) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val bubbleColor = if (message.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
@@ -152,6 +151,9 @@ fun MessageBubbleContent(
         Column(
             modifier = Modifier
                 .widthIn(max = 280.dp)
+                .onGloballyPositioned { coordinates ->
+                    onBubblePositioned?.invoke(coordinates.boundsInRoot())
+                }
                 .drawBehind {
                     if (highlightAlpha > 0f) {
                         drawCircle(

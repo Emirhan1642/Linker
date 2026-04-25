@@ -3,12 +3,13 @@ package com.linker.app.presentation.screens.chat
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.domain.model.*
-import com.linker.app.domain.repository.ChatRepository
-import com.linker.app.domain.repository.NoteRepository
-import com.linker.app.domain.usecase.chat.LoadMessageInfoUseCase
-import com.linker.app.domain.repository.UserRepository
+import com.linker.app.domain.usecase.chat.*
+import com.linker.app.domain.usecase.note.ObserveActiveNotesUseCase
+import com.linker.app.domain.usecase.note.PostNoteUseCase
 import com.linker.app.domain.usecase.user.CurrentUserProvider
+import com.linker.app.domain.usecase.user.GetUserByIdUseCase
 import com.linker.app.domain.usecase.user.GetUserDisplayNameUseCase
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,144 +26,27 @@ import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
 
-data class ChatListUiState(
-    val isLoading: Boolean = true,
-    val chats: List<ChatUiModel> = emptyList(),
-    val notes: List<Note> = emptyList(),
-    val error: String? = null
-)
-
-/** Lightweight model for the chat list screen. */
-data class ChatUiModel(
-    val chatId: String,
-    val displayName: String,
-    val imageUrl: String?,
-    val lastMessage: String?,
-    val lastMessageTime: Long,
-    val unreadCount: Int,
-    val isTyping: Boolean = false,
-    val participantIds: List<String> = emptyList(),
-    val isGroupChat: Boolean = false,
-    val isPinned: Boolean = false,
-    val isFavorited: Boolean = false,
-    val isArchived: Boolean = false,
-    val isMuted: Boolean = false,
-    val isBlocked: Boolean = false
-)
-
-data class ChatMessageUiState(
-    val isLoading: Boolean = true,
-    val chatId: String = "",
-    val recipientId: String = "",
-    val isGroupChat: Boolean = false,
-    val recipientName: String = "User",
-    val recipientUsername: String = "",
-    val recipientImageUrl: String? = null,
-    val messages: List<MessageUiModel> = emptyList(),
-    val error: String? = null,
-    val isSending: Boolean = false,
-    val sendError: String? = null
-)
-
-data class MessageUiModel(
-    val messageId: String,
-    val chatId: String = "",
-    val content: String?,
-    val isSelf: Boolean,
-    val timestamp: Long,
-    val status: MessageStatus,
-    val replyToMessageId: String? = null,
-    val readAt: Long? = null,
-    val reactions: Map<String, String> = emptyMap(),
-    val readReceipts: Map<String, Long> = emptyMap(),
-    val senderId: String = "",
-    val senderDisplayName: String = "User",
-    val senderAvatarUrl: String? = null,
-    val isDeleted: Boolean = false
-)
-
-data class MessageInfoState(
-    val isLoading: Boolean = false,
-    val messageId: String = "",
-    val replyToMessageId: String? = null,
-    val replyPreview: ReplyPreview? = null,
-    val content: String = "",
-    val isSelf: Boolean = false,
-    val fromTo: String = "",
-    val sentAt: Long? = null,
-    val deliveredAt: Long? = null,
-    val deliveredReceipts: List<ParticipantReceiptInfo> = emptyList(),
-    val readAt: Long? = null,
-    val failedAt: Long? = null,
-    val replies: List<ReplyInfo> = emptyList(),
-    val reactions: List<ReactionUserInfo> = emptyList(),
-    val readReceipts: List<ReadReceiptInfo> = emptyList()
-)
-
-data class ParticipantReceiptInfo(
-    val userId: String,
-    val userName: String,
-    val atMillis: Long,
-    val avatarUrl: String?
-)
-
-data class ReplyInfo(
-    val messageId: String,
-    val senderId: String,
-    val preview: String,
-    val avatarUrl: String?
-)
-
-data class ReplyPreview(
-    val senderName: String,
-    val previewText: String,
-    val isSelf: Boolean
-)
-
-data class MessageItem(
-    val text: String,
-    val isSelf: Boolean,
-    val status: MessageStatus = MessageStatus.SENT,
-    val sessionId: String = "",
-    val prevIsSelf: Boolean = false,
-    val nextIsSelf: Boolean = false
-)
-
-data class ReactionInfo(
-    val userName: String,
-    val emoji: String
-)
-
-data class ReadReceiptInfo(
-    val userId: String,
-    val userName: String,
-    val readAt: Long,
-    val avatarUrl: String?
-)
-
-data class ReactionUserInfo(
-    val userId: String,
-    val userName: String,
-    val avatarUrl: String?,
-    val emoji: String
-)
-
-data class MessageReactionsUiState(
-    val isLoading: Boolean = false,
-    val messageId: String = "",
-    val reactions: List<ReactionUserInfo> = emptyList()
-)
-
 
 
 @HiltViewModel
 class ChatViewModel @Inject constructor(
-    private val chatRepository: ChatRepository,
-    private val noteRepository: NoteRepository,
+    private val observeChatsUseCase: ObserveChatsUseCase,
+    private val getChatByIdUseCase: GetChatByIdUseCase,
+    private val createPrivateChatUseCase: CreatePrivateChatUseCase,
+    private val createGroupChatUseCase: CreateGroupChatUseCase,
+    private val observeMessagesUseCase: ObserveMessagesUseCase,
+    private val markChatAsReadUseCase: MarkChatAsReadUseCase,
+    private val markChatAsReadUpToUseCase: MarkChatAsReadUpToUseCase,
+    private val sendMessageUseCase: SendMessageUseCase,
+    private val deleteMessageUseCase: DeleteMessageUseCase,
+    private val reactToMessageUseCase: ReactToMessageUseCase,
+    private val getMessageByIdUseCase: GetMessageByIdUseCase,
+    private val observeActiveNotesUseCase: ObserveActiveNotesUseCase,
+    private val postNoteUseCase: PostNoteUseCase,
     private val currentUserProvider: CurrentUserProvider,
     private val getUserDisplayNameUseCase: GetUserDisplayNameUseCase,
     private val loadMessageInfoUseCase: LoadMessageInfoUseCase,
-    private val userRepository: UserRepository
+    private val getUserByIdUseCase: GetUserByIdUseCase
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -177,22 +61,41 @@ class ChatViewModel @Inject constructor(
     private val _messageReactionsState = MutableStateFlow(MessageReactionsUiState())
     val messageReactionsState: StateFlow<MessageReactionsUiState> = _messageReactionsState.asStateFlow()
 
-    private var lastMarkedReadAt: Long = 0L
+    private val lastMarkedReadAtByChat = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var chatsJob: Job? = null
+    private var messagesJob: Job? = null
+    private var notesJob: Job? = null
+    
+    private val displayNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val avatarCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val currentUserId: String
         get() = currentUserProvider.getCurrentUserId() ?: ""
 
+    /** Track last known user to detect account switches */
+    private var lastObservedUserId: String = currentUserId
+
+    private val authListener = FirebaseAuth.AuthStateListener { auth ->
+        val newUid = auth.currentUser?.uid ?: ""
+        if (newUid != lastObservedUserId) {
+            lastObservedUserId = newUid
+            displayNameCache.clear()
+            avatarCache.clear()
+            restartObserversAfterAccountSwitch()
+        }
+    }
+
     init {
         observeChats()
         observeNotes()
+        com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(authListener)
     }
 
     // ── Chat List ──────────────────────────────────────────────────────────
 
     private fun observeChats() {
         chatsJob = viewModelScope.launch {
-            chatRepository.observeChats().collect { chats ->
+            observeChatsUseCase().collect { chats ->
                 val uiModels = chats.map { chat ->
                     val isGroup = chat.chatType == ChatType.GROUP
                     val otherParticipant = if (!isGroup) {
@@ -238,17 +141,52 @@ class ChatViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        chatsJob?.cancel()
+        messagesJob?.cancel()
+        notesJob?.cancel()
+        com.google.firebase.auth.FirebaseAuth.getInstance().removeAuthStateListener(authListener)
+    }
+
+    /** Re-observe data streams when user account changes (e.g. via AccountCenter). */
+    private fun restartObserversAfterAccountSwitch() {
+        chatsJob?.cancel()
+        messagesJob?.cancel()
+        notesJob?.cancel()
+        lastMarkedReadAtByChat.clear()
+        _chatListState.value = ChatListUiState(isLoading = true)
+        _messageState.value = ChatMessageUiState(isLoading = true)
+        observeChats()
+        observeNotes()
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
-        return getUserDisplayNameUseCase(userId)
+        return displayNameCache.getOrPut(userId) {
+            getUserDisplayNameUseCase(userId)
+        }
+    }
+
+    private suspend fun resolveUserAvatarUrl(userId: String): String? {
+        avatarCache[userId]?.let { return it }
+        val avatar = try {
+            when (val result = getUserByIdUseCase(userId)) {
+                is Result.Success -> result.data.profileImageUrl
+                else -> null
+            }
+        } catch (_: Exception) {
+            null
+        }
+        if (!avatar.isNullOrBlank()) {
+            avatarCache[userId] = avatar
+        }
+        return avatar
     }
 
     // ── Notes ──────────────────────────────────────────────────────────────
 
     private fun observeNotes() {
-        viewModelScope.launch {
-            noteRepository.observeActiveNotes().collect { notes ->
+        notesJob?.cancel()
+        notesJob = viewModelScope.launch {
+            observeActiveNotesUseCase().collect { notes ->
                 _chatListState.value = _chatListState.value.copy(notes = notes)
             }
         }
@@ -256,12 +194,12 @@ class ChatViewModel @Inject constructor(
 
     fun postNote(content: String) {
         viewModelScope.launch {
-            noteRepository.postNote(content)
+            postNoteUseCase(content)
         }
     }
 
     suspend fun createPrivateChat(recipientUserId: String): Result<Chat> {
-        return chatRepository.createPrivateChat(recipientUserId)
+        return createPrivateChatUseCase(recipientUserId)
     }
 
     suspend fun createGroupChat(
@@ -269,7 +207,7 @@ class ChatViewModel @Inject constructor(
         participantIds: List<String>,
         permissions: Map<String, Any>? = null
     ): Result<Chat> {
-        return chatRepository.createGroupChat(name, participantIds, permissions)
+        return createGroupChatUseCase(name, participantIds, permissions)
     }
 
     // ── Messages ───────────────────────────────────────────────────────────
@@ -277,37 +215,49 @@ class ChatViewModel @Inject constructor(
     fun openChat(chatId: String) {
         _messageState.value = ChatMessageUiState(isLoading = true, chatId = chatId)
 
-        viewModelScope.launch {
+        messagesJob?.cancel()
+        messagesJob = viewModelScope.launch {
             // Try to find existing chat
-            val chatResult = chatRepository.getChatById(chatId)
+            val chatResult = getChatByIdUseCase(chatId)
 
             val actualChatId: String
             val actualChat: Chat?
 
-            if (chatResult is Result.Success) {
-                actualChatId = chatId
-                actualChat = chatResult.data
-            } else {
-                // Chat doesn't exist — treat chatId as recipientUserId and create new chat
-                val recipientUserId = chatId
-                when (val newChatResult = chatRepository.createPrivateChat(recipientUserId)) {
-                    is Result.Success -> {
-                        actualChatId = newChatResult.data.chatId
-                        actualChat = newChatResult.data
-                        _messageState.value = _messageState.value.copy(chatId = actualChatId)
-                    }
-                    is Result.Error -> {
+            when (chatResult) {
+                is Result.Success -> {
+                    actualChatId = chatId
+                    actualChat = chatResult.data
+                }
+                is Result.Error -> {
+                    if (!isChatNotFoundError(chatResult)) {
                         _messageState.value = _messageState.value.copy(
                             isLoading = false,
-                            error = "Failed to start chat: ${newChatResult.message}"
+                            error = "Failed to open chat: ${chatResult.message}"
                         )
                         return@launch
                     }
-                    is Result.Loading -> { return@launch }
+                    // Chat doesn't exist — treat chatId as recipientUserId and create new chat
+                    val recipientUserId = chatId
+                    when (val newChatResult = createPrivateChatUseCase(recipientUserId)) {
+                        is Result.Success -> {
+                            actualChatId = newChatResult.data.chatId
+                            actualChat = newChatResult.data
+                            _messageState.value = _messageState.value.copy(chatId = actualChatId)
+                        }
+                        is Result.Error -> {
+                            _messageState.value = _messageState.value.copy(
+                                isLoading = false,
+                                error = "Failed to start chat: ${newChatResult.message}"
+                            )
+                            return@launch
+                        }
+                        is Result.Loading -> { return@launch }
+                    }
                 }
+                is Result.Loading -> return@launch
             }
 
-            val chat = actualChat!!
+            val chat = actualChat ?: return@launch
             val isGroup = chat.chatType == ChatType.GROUP
             val otherUser = if (!isGroup) {
                 chat.participants.firstOrNull { it.userId != currentUserId }
@@ -318,40 +268,71 @@ class ChatViewModel @Inject constructor(
                 resolveUserDisplayName(otherUser.userId)
             } else "Chat"
 
+            // Compute canSendMessages from groupPermissions
+            val canSend = if (isGroup) {
+                val onlyAdmins = chat.groupPermissions["canSendMessages"] as? Boolean
+                if (onlyAdmins == false) {
+                    // Only admins can send → check if current user is admin
+                    chat.groupAdminIds.contains(currentUserId) || chat.groupCreatedBy == currentUserId
+                } else {
+                    true
+                }
+            } else true
+
             _messageState.value = _messageState.value.copy(
                 recipientId = otherUser?.userId ?: "",
                 isGroupChat = isGroup,
                 recipientName = name,
                 recipientUsername = otherUser?.username ?: "",
-                recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl
+                recipientImageUrl = if (isGroup) chat.chatImageUrl else otherUser?.profileImageUrl,
+                canSendMessages = canSend
             )
 
             // Mark as read
-            chatRepository.markChatAsRead(actualChatId)
+            markChatAsReadUseCase(actualChatId)
 
             // Observe messages
-            chatRepository.observeMessages(actualChatId).collect { messages ->
-                val uiMessages = messages
-                    .filter { !it.isDeleted }
-                    .map { msg ->
-                        MessageUiModel(
-                            messageId = msg.messageId,
-                            content = msg.content,
-                            isSelf = msg.sender.userId == currentUserId,
-                            timestamp = msg.createdAt,
-                            status = msg.messageStatus,
-                            replyToMessageId = msg.replyToMessage?.messageId,
-                            readAt = msg.readAt,
-                            reactions = msg.reactions,
-                            senderId = msg.sender.userId,
-                            senderDisplayName = if (msg.sender.userId == currentUserId) {
-                                "You"
-                            } else {
-                                msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
-                            },
-                            senderAvatarUrl = msg.sender.profileImageUrl
-                        )
-                    }
+            observeMessagesUseCase(actualChatId).collect { messages ->
+                val uiMessages = coroutineScope {
+                    messages
+                        .filter { !it.isDeleted }
+                        .map { msg ->
+                            async {
+                                val seenByUsers = msg.readReceipts
+                                    .filterKeys { uid -> uid != msg.sender.userId }
+                                    .entries
+                                    .sortedByDescending { it.value }
+                                    .map { (uid, seenAt) ->
+                                        SeenByUserUi(
+                                            userId = uid,
+                                            displayName = if (uid == currentUserId) "You" else resolveUserDisplayName(uid),
+                                            avatarUrl = resolveUserAvatarUrl(uid),
+                                            seenAt = seenAt
+                                        )
+                                    }
+                                MessageUiModel(
+                                    messageId = msg.messageId,
+                                    content = msg.content,
+                                    isSelf = msg.sender.userId == currentUserId,
+                                    timestamp = msg.createdAt,
+                                    status = msg.messageStatus,
+                                    replyToMessageId = msg.replyToMessage?.messageId,
+                                    readAt = msg.readAt,
+                                    reactions = msg.reactions,
+                                    readReceipts = msg.readReceipts,
+                                    seenByUsers = seenByUsers,
+                                    senderId = msg.sender.userId,
+                                    senderDisplayName = if (msg.sender.userId == currentUserId) {
+                                        "You"
+                                    } else {
+                                        msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
+                                    },
+                                    senderAvatarUrl = msg.sender.profileImageUrl
+                                )
+                            }
+                        }
+                        .awaitAll()
+                }
                 _messageState.value = _messageState.value.copy(
                     isLoading = false,
                     messages = uiMessages
@@ -361,12 +342,18 @@ class ChatViewModel @Inject constructor(
                     .filter { !it.isSelf }
                     .maxOfOrNull { it.timestamp } ?: 0L
 
-                if (latestIncoming > lastMarkedReadAt) {
-                    lastMarkedReadAt = latestIncoming
-                    chatRepository.markChatAsReadUpTo(actualChatId, latestIncoming)
+                val lastMarkedForChat = lastMarkedReadAtByChat[actualChatId] ?: 0L
+                if (latestIncoming > lastMarkedForChat) {
+                    lastMarkedReadAtByChat[actualChatId] = latestIncoming
+                    markChatAsReadUpToUseCase(actualChatId, latestIncoming)
                 }
             }
         }
+    }
+
+    private fun isChatNotFoundError(error: Result.Error): Boolean {
+        return error.code == com.linker.app.core.util.ErrorCodes.NOT_FOUND ||
+            error.message.contains("Chat not found", ignoreCase = true)
     }
 
     fun loadMessageInfo(messageId: String) {
@@ -380,7 +367,7 @@ class ChatViewModel @Inject constructor(
                     val replyId = info.message.replyToMessage?.messageId
                     val replyPreview = if (!replyId.isNullOrBlank()) {
                         try {
-                            val replied = chatRepository.getMessageById(replyId)
+                            val replied = getMessageByIdUseCase(replyId)
                             val repliedSenderId = replied.sender.userId
                             val name = when {
                                 repliedSenderId.isBlank() -> "User"
@@ -443,7 +430,7 @@ class ChatViewModel @Inject constructor(
                 val list = reactions.map { (userId, emoji) ->
                     val name = if (userId == currentUserId) "You" else resolveUserDisplayName(userId)
                     val avatarUrl = try {
-                        val result = userRepository.getUserById(userId)
+                        val result = getUserByIdUseCase(userId)
                         if (result is Result.Success) result.data.profileImageUrl else null
                     } catch (_: Exception) { null }
                     ReactionUserInfo(
@@ -471,7 +458,7 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             _messageState.update { it.copy(isSending = true, sendError = null) }
 
-            when (val result = chatRepository.sendMessage(
+            when (val result = sendMessageUseCase(
                 chatId = chatId,
                 messageType = MessageType.TEXT,
                 content = content.trim(),
@@ -490,13 +477,13 @@ class ChatViewModel @Inject constructor(
 
     fun deleteMessage(messageId: String) {
         viewModelScope.launch {
-            chatRepository.deleteMessage(messageId, forEveryone = false)
+            deleteMessageUseCase(messageId, forEveryone = false)
         }
     }
 
     fun reactToMessage(messageId: String, emoji: String?) {
         viewModelScope.launch {
-            chatRepository.reactToMessage(messageId, emoji)
+            reactToMessageUseCase(messageId, emoji)
         }
     }
 }

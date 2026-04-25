@@ -39,15 +39,20 @@ class ReadReceiptRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markChatAsReadUpTo(chatId: String, timestamp: Long): Result<Unit> = safeCall {
+        val now = System.currentTimeMillis()
         messagesRef(chatId)
             .whereLessThanOrEqualTo("createdAt", timestamp)
             .get()
             .await()
             .documents
             .forEach { doc ->
+                val senderId = doc.getString("senderId")
+                if (senderId == currentUserId) return@forEach
                 doc.reference.update(
                     mapOf(
-                        "readReceipts.$currentUserId" to System.currentTimeMillis()
+                        "readReceipts.$currentUserId" to now,
+                        "readAt" to now,
+                        "messageStatus" to "READ"
                     )
                 ).await()
             }

@@ -142,23 +142,22 @@ fun MessageContextMenu(
             message = MessageItem(
                 text = message.content ?: "",
                 isSelf = message.isSelf,
-                sessionId = ""
             )
         )
     }
 
     // Emoji bar
-    QuickReactionsBar(
-        reactions = quickReactions,
-        onReactionClick = { emoji ->
-            onReaction(emoji)
-            onDismiss()
-        },
-        onShowMoreClick = onShowMoreReactions,
-        modifier = Modifier.offset {
-            IntOffset(emojiX.roundToInt(), emojiY.roundToInt())
-        }
-    )
+        QuickReactionsBar(
+            reactions = quickReactions,
+            onReactionClick = { emoji ->
+                onReaction(emoji)
+                onDismiss()
+            },
+            onShowMoreClick = onShowMoreReactions,
+            modifier = Modifier.offset {
+                IntOffset(emojiX.roundToInt(), emojiY.roundToInt())
+            }
+        )
 
     // Action menu
     Column(
