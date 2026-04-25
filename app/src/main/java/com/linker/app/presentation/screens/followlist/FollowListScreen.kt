@@ -73,11 +73,16 @@ fun FollowListScreen(
                     modifier = Modifier.align(Alignment.Center)
                 )
 
-                uiState.error != null -> Text(
-                    uiState.error!!,
-                    color = ErrorRed,
-                    modifier = Modifier.align(Alignment.Center)
-                )
+                uiState.error != null -> {
+                    val errorMessage = uiState.error
+                    if (errorMessage != null) {
+                        Text(
+                            errorMessage,
+                            color = ErrorRed,
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                }
 
                 // null = henüz belli değil (isLoading true olmalı, ama defensive)
                 // true = liste gizli

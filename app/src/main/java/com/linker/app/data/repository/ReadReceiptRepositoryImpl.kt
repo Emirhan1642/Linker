@@ -48,13 +48,20 @@ class ReadReceiptRepositoryImpl @Inject constructor(
             .forEach { doc ->
                 val senderId = doc.getString("senderId")
                 if (senderId == currentUserId) return@forEach
-                doc.reference.update(
-                    mapOf(
-                        "readReceipts.$currentUserId" to now,
-                        "readAt" to now,
-                        "messageStatus" to "READ"
-                    )
-                ).await()
+                
+                // Check if message is already read by current user
+                val readReceipts = doc.get("readReceipts") as? Map<String, Any> ?: emptyMap()
+                val isAlreadyRead = readReceipts.containsKey(currentUserId)
+                
+                if (!isAlreadyRead) {
+                    doc.reference.update(
+                        mapOf(
+                            "readReceipts.$currentUserId" to now,
+                            "readAt" to now,
+                            "messageStatus" to "READ"
+                        )
+                    ).await()
+                }
             }
     }
 

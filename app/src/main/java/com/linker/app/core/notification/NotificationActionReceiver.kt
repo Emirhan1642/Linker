@@ -75,7 +75,8 @@ class NotificationActionReceiver : BroadcastReceiver() {
     }
 
     private fun launchToast(context: Context, message: String) {
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.Main) {
+        // Use Handler instead of GlobalScope to avoid memory leaks
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }

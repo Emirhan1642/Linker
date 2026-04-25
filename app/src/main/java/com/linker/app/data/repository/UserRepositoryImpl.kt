@@ -50,10 +50,13 @@ class UserRepositoryImpl @Inject constructor(
             }
             firestoreListener = firestore.collection("users").document(uid)
                 .addSnapshotListener { snap, _ ->
-                    if (snap != null && snap.exists() && snap.data != null)
-                        trySend(mapToEntity(uid, snap.data!!).toDomain())
-                    else
-                        trySend(null)
+                    snap?.data?.let { data ->
+                        if (snap.exists()) {
+                            trySend(mapToEntity(uid, data).toDomain())
+                        } else {
+                            trySend(null)
+                        }
+                    } ?: trySend(null)
                 }
         }
 
@@ -69,10 +72,12 @@ class UserRepositoryImpl @Inject constructor(
 
     override suspend fun getUserById(userId: String): Result<User> = safeCall {
         val snap = firestore.collection("users").document(userId).get().await()
-        if (snap.exists() && snap.data != null) {
-            val enriched = enrichWithRelationship(mapToEntity(userId, snap.data!!))
-            userDao.insertUser(enriched)
-            return@safeCall enriched.toDomain()
+        snap.data?.let { data ->
+            if (snap.exists()) {
+                val enriched = enrichWithRelationship(mapToEntity(userId, data))
+                userDao.insertUser(enriched)
+                return@safeCall enriched.toDomain()
+            }
         }
         val local = userDao.getUserById(userId)
         if (local != null) return@safeCall local.toDomain()
@@ -83,7 +88,8 @@ class UserRepositoryImpl @Inject constructor(
         val q = firestore.collection("users").whereEqualTo("username", username).limit(1).get().await()
         if (q.isEmpty) throw Exception("User '$username' not found")
         val doc = q.documents[0]
-        val entity = enrichWithRelationship(mapToEntity(doc.id, doc.data!!))
+        val data = doc.data ?: throw Exception("User data is null")
+        val entity = enrichWithRelationship(mapToEntity(doc.id, data))
         userDao.insertUser(entity)
         entity.toDomain()
     }
@@ -254,7 +260,9 @@ class UserRepositoryImpl @Inject constructor(
         q.documents.mapNotNull { doc ->
             val fid = doc.getString("followerId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
-            if (snap.exists() && snap.data != null) enrichWithRelationship(mapToEntity(fid, snap.data!!)).toDomain() else null
+            snap.data?.let { data ->
+                if (snap.exists()) enrichWithRelationship(mapToEntity(fid, data)).toDomain() else null
+            }
         }
     }
 
@@ -275,7 +283,9 @@ class UserRepositoryImpl @Inject constructor(
         q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
-            if (snap.exists() && snap.data != null) enrichWithRelationship(mapToEntity(fid, snap.data!!)).toDomain() else null
+            snap.data?.let { data ->
+                if (snap.exists()) enrichWithRelationship(mapToEntity(fid, data)).toDomain() else null
+            }
         }
     }
 
@@ -286,7 +296,9 @@ class UserRepositoryImpl @Inject constructor(
         q.documents.mapNotNull { doc ->
             val fid = doc.getString("followerId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
-            if (snap.exists() && snap.data != null) mapToEntity(fid, snap.data!!).toDomain() else null
+            snap.data?.let { data ->
+                if (snap.exists()) mapToEntity(fid, data).toDomain() else null
+            }
         }
     }
 
@@ -297,7 +309,9 @@ class UserRepositoryImpl @Inject constructor(
         q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
-            if (snap.exists() && snap.data != null) mapToEntity(fid, snap.data!!).toDomain() else null
+            snap.data?.let { data ->
+                if (snap.exists()) mapToEntity(fid, data).toDomain() else null
+            }
         }
     }
 
@@ -322,7 +336,8 @@ class UserRepositoryImpl @Inject constructor(
         map["updatedAt"] = System.currentTimeMillis()
         firestore.collection("users").document(uid).set(map, SetOptions.merge()).await()
         val snap = firestore.collection("users").document(uid).get().await()
-        val entity = mapToEntity(uid, snap.data!!)
+        val data = snap.data ?: throw Exception("Failed to retrieve updated user data")
+        val entity = mapToEntity(uid, data)
         userDao.insertUser(entity)
         entity.toDomain()
     }
@@ -349,9 +364,30 @@ class UserRepositoryImpl @Inject constructor(
         snap.isEmpty
     }
 
+    /**
+     * Enrich user entity with relationship data (following/follower status)
+     * 
+     * PERFORMANCE NOTE:
+     * This makes an additional Firestore query per user. For list operations
+     * (search, followers, following), this can result in N+1 queries.
+     * 
+     * OPTIMIZATION STRATEGIES:
+     * 1. Batch queries: Use Firestore batch reads for multiple users
+     * 2. Cache: Store relationship data in local database
+     * 3. Denormalize: Include relationship flags in user document
+     * 
+     * Current implementation is acceptable for single-user operations
+     * (profile view, user detail). For lists, consider batch optimization.
+     */
     private suspend fun enrichWithRelationship(entity: UserEntity): UserEntity {
         val me = currentUid ?: return entity
-        val followDoc = firestore.collection("follows").document("${me}_${entity.userId}").get().await()
+        
+        // Single Firestore query to check follow relationship
+        val followDoc = firestore.collection("follows")
+            .document("${me}_${entity.userId}")
+            .get()
+            .await()
+            
         return entity.copy(
             isFollowing       = followDoc.exists() && followDoc.getString("status") == "active",
             followRequestSent = followDoc.exists() && followDoc.getString("status") == "pending"

@@ -72,7 +72,12 @@ fun UserProfileScreen(
                         color = AccentGreen,
                         modifier = Modifier.align(Alignment.Center)
                     )
-                    uiState.error != null -> ErrorState(uiState.error!!, onNavigateBack)
+                    uiState.error != null -> {
+                        val errorMessage = uiState.error
+                        if (errorMessage != null) {
+                            ErrorState(errorMessage, onNavigateBack)
+                        }
+                    }
                     else -> LazyVerticalStaggeredGrid(
                         columns = StaggeredGridCells.Fixed(2),
                         modifier = Modifier.fillMaxSize(),

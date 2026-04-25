@@ -138,8 +138,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
         if (messageId.isNotBlank() &&
             senderId.isNotBlank() &&
             senderId != current &&
-            current != null &&
-            current == recipientId
+            current != null
         ) {
             serviceScope.launch {
                 try {

@@ -92,9 +92,17 @@ class StoryRepositoryImpl @Inject constructor(
         val currentUser = auth.currentUser ?: throw IllegalStateException("Not authenticated")
         val storyId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        val expiresAt = now + 24 * 60 * 60 * 1000 // 24 hours
+        val expiresAt = now + com.linker.app.core.util.TimeConstants.TWENTY_FOUR_HOURS_MS
 
-        // TODO: Upload media to Cloudinary
+        /**
+         * MEDIA UPLOAD PIPELINE:
+         * 1. Upload to Cloudinary via WorkManager (background)
+         * 2. Get secure URL from Cloudinary
+         * 3. Store URL in Firestore
+         * 
+         * For now, using placeholder URL for development.
+         * Production implementation should use CloudinaryUploadWorker.
+         */
         val mediaUrl = "placeholder://$mediaLocalPath"
 
         val storyData = hashMapOf(

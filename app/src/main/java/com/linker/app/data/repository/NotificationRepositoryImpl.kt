@@ -192,29 +192,7 @@ class NotificationRepositoryImpl @Inject constructor(
     private suspend fun mapToNotification(notificationId: String, data: Map<String, Any?>): Notification {
         val actorId = data["senderId"] as? String ?: data["actorId"] as? String ?: ""
         val actorEntity = userDao.getUserById(actorId)
-        val actor = actorEntity?.toDomain() ?: com.linker.app.domain.model.User(
-            userId = actorId,
-            username = "",
-            displayName = "",
-            email = null,
-            phoneNumber = null,
-            bio = null,
-            profileImageUrl = null,
-            coverImageUrl = null,
-            isVerified = false,
-            followersCount = 0,
-            followingCount = 0,
-            likesCount = 0,
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            isPrivate = false,
-            followRequestSent = false,
-            hideFollowLists = false,
-            createdAt = 0L,
-            updatedAt = 0L
-        )
+        val actor = actorEntity?.toDomain() ?: com.linker.app.domain.model.createUserStub(actorId)
 
         val typeStr = data["type"] as? String ?: "MESSAGE"
         val notificationType = try {

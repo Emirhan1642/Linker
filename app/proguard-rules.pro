@@ -23,9 +23,9 @@
 # ── Kotlin ───────────────────────────────────────────────────────────────
 -keepattributes *Annotation*
 -dontwarn kotlin.**
-# Geniş tutuluyor: reflection / Metadata ile uyumluluk (daraltma riski yüksek).
--keep class kotlin.** { *; }
+# Keep only essential Kotlin classes for reflection/metadata
 -keep class kotlin.Metadata { *; }
+-keep class kotlin.reflect.** { *; }
 -keepclassmembers class **$WhenMappings {
     <fields>;
 }
@@ -114,9 +114,13 @@
 -dontwarn org.openjsse.**
 
 # ── Firebase / Play Services ───────────────────────────────────────────────
-# Geniş tutuluyor: Firestore/Auth/FCM reflection; daraltma önce release test şart.
--keep class com.google.firebase.** { *; }
--keep class com.google.android.gms.** { *; }
+# Keep only essential Firebase classes (consumer rules handle most cases)
+-keep class com.google.firebase.auth.** { *; }
+-keep class com.google.firebase.firestore.** { *; }
+-keep class com.google.firebase.storage.** { *; }
+-keep class com.google.firebase.messaging.** { *; }
+-keep class com.google.android.gms.auth.** { *; }
+-keep class com.google.android.gms.nearby.** { *; }
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
@@ -128,8 +132,9 @@
 # Firestore toObject() için: iç repository DTO'larında @androidx.annotation.Keep kullanın.
 
 # ── Compose ──────────────────────────────────────────────────────────────
-# Geniş tutuluyor: compiler/runtime iç sınıfları; kaldırmadan önce release doğrula.
--keep class androidx.compose.** { *; }
+# Keep only essential Compose runtime classes (consumer rules handle most)
+-keep class androidx.compose.runtime.** { *; }
+-keep class androidx.compose.ui.platform.** { *; }
 -dontwarn androidx.compose.**
 
 # ── Data Models (Domain & Entity) ────────────────────────────────────────

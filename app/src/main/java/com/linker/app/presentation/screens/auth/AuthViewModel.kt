@@ -2,6 +2,8 @@ package com.linker.app.presentation.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.linker.app.core.security.SecurityLogger
+import com.linker.app.core.util.InputValidator
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.AccountSession
 import com.linker.app.domain.model.User
@@ -107,8 +109,14 @@ class AuthViewModel @Inject constructor(
     fun onGoogleSignIn(idToken: String) = viewModelScope.launch {
         _uiState.update { it.copy(isLoading = true) }
         when (val r = signInWithGoogle(idToken)) {
-            is Result.Success -> handleSignInSuccess(r.data)
-            is Result.Error   -> showError(r.message)
+            is Result.Success -> {
+                SecurityLogger.logAuthSuccess(r.data.userId, "google")
+                handleSignInSuccess(r.data)
+            }
+            is Result.Error -> {
+                SecurityLogger.logAuthFailure("Google sign-in failed: ${r.message}")
+                showError(r.message)
+            }
             is Result.Loading -> {}
         }
         _uiState.update { it.copy(isLoading = false) }
@@ -119,8 +127,14 @@ class AuthViewModel @Inject constructor(
         if (!validateEmailPassword(state)) return@launch
         _uiState.update { it.copy(isLoading = true) }
         when (val r = signInWithEmail(state.email.trim(), state.password)) {
-            is Result.Success -> handleSignInSuccess(r.data)
-            is Result.Error   -> showError(r.message)
+            is Result.Success -> {
+                SecurityLogger.logAuthSuccess(r.data.userId, "email")
+                handleSignInSuccess(r.data)
+            }
+            is Result.Error -> {
+                SecurityLogger.logAuthFailure("Email sign-in failed: ${r.message}", state.email.trim())
+                showError(r.message)
+            }
             is Result.Loading -> {}
         }
         _uiState.update { it.copy(isLoading = false) }
@@ -144,6 +158,10 @@ class AuthViewModel @Inject constructor(
     fun onSendPhoneOtp() = viewModelScope.launch {
         val phone = _uiState.value.phoneNumber.trim()
         if (phone.isEmpty()) { _uiState.update { it.copy(phoneError = "Enter your phone number") }; return@launch }
+        
+        // SECURITY: Validate phone number format
+        if (!validatePhoneNumber(phone)) return@launch
+        
         _uiState.update { it.copy(isLoading = true) }
         when (val r = sendPhoneOtp(phone)) {
             is Result.Success -> _uiState.update { it.copy(phoneVerificationId = r.data, authStep = AuthStep.PHONE_OTP_VERIFY) }
@@ -181,6 +199,10 @@ class AuthViewModel @Inject constructor(
     fun onCompleteProfile(userId: String) = viewModelScope.launch {
         val state = _uiState.value
         if (state.username.isBlank()) { _uiState.update { it.copy(usernameError = "Username required") }; return@launch }
+        
+        // SECURITY: Validate username format
+        if (!validateUsername(state.username.trim())) return@launch
+        
         _uiState.update { it.copy(isLoading = true) }
         when (val r = completeProfileSetup(userId, state.username, state.displayName, null)) {
             is Result.Success -> {
@@ -287,6 +309,9 @@ class AuthViewModel @Inject constructor(
                     lastUsedAt     = System.currentTimeMillis()
                 )
             )
+            
+            // Log session creation
+            SecurityLogger.logSessionCreated(uid)
 
             // Clear Base64 string from memory (best effort)
             // Note: String immutability means we can't truly clear it, but we can drop references
@@ -296,16 +321,55 @@ class AuthViewModel @Inject constructor(
     }
 
     // ── Validation ────────────────────────────────────────────────────────────
+    //
+    // SECURITY: Use InputValidator for comprehensive validation
+    // - Email format validation
+    // - Password strength validation (uppercase, lowercase, digit requirements)
+    // - Username format validation
+    // - Phone number format validation
 
     private fun validateEmailPassword(state: AuthUiState): Boolean {
         var valid = true
-        if (state.email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(state.email).matches()) {
-            _uiState.update { it.copy(emailError = "Enter a valid email") }; valid = false
+        
+        // Email validation using InputValidator
+        if (!InputValidator.isValidEmail(state.email.trim())) {
+            _uiState.update { it.copy(emailError = "Enter a valid email") }
+            valid = false
         }
-        if (state.password.length < 8) {
-            _uiState.update { it.copy(passwordError = "Password must be at least 8 characters") }; valid = false
+        
+        // Password validation using InputValidator
+        val passwordResult = InputValidator.validatePassword(state.password)
+        if (!passwordResult.isValid) {
+            _uiState.update { it.copy(passwordError = passwordResult.message) }
+            valid = false
         }
+        
         return valid
+    }
+    
+    /**
+     * Validate username format
+     * Used during profile setup
+     */
+    private fun validateUsername(username: String): Boolean {
+        val result = InputValidator.validateUsername(username)
+        if (!result.isValid) {
+            _uiState.update { it.copy(usernameError = result.message) }
+            return false
+        }
+        return true
+    }
+    
+    /**
+     * Validate phone number format
+     * Used during phone authentication
+     */
+    private fun validatePhoneNumber(phoneNumber: String): Boolean {
+        if (!InputValidator.isValidPhoneNumber(phoneNumber)) {
+            _uiState.update { it.copy(phoneError = "Enter a valid phone number (e.g., +905551234567)") }
+            return false
+        }
+        return true
     }
 
     private fun showError(msg: String) = viewModelScope.launch {

@@ -11,6 +11,7 @@ import com.linker.app.domain.usecase.note.PostNoteUseCase
 import com.linker.app.domain.usecase.user.CurrentUserProvider
 import com.linker.app.domain.usecase.user.GetUserByIdUseCase
 import com.linker.app.domain.usecase.user.GetUserDisplayNameUseCase
+import com.linker.app.core.util.InputValidator
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -394,6 +395,14 @@ class ChatViewModel @Inject constructor(
                         isSelf = info.message.sender.userId == currentUserId,
                         sentAt = info.message.createdAt,
                         deliveredAt = info.message.deliveredAt,
+                        deliveredReceipts = info.deliveryReceipts.map { (userId, timestamp) ->
+                            ParticipantReceiptInfo(
+                                userId = userId,
+                                userName = if (userId == currentUserId) "You" else resolveUserDisplayName(userId),
+                                atMillis = timestamp,
+                                avatarUrl = null
+                            )
+                        },
                         readAt = info.message.readAt,
                         reactions = info.reactions.map { (userId, emoji) ->
                             ReactionUserInfo(
@@ -454,6 +463,13 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(content: String, replyToMessageId: String? = null) {
         val chatId = _messageState.value.chatId
         if (chatId.isBlank() || content.isBlank()) return
+
+        // SECURITY: Validate message content
+        val validationResult = InputValidator.validateMessageContent(content.trim())
+        if (!validationResult.isValid) {
+            _messageState.update { it.copy(sendError = validationResult.message) }
+            return
+        }
 
         viewModelScope.launch {
             _messageState.update { it.copy(isSending = true, sendError = null) }

@@ -379,13 +379,28 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
+    /**
+     * Resolve message reference with local cache optimization
+     * 
+     * PERFORMANCE OPTIMIZATION:
+     * 1. First check local database (O(1) lookup)
+     * 2. If not found, iterate through user's chats (O(n))
+     * 
+     * FUTURE IMPROVEMENT:
+     * Add in-memory cache (messageId -> chatId) to avoid Firestore queries
+     * for frequently accessed messages. Consider using LruCache with 100 entries.
+     */
     private suspend fun resolveMessageRef(messageId: String): com.google.firebase.firestore.DocumentReference {
+        // Fast path: Check local database first
         val local = messageDao.getMessageById(messageId)
         if (local != null) {
             return messagesRef(local.chatId).document(messageId)
         }
+        
         if (currentUserId.isBlank()) throw Exception("Not signed in")
 
+        // Slow path: Query all user's chats (O(n) complexity)
+        // This is acceptable for infrequent operations (reactions, info)
         val chatSnapshots = chatsCollection
             .whereArrayContains("participantIds", currentUserId)
             .get()
@@ -408,31 +423,7 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     private fun messageEntityToDomainSync(entity: MessageEntity): Message =
-        entity.toDomain(senderStub(entity.senderId))
-
-    private fun senderStub(userId: String) = User(
-        userId = userId,
-        username = "",
-        displayName = "",
-        email = null,
-        phoneNumber = null,
-        bio = null,
-        profileImageUrl = null,
-        coverImageUrl = null,
-        isVerified = false,
-        followersCount = 0,
-        followingCount = 0,
-        likesCount = 0,
-        isFollowing = false,
-        isFollowedBy = false,
-        isBlocked = false,
-        isMuted = false,
-        isPrivate = false,
-        followRequestSent = false,
-        hideFollowLists = false,
-        createdAt = 0L,
-        updatedAt = 0L
-    )
+        entity.toDomain(createUserStub(entity.senderId))
 
     private fun lastMessagePreviewFromChatDoc(chatId: String, data: Map<String, Any?>): Message? {
         val text = data["lastMessageText"] as? String ?: return null
@@ -441,7 +432,7 @@ class ChatRepositoryImpl @Inject constructor(
         return Message(
             messageId = mid,
             chatId = chatId,
-            sender = senderStub(""),
+            sender = createUserStub(""),
             messageType = MessageType.TEXT,
             content = text,
             mediaUrl = null,
@@ -543,29 +534,7 @@ class ChatRepositoryImpl @Inject constructor(
         val participantIds = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
         val participants = participantIds.map { uid ->
             val cached = userDao.getUserById(uid)
-            cached?.toDomain() ?: User(
-                userId = uid,
-                username = "",
-                displayName = "",
-                email = null,
-                phoneNumber = null,
-                bio = null,
-                profileImageUrl = null,
-                coverImageUrl = null,
-                isVerified = false,
-                followersCount = 0,
-                followingCount = 0,
-                likesCount = 0,
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                isPrivate = false,
-                followRequestSent = false,
-                hideFollowLists = false,
-                createdAt = 0L,
-                updatedAt = 0L
-            )
+            cached?.toDomain() ?: createUserStub(uid)
         }
 
         val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
@@ -610,29 +579,7 @@ class ChatRepositoryImpl @Inject constructor(
     private fun mapToChatSync(chatId: String, data: Map<String, Any?>): Chat {
         val participantIds = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
         val participants = participantIds.map { uid ->
-            User(
-                userId = uid,
-                username = "",
-                displayName = "",
-                email = null,
-                phoneNumber = null,
-                bio = null,
-                profileImageUrl = null,
-                coverImageUrl = null,
-                isVerified = false,
-                followersCount = 0,
-                followingCount = 0,
-                likesCount = 0,
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                isPrivate = false,
-                followRequestSent = false,
-                hideFollowLists = false,
-                createdAt = 0L,
-                updatedAt = 0L
-            )
+            createUserStub(uid)
         }
 
         val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
@@ -906,6 +853,17 @@ class ChatRepositoryImpl @Inject constructor(
         val ref = resolveMessageRef(messageId)
         val snap = ref.get().await()
         val receipts = snap.get("readReceipts") as? Map<String, Any> ?: emptyMap()
+        return receipts.mapNotNull { (k, v) ->
+            val key = k as? String ?: return@mapNotNull null
+            val value = (v as? Number)?.toLong() ?: return@mapNotNull null
+            key to value
+        }.toMap()
+    }
+
+    override suspend fun getDeliveryReceipts(messageId: String): Map<String, Long> {
+        val ref = resolveMessageRef(messageId)
+        val snap = ref.get().await()
+        val receipts = snap.get("deliveryReceipts") as? Map<String, Any> ?: emptyMap()
         return receipts.mapNotNull { (k, v) ->
             val key = k as? String ?: return@mapNotNull null
             val value = (v as? Number)?.toLong() ?: return@mapNotNull null

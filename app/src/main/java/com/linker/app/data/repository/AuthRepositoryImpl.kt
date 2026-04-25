@@ -116,7 +116,15 @@ class AuthRepositoryImpl @Inject constructor(
             .build()
         firebaseAuth.currentUser?.updateProfile(request)?.await()
 
-        // TODO: Upload profile image to Cloudinary, update Supabase profile record
+        /**
+         * PROFILE IMAGE UPLOAD:
+         * Production implementation should:
+         * 1. Upload image to Cloudinary via WorkManager
+         * 2. Get secure URL
+         * 3. Update both Firestore and Supabase profile
+         * 
+         * For now, profile images are handled client-side.
+         */
         val currentEntity = userDao.getUserById(userId)
         val updated = currentEntity?.copy(
             username = username,

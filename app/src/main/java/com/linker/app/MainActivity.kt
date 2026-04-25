@@ -27,6 +27,11 @@ import kotlinx.coroutines.launch
  * Main Activity - Single Activity Architecture
  *
  * Hosts the entire app using Jetpack Compose and Navigation.
+ * 
+ * DEPENDENCY INJECTION:
+ * Uses Hilt field injection (@Inject lateinit var) which is the standard
+ * pattern for Android Activities. Constructor injection is not possible
+ * for Activities as they are instantiated by the Android framework.
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {

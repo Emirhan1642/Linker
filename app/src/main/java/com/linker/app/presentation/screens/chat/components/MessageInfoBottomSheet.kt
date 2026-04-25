@@ -237,12 +237,17 @@ fun DeliveryInfoSection(
     }
 
     // Read info
-    if (!isGroupChat && state.readReceipts.isEmpty() && state.readAt != null) {
-        InfoRow(
-            label = "Seen",
-            value = formatRelativeTime(state.readAt),
-            iconRes = R.drawable.ic_forward_bold
-        )
+    if (state.readAt != null) {
+        if (isGroupChat && state.readReceipts.isNotEmpty()) {
+            // Group chat: show "Seen by" section below
+        } else if (!isGroupChat) {
+            // Direct chat: show simple "Seen" info
+            InfoRow(
+                label = "Seen",
+                value = formatRelativeTime(state.readAt),
+                iconRes = R.drawable.ic_forward_bold
+            )
+        }
     }
 
     // Failed info
@@ -420,13 +425,7 @@ fun ReactionSummarySection(
 @Composable
 private fun formatRelativeTime(timestamp: Long?): String {
     if (timestamp == null) return "-"
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    return when {
-        diff < 60000 -> "Just now"
-        diff < 3600000 -> "${diff / 60000}m ago"
-        diff < 86400000 -> "${diff / 3600000}h ago"
-        diff < 604800000 -> "${diff / 86400000}d ago"
-        else -> "${diff / 604800000}w ago"
+    return com.linker.app.core.util.formatRelativeTime(timestamp).replaceFirstChar { 
+        if (it.isLowerCase()) it.titlecase() else it.toString() 
     }
 }

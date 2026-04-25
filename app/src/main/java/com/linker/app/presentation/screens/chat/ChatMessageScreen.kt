@@ -74,6 +74,7 @@ import com.linker.app.presentation.screens.chat.components.MessageInfoBottomShee
 import com.linker.app.presentation.screens.chat.components.ReplyPreviewHologram
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
+import com.linker.app.core.util.formatRelativeTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.widget.Toast
@@ -144,14 +145,18 @@ fun ChatMessageScreen(
         val targetIndex = if (totalItems > 0) totalItems - 1 else 0
         try {
             listState.animateScrollToItem(targetIndex)
-        } catch (_: Exception) { }
+        } catch (e: Exception) {
+            android.util.Log.w("ChatMessageScreen", "Failed to scroll to bottom: ${e.message}")
+        }
     }
 
     LaunchedEffect(replyToMessage?.messageId) {
         if (replyToMessage != null) {
             try {
                 inputFocusRequester.requestFocus()
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                android.util.Log.w("ChatMessageScreen", "Failed to request focus on reply: ${e.message}")
+            }
         }
     }
 
@@ -168,7 +173,9 @@ fun ChatMessageScreen(
                     coroutineScope.launch {
                         try {
                             listState.animateScrollToItem(idx)
-                        } catch (_: Exception) { }
+                        } catch (e: Exception) {
+                            android.util.Log.w("ChatMessageScreen", "Failed to scroll to reply message: ${e.message}")
+                        }
                     }
                     highlightMessageId = replyId
                     coroutineScope.launch {
@@ -543,8 +550,9 @@ fun ChatMessageScreen(
                                                 modifier = Modifier
                                                     .offset(x = if (viewerIndex == 0) 0.dp else (-8).dp)
                                                     .clickable {
-                                                        seenByUsersForSheet = msg.seenByUsers
-                                                        showSeenBySheet = true
+                                                        selectedMessage = msg
+                                                        viewModel.loadMessageInfo(msg.messageId)
+                                                        showMessageInfo = true
                                                     }
                                             ) {
                                                 LinkerAvatar(
@@ -588,16 +596,18 @@ fun ChatMessageScreen(
                         // Error message
                         if (uiState.sendError != null) {
                             item {
-                                Box(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = uiState.sendError!!,
-                                        color = Color(0xFFFF4B4B),
-                                        fontSize = 12.sp,
-                                        modifier = Modifier.padding(8.dp)
-                                    )
+                                uiState.sendError?.let { error ->
+                                    Box(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = error,
+                                            color = Color(0xFFFF4B4B),
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -607,11 +617,14 @@ fun ChatMessageScreen(
         }
 
         // Context Menu
-        if (showContextMenu && selectedMessage != null && selectedMessageBounds != null) {
-            val constraints = this.constraints
-            MessageContextMenu(
-                message = selectedMessage!!,
-                messageBounds = selectedMessageBounds!!,
+        if (showContextMenu) {
+            val message = selectedMessage
+            val bounds = selectedMessageBounds
+            if (message != null && bounds != null) {
+                val constraints = this.constraints
+                MessageContextMenu(
+                    message = message,
+                    messageBounds = bounds,
                 screenWidth = constraints.maxWidth.toFloat(),
                 screenHeight = constraints.maxHeight.toFloat(),
                 quickReactions = quickReactions,
@@ -619,41 +632,42 @@ fun ChatMessageScreen(
                     showContextMenu = false
                     showEmojiPicker = false
                 },
-                onReply = {
-                    replyToMessage = selectedMessage
-                    showContextMenu = false
-                },
-                onCopy = { 
-                    selectedMessage?.content?.let { text ->
-                        clipboardManager.setText(AnnotatedString(text))
-                    }
-                    showContextMenu = false 
-                },
-                onForward = {
-                    Toast.makeText(context, "Forward feature coming soon!", Toast.LENGTH_SHORT).show()
-                    showContextMenu = false 
-                },
-                onInfo = {
-                    viewModel.loadMessageInfo(selectedMessage!!.messageId)
-                    showMessageInfo = true
-                    showContextMenu = false
-                },
-                onDelete = if (selectedMessage!!.isSelf) {
-                    {
-                        viewModel.deleteMessage(selectedMessage!!.messageId)
+                    onReply = {
+                        replyToMessage = message
                         showContextMenu = false
-                    }
-                } else null,
-                onReaction = { emoji ->
-                    viewModel.reactToMessage(selectedMessage!!.messageId, emoji)
-                    showContextMenu = false
-                    showEmojiPicker = false
-                },
-                onShowMoreReactions = {
-                    showEmojiPicker = true
-                },
-                showEmojiPicker = showEmojiPicker
-            )
+                    },
+                    onCopy = { 
+                        message.content?.let { text ->
+                            clipboardManager.setText(AnnotatedString(text))
+                        }
+                        showContextMenu = false 
+                    },
+                    onForward = {
+                        Toast.makeText(context, "Forward feature coming soon!", Toast.LENGTH_SHORT).show()
+                        showContextMenu = false 
+                    },
+                    onInfo = {
+                        viewModel.loadMessageInfo(message.messageId)
+                        showMessageInfo = true
+                        showContextMenu = false
+                    },
+                    onDelete = if (message.isSelf) {
+                        {
+                            viewModel.deleteMessage(message.messageId)
+                            showContextMenu = false
+                        }
+                    } else null,
+                    onReaction = { emoji ->
+                        viewModel.reactToMessage(message.messageId, emoji)
+                        showContextMenu = false
+                        showEmojiPicker = false
+                    },
+                    onShowMoreReactions = {
+                        showEmojiPicker = true
+                    },
+                    showEmojiPicker = showEmojiPicker
+                )
+            }
         }
     }
 }
@@ -685,18 +699,6 @@ fun ReactionSummaryRow(
                 )
             }
         }
-    }
-}
-
-private fun formatRelativeTime(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    return when {
-        diff < 60000 -> "just now"
-        diff < 3600000 -> "${diff / 60000}m ago"
-        diff < 86400000 -> "${diff / 3600000}h ago"
-        diff < 604800000 -> "${diff / 86400000}d ago"
-        else -> "${diff / 604800000}w ago"
     }
 }
 

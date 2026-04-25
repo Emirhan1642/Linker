@@ -17,12 +17,14 @@ class LoadMessageInfoUseCase @Inject constructor(
             val message = chatRepository.getMessageById(messageId)
             val reactions = chatRepository.getMessageReactions(messageId)
             val readReceipts = chatRepository.getReadReceipts(messageId)
+            val deliveryReceipts = chatRepository.getDeliveryReceipts(messageId)
 
             Result.Success(
                 MessageInfo(
                     message = message,
                     reactions = reactions,
-                    readReceipts = readReceipts
+                    readReceipts = readReceipts,
+                    deliveryReceipts = deliveryReceipts
                 )
             )
         } catch (e: Exception) {
@@ -37,5 +39,6 @@ class LoadMessageInfoUseCase @Inject constructor(
 data class MessageInfo(
     val message: Message,
     val reactions: Map<String, String>,
-    val readReceipts: Map<String, Long>
+    val readReceipts: Map<String, Long>,
+    val deliveryReceipts: Map<String, Long> = emptyMap()
 )

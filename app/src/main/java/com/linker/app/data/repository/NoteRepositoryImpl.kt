@@ -50,7 +50,7 @@ class NoteRepositoryImpl @Inject constructor(
         return try {
             val noteId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
-            val expiresAt = now + 24 * 60 * 60 * 1000 // 24 hours
+            val expiresAt = now + com.linker.app.core.util.TimeConstants.TWENTY_FOUR_HOURS_MS
 
             val noteData = hashMapOf(
                 "authorId" to currentUserId,

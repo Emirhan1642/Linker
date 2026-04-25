@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Production configuration -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Trust system certificates -->
+            <certificates src="system" />
+            <!-- Trust user-added certificates (for debugging) -->
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Debug configuration (optional) -->
+    <debug-overrides>
+        <trust-anchors>
+            <!-- Trust user certificates for debugging with proxy tools -->
+            <certificates src="user" />
+            <certificates src="system" />
+        </trust-anchors>
+    </debug-overrides>
+
+    <!-- Domain-specific configurations -->
+    <domain-config cleartextTrafficPermitted="false">
+        <!-- Firebase -->
+        <domain includeSubdomains="true">firebaseapp.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">google.com</domain>
+        
+        <!-- Supabase -->
+        <domain includeSubdomains="true">supabase.co</domain>
+        
+        <!-- Cloudinary -->
+        <domain includeSubdomains="true">cloudinary.com</domain>
+        
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+        
+        <!-- Certificate Pinning (Optional - Uncomment for production) -->
+        <!--
+        <pin-set expiration="2027-01-01">
+            <pin digest="SHA-256">base64-encoded-pin-here</pin>
+            <pin digest="SHA-256">backup-pin-here</pin>
+        </pin-set>
+        -->
+    </domain-config>
+</network-security-config>

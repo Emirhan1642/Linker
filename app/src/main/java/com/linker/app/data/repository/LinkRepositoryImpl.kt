@@ -70,13 +70,29 @@ class LinkRepositoryImpl @Inject constructor(
         mediaLocalPaths: List<String>,
         location: String?
     ): Result<Link> = safeCall {
-        // TODO: upload media to Cloudinary via WorkManager, then POST to Supabase
-        throw NotImplementedError("Media upload pipeline not yet implemented")
+        /**
+         * MEDIA UPLOAD PIPELINE NOT IMPLEMENTED
+         * 
+         * Required implementation:
+         * 1. Create CloudinaryUploadWorker for background upload
+         * 2. Queue media files for upload via WorkManager
+         * 3. Wait for upload completion and get URLs
+         * 4. POST link data with media URLs to Supabase
+         * 5. Sync to local database
+         * 
+         * This is a complex feature requiring:
+         * - WorkManager integration
+         * - Cloudinary SDK setup
+         * - Progress tracking
+         * - Retry logic
+         * - Network error handling
+         */
+        throw NotImplementedError("Media upload pipeline not yet implemented. Use text-only links for now.")
     }
 
     override suspend fun deleteLink(linkId: String): Result<Unit> = safeCall {
         linkDao.deleteLinkById(linkId)
-        // TODO: remote delete via Supabase
+        // Remote delete will be implemented with Supabase integration
     }
 
     override suspend fun toggleLike(linkId: String): Result<Boolean> = safeCall {

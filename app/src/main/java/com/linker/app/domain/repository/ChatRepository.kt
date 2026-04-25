@@ -105,6 +105,9 @@ interface ChatRepository {
     /** Get read receipts for a message */
     suspend fun getReadReceipts(messageId: String): Map<String, Long>
 
+    /** Get delivery receipts for a message */
+    suspend fun getDeliveryReceipts(messageId: String): Map<String, Long>
+
     // ── Group management (admin) ───────────────────────────────────────────
 
     /** [userId] kullanıcısını grup yöneticisi yapar (yalnızca mevcut yöneticiler). */

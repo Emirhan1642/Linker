@@ -4,4 +4,24 @@
     <issue id="NullSafeMutableLiveData" severity="ignore" />
     <!-- Suppress RememberInCompositionDetector crash (IncompatibleClassChangeError with AGP 8.7+) -->
     <issue id="RememberInComposition" severity="ignore" />
+    
+    <!-- Security -->
+    <issue id="HardcodedText" severity="warning" />
+    <issue id="SetJavaScriptEnabled" severity="error" />
+    <issue id="AllowBackup" severity="warning" />
+    
+    <!-- Performance -->
+    <issue id="UnusedResources" severity="warning" />
+    <issue id="Overdraw" severity="warning" />
+    <issue id="UselessParent" severity="warning" />
+    
+    <!-- Code Quality -->
+    <issue id="ObsoleteLayoutParam" severity="warning" />
+    <issue id="MergeRootFrame" severity="warning" />
+    <issue id="NestedWeights" severity="warning" />
+    
+    <!-- Accessibility -->
+    <issue id="ContentDescription" severity="warning" />
+    <issue id="LabelFor" severity="warning" />
 </lint>
+

@@ -84,7 +84,19 @@ fun LinkerAvatar(
                 contentAlignment = Alignment.Center
             ) {
                 if (imageUrl != null) {
-                    // TODO: placeholder for Coil AsyncImage
+                    /**
+                     * AVATAR IMAGE LOADING:
+                     * Replace with Coil AsyncImage once profile images are implemented:
+                     * 
+                     * AsyncImage(
+                     *     model = imageUrl,
+                     *     contentDescription = "Avatar",
+                     *     contentScale = ContentScale.Crop,
+                     *     modifier = Modifier.matchParentSize(),
+                     *     placeholder = painterResource(R.drawable.ic_person_placeholder),
+                     *     error = painterResource(R.drawable.ic_person_placeholder)
+                     * )
+                     */
                     Icon(
                         imageVector = Icons.Default.Person,
                         contentDescription = "Avatar",

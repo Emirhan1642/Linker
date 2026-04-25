@@ -181,29 +181,33 @@ class ChatInfoViewModel @Inject constructor(
             .onEach { messages ->
                 val mediaItems = messages
                     .filter { !it.isDeleted && it.mediaUrl != null }
-                    .map { msg ->
-                        SharedMediaItem(
-                            mediaUrl = msg.mediaUrl!!,
-                            mediaType = when (msg.messageType) {
-                                com.linker.app.domain.model.MessageType.VIDEO -> MediaType.VIDEO
-                                com.linker.app.domain.model.MessageType.GIF -> MediaType.GIF
-                                else -> MediaType.IMAGE
-                            },
-                            timestamp = msg.createdAt
-                        )
+                    .mapNotNull { msg ->
+                        msg.mediaUrl?.let { url ->
+                            SharedMediaItem(
+                                mediaUrl = url,
+                                mediaType = when (msg.messageType) {
+                                    com.linker.app.domain.model.MessageType.VIDEO -> MediaType.VIDEO
+                                    com.linker.app.domain.model.MessageType.GIF -> MediaType.GIF
+                                    else -> MediaType.IMAGE
+                                },
+                                timestamp = msg.createdAt
+                            )
+                        }
                     }
                     .sortedByDescending { it.timestamp }
 
                 val linkItems = messages
                     .filter { !it.isDeleted && it.sharedLink != null }
-                    .map { msg ->
-                        SharedLinkItem(
-                            linkId = msg.sharedLink!!.linkId,
-                            title = msg.sharedLink!!.description ?: "Shared Link",
-                            thumbnailUrl = msg.sharedLink!!.thumbnailUrl,
-                            senderName = msg.sender.displayName.ifBlank { msg.sender.username },
-                            timestamp = msg.createdAt
-                        )
+                    .mapNotNull { msg ->
+                        msg.sharedLink?.let { link ->
+                            SharedLinkItem(
+                                linkId = link.linkId,
+                                title = link.description ?: "Shared Link",
+                                thumbnailUrl = link.thumbnailUrl,
+                                senderName = msg.sender.displayName.ifBlank { msg.sender.username },
+                                timestamp = msg.createdAt
+                            )
+                        }
                     }
                     .sortedByDescending { it.timestamp }
 

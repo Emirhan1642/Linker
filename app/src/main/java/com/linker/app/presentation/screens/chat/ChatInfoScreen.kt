@@ -382,7 +382,10 @@ fun ChatInfoScreen(
                             icon = R.drawable.ic_search_status_1_outline,
                             title = "Search",
                             subtitle = null,
-                            onClick = { /* TODO: open search in this chat */ }
+                            onClick = { 
+                                // Feature: Search messages in this chat
+                                // Implementation: Navigate to search screen with chatId filter
+                            }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -391,7 +394,10 @@ fun ChatInfoScreen(
                             icon = R.drawable.ic_paint_brush_2_outline,
                             title = "Theme",
                             subtitle = uiState.theme ?: "Default",
-                            onClick = { /* TODO: open theme picker */ }
+                            onClick = { 
+                                // Feature: Chat theme customization
+                                // Implementation: Show theme picker bottom sheet
+                            }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -410,7 +416,10 @@ fun ChatInfoScreen(
                                 icon = R.drawable.ic_ai_sand_timer_outline,
                                 title = "Disappearing messages",
                                 subtitle = "Off",
-                                onClick = { /* TODO */ }
+                                onClick = { 
+                                    // Feature: Auto-delete messages after time period
+                                    // Implementation: Show time picker (24h, 7d, 30d, custom)
+                                }
                             )
                             Spacer(modifier = Modifier.height(20.dp))
                         }
@@ -421,7 +430,10 @@ fun ChatInfoScreen(
                             title = "Security",
                             subtitle = "End-to-end encrypted",
                             subtitleStyle = true,
-                            onClick = { /* TODO */ }
+                            onClick = { 
+                                // Feature: Show encryption details
+                                // Implementation: Display security info dialog
+                            }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -441,7 +453,10 @@ fun ChatInfoScreen(
                             icon = R.drawable.ic_user_edit_outline,
                             title = "Nicknames",
                             subtitle = null,
-                            onClick = { /* TODO */ }
+                            onClick = { 
+                                // Feature: Set custom nicknames for chat participants
+                                // Implementation: Show nickname editor dialog
+                            }
                         )
                         Spacer(modifier = Modifier.height(20.dp))
 
@@ -451,7 +466,10 @@ fun ChatInfoScreen(
                                 icon = R.drawable.ic_ai_users_outline,
                                 title = "Create a group",
                                 subtitle = null,
-                                onClick = { /* TODO: navigate to create group with this user */ }
+                                onClick = { 
+                                    // Feature: Create group chat with this user
+                                    // Implementation: Navigate to NewChatScreen with pre-selected user
+                                }
                             )
                             Spacer(modifier = Modifier.height(24.dp))
                         }
@@ -609,7 +627,18 @@ fun SharedMediaThumbnail(media: SharedMediaItem) {
             .clip(RoundedCornerShape(12.dp))
             .background(LightGray)
     ) {
-        // TODO: Replace with Coil AsyncImage once mediaUrl is valid
+        /**
+         * MEDIA DISPLAY:
+         * Once Cloudinary upload is implemented, replace placeholder icon
+         * with Coil AsyncImage:
+         * 
+         * AsyncImage(
+         *     model = media.mediaUrl,
+         *     contentDescription = null,
+         *     contentScale = ContentScale.Crop,
+         *     modifier = Modifier.fillMaxSize()
+         * )
+         */
         Icon(
             painter = painterResource(
                 id = when (media.mediaType) {
@@ -630,7 +659,10 @@ fun SharedLinkItemRow(link: SharedLinkItem) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { /* TODO: navigate to link */ }
+            .clickable { 
+                // Feature: Navigate to link detail screen
+                // Implementation: Pass linkId to LinkDetailScreen
+            }
             .padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

@@ -297,7 +297,13 @@ class MessageRepositoryImpl @Inject constructor(
         now: Long
     ) {
         val batch = firestore.batch()
-        batch.set(messagesRef(chatId).document(messageId), messageData)
+        
+        // Set message with delivery receipts for current user (sender)
+        val messageWithDelivery = messageData.toMutableMap()
+        messageWithDelivery["deliveredAt"] = now
+        messageWithDelivery["deliveryReceipts"] = mapOf(currentUserId to now)
+        
+        batch.set(messagesRef(chatId).document(messageId), messageWithDelivery)
         val displayText = content ?: "[Media]"
         val chatUpdates = mutableMapOf<String, Any>(
             "lastMessageText" to displayText,
@@ -341,16 +347,7 @@ class MessageRepositoryImpl @Inject constructor(
 
     private suspend fun getSender(): User {
         val senderEntity = userDao.getUserById(currentUserId)
-        return senderEntity?.toDomain() ?: User(
-            userId = currentUserId, username = "", displayName = "",
-            email = null, phoneNumber = null, bio = null,
-            profileImageUrl = null, coverImageUrl = null,
-            isVerified = false, followersCount = 0, followingCount = 0,
-            likesCount = 0, isFollowing = false, isFollowedBy = false,
-            isBlocked = false, isMuted = false,
-            isPrivate = false, followRequestSent = false, hideFollowLists = false,
-            createdAt = 0L, updatedAt = 0L
-        )
+        return senderEntity?.toDomain() ?: createUserStub(currentUserId)
     }
 
     private fun createMessageDomainObject(
@@ -464,7 +461,16 @@ class MessageRepositoryImpl @Inject constructor(
         messageId: String,
         deliveryMethod: DeliveryMethod
     ) {
-        val otherParticipants = chat.participants.filter { it.userId != currentUserId }
+        // Get participant IDs directly from Firestore to ensure accuracy
+        val participantIds = try {
+            val doc = chatsCollection.document(chatId).get().await()
+            (doc.get("participantIds") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.w("MessageRepository", "Failed to get participants: ${e.message}")
+            emptyList()
+        }
+        
+        val otherParticipants = participantIds.filter { it != currentUserId }
         if (otherParticipants.isNotEmpty() && deliveryMethod == DeliveryMethod.ONLINE) {
             val senderName = sender.displayName.ifBlank { sender.username }
             val displayText = content ?: "[Media]"
@@ -472,9 +478,9 @@ class MessageRepositoryImpl @Inject constructor(
                 ChatType.PRIVATE -> senderName
                 ChatType.GROUP -> "$senderName: ${displayText.take(50)}"
             }
-            for (participant in otherParticipants) {
+            for (recipientId in otherParticipants) {
                 sendChatNotification(
-                    recipientUserId = participant.userId,
+                    recipientUserId = recipientId,
                     senderName = senderName,
                     messageText = notificationMessage,
                     chatId = chatId,
@@ -495,6 +501,7 @@ class MessageRepositoryImpl @Inject constructor(
     ) {
         try {
             val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
+            android.util.Log.d("MessageRepository", "Sending notification to $recipientUserId for message $messageId")
             supabaseNotificationApi.sendChatNotification(
                 auth = "Bearer $key",
                 apiKey = key,
@@ -508,11 +515,11 @@ class MessageRepositoryImpl @Inject constructor(
                     chatType = chatType.name
                 )
             )
-            android.util.Log.d("MessageRepository", "Notification sent to $recipientUserId")
+            android.util.Log.d("MessageRepository", "Notification sent successfully to $recipientUserId")
 
             saveNotificationToFirestoreAndLocal(recipientUserId, senderName, messageText, chatId, messageId)
         } catch (e: Exception) {
-            android.util.Log.w("MessageRepository", "Failed to send notification: ${e.message}")
+            android.util.Log.w("MessageRepository", "Failed to send notification to $recipientUserId: ${e.message}", e)
         }
     }
 
@@ -619,13 +626,19 @@ class MessageRepositoryImpl @Inject constructor(
         val snap = ref.get().await()
         if (!snap.exists()) throw Exception("Message not found")
 
-        ref.update(
-            mapOf(
-                "readReceipts.$currentUserId" to now,
-                "messageStatus" to "READ",
-                "readAt" to now
-            )
-        ).await()
+        // Check if message is already read by current user
+        val readReceipts = snap.get("readReceipts") as? Map<String, Any> ?: emptyMap()
+        val isAlreadyRead = readReceipts.containsKey(currentUserId)
+        
+        if (!isAlreadyRead) {
+            ref.update(
+                mapOf(
+                    "readReceipts.$currentUserId" to now,
+                    "messageStatus" to "READ",
+                    "readAt" to now
+                )
+            ).await()
+        }
         messageDao.updateMessageStatus(messageId, com.linker.app.data.local.entity.MessageStatus.READ)
     }
 
@@ -645,7 +658,12 @@ class MessageRepositoryImpl @Inject constructor(
             val senderId = doc.getString("senderId")
             if (senderId == currentUserId) continue
             val status = doc.getString("messageStatus")
-            if (status != "READ") {
+            
+            // Check if message is already read by current user
+            val readReceipts = doc.get("readReceipts") as? Map<String, Any> ?: emptyMap()
+            val isAlreadyRead = readReceipts.containsKey(currentUserId)
+            
+            if (status != "READ" && !isAlreadyRead) {
                 batch.update(doc.reference, mapOf(
                     "readReceipts.$currentUserId" to now,
                     "messageStatus" to "READ",
@@ -770,7 +788,7 @@ class MessageRepositoryImpl @Inject constructor(
                     chatName = chatEntity?.chatName ?: "",
                     chatImageUrl = chatEntity?.chatImageUrl,
                     participants = participantIds.map { participantId ->
-                        userDao.getUserById(participantId)?.toDomain() ?: User(userId = participantId)
+                        userDao.getUserById(participantId)?.toDomain() ?: createUserStub(participantId)
                     },
                     lastMessage = null,
                     unreadCount = 0,
