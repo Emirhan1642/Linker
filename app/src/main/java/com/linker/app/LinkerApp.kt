@@ -58,6 +58,7 @@ class LinkerApp : Application(), Configuration.Provider {
         }
 
         scheduleMessageQueueSync()
+        scheduleSessionCleanup()
         initializeMonitoring()
     }
 
@@ -126,6 +127,23 @@ class LinkerApp : Application(), Configuration.Provider {
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "linker_message_queue_sync",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+    
+    /**
+     * Schedule periodic cleanup of expired passive sessions
+     * 
+     * Runs every 15 minutes to free up resources from inactive passive accounts.
+     */
+    private fun scheduleSessionCleanup() {
+        val request = PeriodicWorkRequestBuilder<com.linker.app.core.session.SessionCleanupWorker>(
+            15, TimeUnit.MINUTES
+        ).build()
+        
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "linker_session_cleanup",
             ExistingPeriodicWorkPolicy.KEEP,
             request
         )

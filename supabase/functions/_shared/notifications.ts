@@ -19,6 +19,19 @@ export function getSupabaseAdminClient() {
 }
 
 export function getSupabaseAnonKey() {
+  // Try custom key first, fallback to default SUPABASE_ANON_KEY
+  const customKey = Deno.env.get("LINKER_ANON_KEY");
+  if (customKey) {
+    let value = customKey.trim();
+    if (value.startsWith("\"") && value.endsWith("\"")) {
+      value = value.substring(1, value.length - 1).trim();
+    }
+    if (value.startsWith("'") && value.endsWith("'")) {
+      value = value.substring(1, value.length - 1).trim();
+    }
+    return value;
+  }
+  
   let value = getEnvOrThrow("SUPABASE_ANON_KEY").trim();
   if (value.startsWith("\"") && value.endsWith("\"")) {
     value = value.substring(1, value.length - 1).trim();

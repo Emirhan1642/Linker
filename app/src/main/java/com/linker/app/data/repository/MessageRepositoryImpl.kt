@@ -25,6 +25,7 @@ import com.linker.app.data.local.entity.QueueStatus
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.*
 import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.MessageReactionRepository
 import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.repository.NotificationRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -53,6 +54,7 @@ class MessageRepositoryImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
     private val userDao: UserDao,
     private val notificationRepository: NotificationRepository,
+    private val messageReactionRepository: MessageReactionRepository,
     private val supabaseNotificationApi: SupabaseNotificationApi
 ) : MessageRepository {
 
@@ -473,10 +475,10 @@ class MessageRepositoryImpl @Inject constructor(
         val otherParticipants = participantIds.filter { it != currentUserId }
         if (otherParticipants.isNotEmpty() && deliveryMethod == DeliveryMethod.ONLINE) {
             val senderName = sender.displayName.ifBlank { sender.username }
-            val displayText = content ?: "[Media]"
+            val displayText = content?.take(50) ?: "[Media]"
             val notificationMessage = when (chat.chatType) {
-                ChatType.PRIVATE -> senderName
-                ChatType.GROUP -> "$senderName: ${displayText.take(50)}"
+                ChatType.PRIVATE -> displayText
+                ChatType.GROUP -> "$senderName: $displayText"
             }
             for (recipientId in otherParticipants) {
                 sendChatNotification(
@@ -502,7 +504,7 @@ class MessageRepositoryImpl @Inject constructor(
         try {
             val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
             android.util.Log.d("MessageRepository", "Sending notification to $recipientUserId for message $messageId")
-            supabaseNotificationApi.sendChatNotification(
+            val response = supabaseNotificationApi.sendChatNotification(
                 auth = "Bearer $key",
                 apiKey = key,
                 request = ChatNotificationRequest(
@@ -515,9 +517,14 @@ class MessageRepositoryImpl @Inject constructor(
                     chatType = chatType.name
                 )
             )
-            android.util.Log.d("MessageRepository", "Notification sent successfully to $recipientUserId")
-
-            saveNotificationToFirestoreAndLocal(recipientUserId, senderName, messageText, chatId, messageId)
+            
+            if (response.isSuccessful) {
+                android.util.Log.d("MessageRepository", "Notification sent successfully to $recipientUserId")
+                saveNotificationToFirestoreAndLocal(recipientUserId, senderName, messageText, chatId, messageId)
+            } else {
+                val errorBody = response.errorBody()?.string()
+                android.util.Log.w("MessageRepository", "Failed to send notification to $recipientUserId: ${response.code()} - $errorBody")
+            }
         } catch (e: Exception) {
             android.util.Log.w("MessageRepository", "Failed to send notification to $recipientUserId: ${e.message}", e)
         }
@@ -601,14 +608,11 @@ class MessageRepositoryImpl @Inject constructor(
         val ref = resolveMessageRef(messageId)
         val snap = ref.get().await()
         if (!snap.exists()) throw Exception("Message not found")
-
-        if (emoji == null) {
-            // Remove reaction
-            ref.update("reactions.$currentUserId", com.google.firebase.firestore.FieldValue.delete()).await()
-        } else {
-            // Add/update reaction
-            ref.update("reactions.$currentUserId", emoji).await()
-        }
+        
+        val chatId = snap.getString("chatId") ?: throw Exception("Message chatId missing")
+        
+        // Delegate to MessageReactionRepository to handle notification sending
+        messageReactionRepository.reactToMessage(chatId, messageId, emoji)
 
         // Update local cache via copy+update (Map field requires TypeConverter, not a raw @Query)
         val localMsg = messageDao.getMessageById(messageId)

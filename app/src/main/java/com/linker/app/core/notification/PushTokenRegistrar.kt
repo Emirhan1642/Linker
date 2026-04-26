@@ -53,6 +53,7 @@ class PushTokenRegistrar @Inject constructor(
 
     private suspend fun registerToken(userId: String, token: String) {
         try {
+            android.util.Log.d(TAG, "Attempting to register token for userId=$userId, token=${token.take(20)}...")
             val response = supabaseNotificationApi.registerPushToken(
                 auth = authHeader(),
                 apiKey = apiKey(),
@@ -65,10 +66,11 @@ class PushTokenRegistrar @Inject constructor(
             if (response.isSuccessful) {
                 android.util.Log.d(TAG, "registerToken: success for $userId")
             } else {
-                android.util.Log.w(TAG, "registerToken: failed ${response.code()} ${response.errorBody()?.string()}")
+                val errorBody = response.errorBody()?.string()
+                android.util.Log.w(TAG, "registerToken: failed ${response.code()} - $errorBody")
             }
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "Failed to register push token: ${e.message}")
+            android.util.Log.w(TAG, "Failed to register push token: ${e.message}", e)
         }
     }
 

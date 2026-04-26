@@ -18,6 +18,7 @@ import com.linker.app.presentation.theme.LinkerTheme
 import dagger.hilt.android.AndroidEntryPoint
 import com.linker.app.core.notification.PushTokenRegistrar
 import com.linker.app.core.notification.ChatNotificationHelper
+import com.linker.app.core.session.HybridAccountManager
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.core.util.Result as LinkerResult
 import javax.inject.Inject
@@ -38,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
     @Inject lateinit var accountRepository: AccountRepository
+    @Inject lateinit var hybridAccountManager: HybridAccountManager
 
     private var pendingChatId by mutableStateOf<String?>(null)
 
@@ -84,7 +86,14 @@ class MainActivity : ComponentActivity() {
             if (active != target) {
                 when (val r = accountRepository.switchToAccount(target)) {
                     is LinkerResult.Success -> {
-                        pendingChatId = intent.getStringExtra("chat_id")
+                        // Restart activity to reload UI with new account
+                        val chatId = intent.getStringExtra("chat_id")
+                        val restartIntent = Intent(this, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            putExtra("chat_id", chatId)
+                        }
+                        startActivity(restartIntent)
+                        finish()
                     }
                     is LinkerResult.Error -> {
                         android.util.Log.w("MainActivity", "switchToAccount failed: ${r.message}")
@@ -96,5 +105,13 @@ class MainActivity : ComponentActivity() {
             }
         }
         pendingChatId = intent?.getStringExtra("chat_id")
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        // Cleanup all passive sessions when app is destroyed
+        if (isFinishing) {
+            hybridAccountManager.cleanupAllSessions()
+        }
     }
 }

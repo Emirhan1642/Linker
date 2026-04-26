@@ -69,4 +69,13 @@ interface AccountRepository {
 
     /** Returns all sessions without sensitive fields (tokens zeroed). */
     suspend fun getSessions(): List<AccountSession>
+    
+    /**
+     * Get decrypted credentials for a specific user without switching accounts.
+     * Used by HybridAccountManager to create passive sessions.
+     * 
+     * @param uid The user ID to get credentials for
+     * @return Pair of (email, password) or null if session not found
+     */
+    suspend fun getDecryptedCredentials(uid: String): Pair<String, String>?
 }

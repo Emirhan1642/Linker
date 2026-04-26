@@ -33,7 +33,8 @@ import javax.inject.Singleton
 @Singleton
 class AccountRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val firebaseAuth: FirebaseAuth
+    private val firebaseAuth: FirebaseAuth,
+    private val pushTokenRegistrar: com.linker.app.core.notification.PushTokenRegistrar
 ) : AccountRepository {
 
     private companion object {
@@ -45,6 +46,7 @@ class AccountRepositoryImpl @Inject constructor(
         const val IV_LENGTH         = 12
         const val PREFS_FILE        = "linker_accounts_v2"
         const val KEY_JSON          = "sessions_json"
+        const val MAX_PASSIVE_SESSIONS = 5  // Maximum number of accounts per device
         // ✅ REMOVED: const val SEP = "::" - No longer using delimiter-based format
     }
 
@@ -102,6 +104,15 @@ class AccountRepositoryImpl @Inject constructor(
         withContext(Dispatchers.Default) {
             Log.d(TAG, "addSession: uid=${session.uid}, username=${session.username}")
 
+            val current = loadSessionsFromDisk().toMutableList()
+            
+            // Check if we're adding a new account (not updating existing)
+            val isNewAccount = current.none { it.uid == session.uid }
+            if (isNewAccount && current.size >= MAX_PASSIVE_SESSIONS) {
+                Log.w(TAG, "addSession: Maximum account limit ($MAX_PASSIVE_SESSIONS) reached")
+                throw IllegalStateException("Maximum account limit reached. You can add up to $MAX_PASSIVE_SESSIONS accounts.")
+            }
+
             val plainBytes = session.encryptedToken.toByteArray(Charsets.UTF_8)
             val ciphertext: String
             try {
@@ -121,7 +132,6 @@ class AccountRepositoryImpl @Inject constructor(
                 requiresAuthOnSwitch = session.requiresAuthOnSwitch
             )
 
-            val current = loadSessionsFromDisk().toMutableList()
             current.removeAll { it.uid == dto.uid }
             current.add(dto)
             persistSessions(current)
@@ -161,6 +171,9 @@ class AccountRepositoryImpl @Inject constructor(
 
                 firebaseAuth.signInWithEmailAndPassword(email, password).await()
                 Log.d(TAG, "switchToAccount: giriş başarılı uid=$uid")
+                
+                // ✅ Register FCM token for the new account
+                pushTokenRegistrar.registerCurrentToken()
             } finally {
                 plainBytes.fill(0)
             }
@@ -195,6 +208,32 @@ class AccountRepositoryImpl @Inject constructor(
 
     override suspend fun getSessions(): List<AccountSession> =
         loadSessionsFromDisk().map { it.toSafeSession() }
+
+    /**
+     * Get decrypted credentials for a specific user without switching accounts
+     * Used by HybridAccountManager to create passive sessions
+     * 
+     * @return Pair of (email, password) or null if session not found
+     */
+    override suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
+        try {
+            val sessions = loadSessionsFromDisk()
+            val dto = sessions.firstOrNull { it.uid == uid }
+                ?: return@withContext null
+            
+            val plainBytes = decryptWithKeystore(dto.encryptedToken)
+            try {
+                val credential = String(plainBytes, Charsets.UTF_8)
+                val (email, password) = CredentialEncoder.decode(credential)
+                return@withContext Pair(email, password)
+            } finally {
+                plainBytes.fill(0)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getDecryptedCredentials failed for uid=$uid: ${e.message}", e)
+            null
+        }
+    }
 
     // ── Keystore ──────────────────────────────────────────────────────────
 

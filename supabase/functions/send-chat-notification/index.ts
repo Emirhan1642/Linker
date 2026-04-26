@@ -14,7 +14,7 @@ type RequestBody = {
   message: string;
   chat_id: string;
   message_id: string;
-  /** PRIVATE | GROUP — Android tarafında bildirim dalı ve kanal için */
+  /** PRIVATE | GROUP | REACTION — Android tarafında bildirim dalı ve kanal için */
   chat_type?: string;
 };
 
@@ -41,14 +41,20 @@ Deno.serve(async (req) => {
     }
 
     const body = (await req.json()) as RequestBody;
+    
+    // For reactions, chat_id is optional
+    const isReaction = body.chat_type === "REACTION";
     const required = [
       body.recipient_id,
       body.sender_id,
       body.sender_name,
       body.message,
-      body.chat_id,
       body.message_id,
     ];
+    if (!isReaction) {
+      required.push(body.chat_id);
+    }
+    
     if (required.some((value) => !value)) {
       return new Response("Missing required fields", { status: 400 });
     }
@@ -56,14 +62,17 @@ Deno.serve(async (req) => {
     const tokens = await fetchFcmTokens(body.recipient_id);
     const chatType = body.chat_type?.trim() || "PRIVATE";
 
+    // For reactions, use LIKE type instead of MESSAGE
+    const notificationType = isReaction ? "LIKE" : "MESSAGE";
+
     const result = await sendFcmNotification(tokens, {
       title: body.sender_name,
       body: body.message,
       data: {
-        type: "MESSAGE",
+        type: notificationType,
         title: body.sender_name,
         body: body.message,
-        chatId: body.chat_id,
+        chatId: body.chat_id || "",
         messageId: body.message_id,
         senderName: body.sender_name,
         senderId: body.sender_id,

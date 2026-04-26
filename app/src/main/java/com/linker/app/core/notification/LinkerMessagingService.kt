@@ -55,10 +55,12 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
         val data = message.data
         val notificationType = data["type"] ?: "general"
+        val chatType = data["chatType"] ?: ""
 
-        when (notificationType) {
-            "MESSAGE" -> handleChatNotification(message, data)
-            "LIKE", "COMMENT", "REPLY", "FOLLOW", "MENTION", "RELINK", "STORY_VIEW", "LIVE" ->
+        when {
+            notificationType == "MESSAGE" && chatType == "REACTION" -> handleReactionNotification(message, data)
+            notificationType == "MESSAGE" -> handleChatNotification(message, data)
+            notificationType in listOf("LIKE", "COMMENT", "REPLY", "FOLLOW", "MENTION", "RELINK", "STORY_VIEW", "LIVE") ->
                 handleSocialNotification(message, data, notificationType)
             else -> handleGeneralNotification(message)
         }
@@ -106,19 +108,80 @@ class LinkerMessagingService : FirebaseMessagingService() {
         val chatType = data["chatType"] ?: "PRIVATE"
         val isGroup = chatType == "GROUP"
 
+        // Ignore notifications for messages sent by the recipient (self-sent messages)
+        if (senderId == recipientId) {
+            android.util.Log.d(TAG, "Ignoring self-sent message notification")
+            return
+        }
+
         ensureMessageChannel(recipientId)
         val channelId = ChatNotificationHelper.channelIdForAccount(recipientId)
         val notificationId = stableChatNotificationId(recipientId, chatId, senderId, isGroup)
+        
+        android.util.Log.d(TAG, "Calculated notificationId=$notificationId for recipientId=$recipientId, chatId=$chatId, senderId=$senderId, isGroup=$isGroup")
+
+        // Check if state exists, if not try to recover from existing notification
+        var state = ChatNotificationStore.get(notificationId)
+        if (state == null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            android.util.Log.d(TAG, "State not found, trying to recover from active notification")
+            try {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                val activeNotifications = notificationManager.activeNotifications
+                val existingNotification = activeNotifications.firstOrNull { it.id == notificationId }
+                
+                if (existingNotification != null) {
+                    android.util.Log.d(TAG, "Found existing notification, recovering messages")
+                    val messagingStyle = androidx.core.app.NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
+                    
+                    if (messagingStyle != null) {
+                        val existingMessages = mutableListOf<String>()
+                        for (msg in messagingStyle.messages) {
+                            val msgSenderName = msg.person?.name?.toString() ?: ""
+                            val text = msg.text?.toString() ?: ""
+                            if (text.isNotBlank()) {
+                                if (msgSenderName == "Siz") {
+                                    existingMessages.add("Siz: $text")
+                                } else if (msgSenderName.isNotBlank()) {
+                                    existingMessages.add("$msgSenderName: $text")
+                                } else {
+                                    existingMessages.add(text)
+                                }
+                            }
+                        }
+                        
+                        if (existingMessages.isNotEmpty()) {
+                            android.util.Log.d(TAG, "Recovered ${existingMessages.size} messages, creating state")
+                            // Create state with empty message first
+                            ChatNotificationStore.addIncoming(
+                                notificationId,
+                                recipientUid = recipientId,
+                                chatId = chatId,
+                                message = "",
+                                isGroupChat = isGroup
+                            )
+                            state = ChatNotificationStore.get(notificationId)
+                            // Restore messages
+                            if (state != null) {
+                                state.messages.clear()
+                                state.messages.addAll(existingMessages)
+                                android.util.Log.d(TAG, "Restored ${existingMessages.size} messages to state")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Failed to recover messages: ${e.message}", e)
+            }
+        }
 
         ChatNotificationStore.addIncoming(
             notificationId,
             recipientUid = recipientId,
             chatId = chatId,
-            senderId = senderId,
-            senderName = senderName,
-            message = body
+            message = body,
+            isGroupChat = isGroup
         )
-        val state = ChatNotificationStore.get(notificationId)
+        state = ChatNotificationStore.get(notificationId)
         if (state != null) {
             val notification = ChatNotificationHelper.buildChatNotification(
                 context = this,
@@ -129,7 +192,9 @@ class LinkerMessagingService : FirebaseMessagingService() {
                 messageId = messageId,
                 senderId = senderId,
                 senderName = senderName,
-                messages = state.messages
+                messages = state.messages,
+                remoteInputHistory = null,
+                isGroupChat = state.isGroupChat
             ).build()
             NotificationManagerCompat.from(this).notify(notificationId, notification)
         }
@@ -271,6 +336,81 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
     private fun getNotificationManager(): NotificationManager {
         return getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
+
+    /**
+     * Handle reaction notifications with grouping
+     * Multiple reactions to the same message are grouped into one notification
+     */
+    private fun handleReactionNotification(
+        message: RemoteMessage,
+        data: Map<String, String>
+    ) {
+        android.util.Log.d(TAG, "handleReactionNotification data=$data")
+        val messageId = data["messageId"] ?: return
+        val senderName = data["senderName"] ?: data["title"] ?: "Someone"
+        val senderId = data["senderId"] ?: ""
+        val body = message.notification?.body ?: data["body"] ?: "reacted to your message"
+        val recipientId = data["recipientId"] ?: auth.currentUser?.uid ?: return
+
+        // Ignore self-reactions
+        if (senderId == recipientId) {
+            android.util.Log.d(TAG, "Ignoring self-reaction notification")
+            return
+        }
+
+        // Use messageId as notification ID so reactions to same message group together
+        val notificationId = "reaction_$messageId".hashCode() and 0x7fff_fffe
+
+        // Track reactors for this message
+        val reactorsKey = "reactors_$messageId"
+        val prefs = getSharedPreferences("reaction_notifications", Context.MODE_PRIVATE)
+        val existingReactors = prefs.getStringSet(reactorsKey, mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        existingReactors.add(senderId)
+        prefs.edit().putStringSet(reactorsKey, existingReactors).apply()
+
+        val reactionCount = existingReactors.size
+        val notificationBody = if (reactionCount == 1) {
+            body // "Mesajınıza 👍 ile tepki verdi"
+        } else {
+            "Mesajınıza $reactionCount kişi tepki verdi"
+        }
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("deep_link", "message/$messageId")
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Create delete intent to clear reactors when notification is dismissed
+        val deleteIntent = Intent(this, ReactionNotificationDismissReceiver::class.java).apply {
+            putExtra("messageId", messageId)
+        }
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            this,
+            notificationId,
+            deleteIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_SOCIAL_ID)
+            .setSmallIcon(R.drawable.ic_ai_homepage_outline)
+            .setContentTitle("Linker")
+            .setContentText(notificationBody)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setDeleteIntent(deletePendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        NotificationManagerCompat.from(this).notify(notificationId, notification)
+        android.util.Log.d(TAG, "Reaction notification shown: $reactionCount reactor(s)")
     }
 
     companion object {
