@@ -25,7 +25,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 
 ## Tasks
 
-- [ ] 1. Phase 1: Core Infrastructure Setup
+- [x] 1. Phase 1: Core Infrastructure Setup
   - [x] 1.1 Create database entities and DAOs
     - Create `BleNodeEntity` with indices for lastSeen and isConnected
     - Create `MessageIdCacheEntity` with index for receivedAt
@@ -71,8 +71,8 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 - [ ] 2. Checkpoint - Core infrastructure complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 3. Phase 2: BLE Mesh Networking Core
-  - [ ] 3.1 Implement BLEPacket data structure
+- [x] 3. Phase 2: BLE Mesh Networking Core
+  - [x] 3.1 Implement BLEPacket data structure
     - Create BLEPacket data class with all fields (version, messageId, senderId, recipientId, ttl, hopCount, fragmentIndex, totalFragments, payloadLength, encryptedPayload, checksum)
     - Implement serialize() method with ByteBuffer
     - Implement deserialize() method with proper parsing
@@ -91,7 +91,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test that valid checksums are accepted
     - Test that invalid checksums are rejected
   
-  - [ ] 3.4 Implement PacketFragmenter
+  - [x] 3.4 Implement PacketFragmenter
     - Create fragment() method to split large payloads
     - Create reassemble() method to combine fragments
     - Handle fragmentIndex and totalFragments correctly
@@ -102,13 +102,13 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - **Validates: Requirements 16.3, 16.4, 16.5**
     - Test that fragment then reassemble produces original packet
   
-  - [ ] 3.6 Implement FragmentManager
+  - [x] 3.6 Implement FragmentManager
     - Create FragmentManager with ConcurrentHashMap for fragment storage
     - Implement addFragment() with completion detection
     - Implement cleanupStaleFragments() with 30-second timeout
     - _Requirements: 16.5_
   
-  - [ ] 3.7 Implement BLERoutingTable
+  - [x] 3.7 Implement BLERoutingTable
     - Create RouteInfo data class
     - Implement addRoute() with route quality comparison
     - Implement getRoute() with 60-second staleness check
@@ -116,7 +116,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Implement calculateRouteQuality() using RSSI and hop count
     - _Requirements: 4.9, 4.10_
   
-  - [ ] 3.8 Implement MessageIdCache for deduplication
+  - [x] 3.8 Implement MessageIdCache for deduplication
     - Create MessageIdCache with LruCache
     - Implement contains() and add() methods
     - Implement cleanup() for old entries
@@ -128,15 +128,15 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - **Validates: Requirements 4.4**
     - Test that duplicate message IDs are rejected
 
-- [ ] 4. Phase 2 (continued): BLE GATT Implementation
-  - [ ] 4.1 Implement GattServerManager
+- [x] 4. Phase 2 (continued): BLE GATT Implementation
+  - [x] 4.1 Implement GattServerManager
     - Create BluetoothGattServer with Linker Mesh Service UUID
     - Implement onCharacteristicWriteRequest() callback
     - Handle incoming BLE packets
     - Send response to client
     - _Requirements: 1.4, 1.5_
   
-  - [ ] 4.2 Implement GattClientManager
+  - [x] 4.2 Implement GattClientManager
     - Manage Map of BluetoothGatt connections
     - Implement connectToDevice() with 5-second timeout
     - Implement writeCharacteristic() for packet transmission
@@ -145,7 +145,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Enforce 7 concurrent connection limit
     - _Requirements: 1.4, 12.3, 12.4_
   
-  - [ ] 4.3 Implement BLEMeshManager interface
+  - [x] 4.3 Implement BLEMeshManager interface
     - Create BLEMeshManagerImpl with all dependencies
     - Implement initialize() with BLE adapter check
     - Implement startMeshNetwork() and stopMeshNetwork()
@@ -155,7 +155,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Use CHARACTERISTIC_UUID: 00001235-0000-1000-8000-00805f9b34fb
     - _Requirements: 1.1, 1.2, 1.3, 1.6, 1.7_
   
-  - [ ] 4.4 Implement BLE peer discovery and connection
+  - [x] 4.4 Implement BLE peer discovery and connection
     - Implement ScanCallback to discover mesh nodes
     - Verify protocol version compatibility
     - Implement connectToPeer() with GATT connection
@@ -163,7 +163,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Update routing table with discovered peers
     - _Requirements: 12.1, 12.2, 12.3, 12.5, 12.6, 12.7, 12.8_
   
-  - [ ] 4.5 Implement BLE message routing logic
+  - [x] 4.5 Implement BLE message routing logic
     - Implement sendMessage() to transmit packets
     - Implement forwardMessage() with TTL decrement
     - Implement onMessageReceived() callback
@@ -191,14 +191,14 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 - [ ] 5. Checkpoint - BLE mesh networking complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 6. Phase 3: Signal Protocol Encryption
-  - [ ] 6.1 Add Signal Protocol dependency
+- [x] 6. Phase 3: Signal Protocol Encryption
+  - [x] 6.1 Add Signal Protocol dependency
     - Add org.signal:libsignal-client to build.gradle.kts (Rust-based JNI library)
     - Sync project dependencies
     - Verify JNI binaries are included for target architectures (arm64-v8a, armeabi-v7a, x86_64)
     - _Requirements: 6.1_
   
-  - [ ] 6.2 Implement SignalProtocolStore
+  - [x] 6.2 Implement SignalProtocolStore
     - Create SignalProtocolStoreImpl with Room DB backing
     - Implement IdentityKeyStore interface
     - Implement PreKeyStore interface
@@ -206,14 +206,14 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Implement SessionStore interface
     - _Requirements: 6.2, 6.8_
   
-  - [ ] 6.3 Implement AndroidKeystoreWrapper
+  - [x] 6.3 Implement AndroidKeystoreWrapper
     - Create wrapper for Android Keystore access
     - Implement generateKeyPair() for hardware-backed keys
     - Implement getPrivateKey() with secure retrieval
     - Implement encrypt() and decrypt() methods
     - _Requirements: 6.8_
   
-  - [ ] 6.4 Implement EncryptionManager interface
+  - [x] 6.4 Implement EncryptionManager interface
     - Create EncryptionManagerImpl with Signal Protocol
     - Implement initialize() to set up protocol store
     - Implement encryptMessage() using SessionCipher
@@ -239,7 +239,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test key rotation logic
 
 - [ ] 7. Phase 4: Message Queue and Sync
-  - [ ] 7.1 Implement MessageDeduplicationManager
+  - [x] 7.1 Implement MessageDeduplicationManager
     - Create ConcurrentHashMap for processed MessageEntity.messageId (not BLE packet ID)
     - Implement isDuplicate() with 60-second window for race condition handling
     - Implement markAsProcessed() to track processed messages
@@ -247,7 +247,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Add detailed documentation explaining difference from BLE packet deduplication
     - _Requirements: 18.8_
   
-  - [ ] 7.2 Implement MessageQueueProcessor interface
+  - [x] 7.2 Implement MessageQueueProcessor interface
     - Create MessageQueueProcessorImpl with all dependencies
     - Implement enqueueMessage() to add to queue
     - Set priority: 0 for text, 1 for media
@@ -274,7 +274,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - **Validates: Requirements 3.5**
     - Test that encrypted payload differs from plaintext
   
-  - [ ] 7.6 Implement RetryStrategy with exponential backoff
+  - [x] 7.6 Implement RetryStrategy with exponential backoff
     - Set INITIAL_DELAY = 5000ms
     - Set BACKOFF_MULTIPLIER = 3.0
     - Set MAX_RETRIES = 3
@@ -282,7 +282,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Implement retryWithBackoff() suspend function
     - _Requirements: 14.1, 14.2, 14.3_
   
-  - [ ] 7.7 Implement SyncManager interface
+  - [x] 7.7 Implement SyncManager interface
     - Create SyncManagerImpl with Firestore integration
     - Implement syncPendingMessages() to sync queue to Firestore
     - Update delivery method from BLE to ONLINE after sync
@@ -311,7 +311,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 9. Phase 5: Foreground Service
-  - [ ] 9.1 Implement OfflineMessagingService
+  - [x] 9.1 Implement OfflineMessagingService
     - Create foreground service with notification
     - Implement onCreate() with notification channel creation
     - Implement onStartCommand() with action handling
@@ -321,7 +321,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Use NOTIFICATION_ID = 1001, CHANNEL_ID = "offline_messaging_channel"
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5, 11.6, 11.7, 11.8_
   
-  - [ ] 9.2 Implement adaptive scanning based on battery and screen state
+  - [x] 9.2 Implement adaptive scanning based on battery and screen state
     - Create AdaptiveScanningStrategy
     - Implement calculateOptimalScanSettings()
     - Use SCAN_MODE_LOW_POWER (60s) when battery < 15%
@@ -330,20 +330,20 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Observe battery level and screen state changes
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5, 9.6, 9.7_
   
-  - [ ] 9.3 Implement BLEConnectionPool
+  - [x] 9.3 Implement BLEConnectionPool
     - Create connection pool with maxConnections = 7
     - Implement addConnection() with priority-based eviction
     - Implement calculatePriority() using pending messages, RSSI, and recency
     - Implement removeConnection() with cleanup
     - _Requirements: 12.3, 12.4, 12.5_
   
-  - [ ] 9.4 Implement MessageBatcher
+  - [x] 9.4 Implement MessageBatcher
     - Create batcher with batchSize = 5, batchTimeout = 5000ms
     - Implement addMessage() with batch accumulation
     - Implement flushBatch() when size or timeout reached
     - _Requirements: 9.6_
   
-  - [ ] 9.5 Implement OfflineMessagingServiceManager
+  - [x] 9.5 Implement OfflineMessagingServiceManager
     - Create manager to start/stop service
     - Implement startService() with API level check
     - Implement stopService()
@@ -351,7 +351,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Use SharedPreferences or internal StateFlow to track service status
     - _Requirements: 11.5_
   
-  - [ ] 9.6 Implement BootCompletedReceiver
+  - [x] 9.6 Implement BootCompletedReceiver
     - Create BroadcastReceiver for BOOT_COMPLETED
     - DO NOT use @AndroidEntryPoint (causes issues with broadcast receivers)
     - Use EntryPointAccessors pattern to get Hilt dependencies
@@ -359,19 +359,19 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Add receiver to AndroidManifest.xml
     - _Requirements: 11.7_
   
-  - [ ] 9.7 Update AndroidManifest.xml
+  - [x] 9.7 Update AndroidManifest.xml
     - Add BootCompletedReceiver with BOOT_COMPLETED intent filter
     - Add OfflineMessagingService with foregroundServiceType="connectedDevice"
     - Add required permissions (BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE, ACCESS_FINE_LOCATION, NEARBY_WIFI_DEVICES)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
 - [ ] 10. Phase 6: Wi-Fi Direct (Nearby Connections)
-  - [ ] 10.1 Add Nearby Connections dependency
+  - [x] 10.1 Add Nearby Connections dependency
     - Add play-services-nearby to build.gradle.kts
     - Sync project dependencies
     - _Requirements: 5.1_
   
-  - [ ] 10.2 Implement NearbyConnectionsManager interface
+  - [x] 10.2 Implement NearbyConnectionsManager interface
     - Create NearbyConnectionsManagerImpl with ConnectionsClient
     - Implement startDiscovery() with STRATEGY_P2P_POINT_TO_POINT
     - Implement startAdvertising() with service ID
@@ -381,18 +381,18 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Use SERVICE_ID: "com.linker.app.OFFLINE_MESSAGING"
     - _Requirements: 5.1, 5.2, 5.3, 5.7_
   
-  - [ ] 10.3 Implement EndpointDiscoveryCallback
+  - [x] 10.3 Implement EndpointDiscoveryCallback
     - Handle onEndpointFound() to add discovered endpoints
     - Handle onEndpointLost() to remove endpoints
     - _Requirements: 5.1_
   
-  - [ ] 10.4 Implement ConnectionLifecycleCallback
+  - [x] 10.4 Implement ConnectionLifecycleCallback
     - Handle onConnectionInitiated() to accept connections
     - Handle onConnectionResult() to track connection status
     - Handle onDisconnected() to clean up
     - _Requirements: 5.2_
   
-  - [ ] 10.5 Implement PayloadCallback
+  - [x] 10.5 Implement PayloadCallback
     - Handle onPayloadReceived() for incoming files
     - Handle onPayloadTransferUpdate() for progress tracking
     - Support pause and resume functionality
@@ -410,7 +410,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
   - Ensure all tests pass, ask the user if questions arise.
 
 - [ ] 12. Phase 7: UI Integration
-  - [ ] 12.1 Create OfflineMessagingSettingsScreen
+  - [x] 12.1 Create OfflineMessagingSettingsScreen
     - Create Compose screen with settings UI
     - Add toggle for enable/disable offline messaging
     - Add toggle for BLE mesh networking
@@ -422,7 +422,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Add option to enable/disable foreground service notification
     - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6, 15.7, 15.8, 15.9_
   
-  - [ ] 12.2 Create OfflineMessagingSettingsViewModel
+  - [x] 12.2 Create OfflineMessagingSettingsViewModel
     - Create ViewModel with permission state management
     - Implement checkPermissions()
     - Implement requestPermissions() with rationale handling
@@ -430,20 +430,20 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Implement enableOfflineMessaging() and disableOfflineMessaging()
     - _Requirements: 10.6, 10.7, 10.8_
   
-  - [ ] 12.3 Create permission request dialogs
+  - [x] 12.3 Create permission request dialogs
     - Create PermissionRationaleDialog with clear explanations
     - Create PermissionSettingsDialog for permanently denied permissions
     - Handle different permission types (Bluetooth, Location, Nearby)
     - _Requirements: 10.1, 10.4, 10.5, 10.6_
   
-  - [ ] 12.4 Update ChatScreen to show message delivery status
+  - [x] 12.4 Update ChatScreen to show message delivery status
     - Add delivery method icons (cloud for ONLINE, Bluetooth for BLE, Wi-Fi for WIFI_DIRECT)
     - Update message status indicators
     - Add message info dialog showing delivery details and hop count
     - Show retry option for messages in SENDING state > 30 seconds
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8_
   
-  - [ ] 12.5 Implement key exchange UX flow
+  - [x] 12.5 Implement key exchange UX flow
     - Show dialog when recipient's encryption key not found
     - Provide options: "Send When Online", "Cancel" (NO "Send Unencrypted" for security)
     - Add pendingKeyExchange flag to MessageQueueEntity (requires new migration)
@@ -451,14 +451,14 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Notify user when secure connection established
     - _Requirements: 6.3_
   
-  - [ ] 12.6 Add Room migration for pendingKeyExchange field
+  - [x] 12.6 Add Room migration for pendingKeyExchange field
     - Create MIGRATION_8_9 to add pendingKeyExchange column to MessageQueueEntity
     - Set default value to false for existing rows
     - Update LinkerDatabase version to 9
     - Test migration with existing data
     - _Requirements: 6.3_
   
-  - [ ] 12.7 Update MessageRepositoryImpl to integrate offline messaging
+  - [x] 12.7 Update MessageRepositoryImpl to integrate offline messaging
     - Add ConnectivityMonitor dependency
     - Add MessageQueueProcessor dependency
     - Update sendMessage() to check connectivity and queue if offline
@@ -478,7 +478,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test settings dialog interactions
 
 - [ ] 13. Phase 8: Error Handling
-  - [ ] 13.1 Implement BLE error handling
+  - [x] 13.1 Implement BLE error handling
     - Create BLEError sealed class hierarchy
     - Create BLEErrorHandler with retry logic
     - Handle connection errors with 3 retries
@@ -486,7 +486,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Handle routing errors with online sync fallback
     - _Requirements: 14.4, 14.5, 14.6, 14.7, 14.8_
   
-  - [ ] 13.2 Implement encryption error handling
+  - [x] 13.2 Implement encryption error handling
     - Create EncryptionError sealed class hierarchy
     - Create EncryptionErrorHandler
     - Handle missing public key with user notification
@@ -494,7 +494,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Mark encryption failures as FAILED immediately (no retry)
     - _Requirements: 6.3, 14.7_
   
-  - [ ] 13.3 Implement network error handling
+  - [x] 13.3 Implement network error handling
     - Create NetworkError sealed class hierarchy
     - Create NetworkErrorHandler
     - Handle network unavailable with offline mode switch
@@ -502,7 +502,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Handle sync errors with exponential backoff
     - _Requirements: 7.6, 7.7, 14.1, 14.2_
   
-  - [ ] 13.4 Implement ErrorLogger
+  - [x] 13.4 Implement ErrorLogger
     - Create ErrorLogger with Firebase Analytics integration
     - Implement logError() with severity levels (CRITICAL, ERROR, WARNING)
     - Log to Firebase Crashlytics for critical errors
@@ -515,7 +515,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test network error fallback
 
 - [ ] 14. Phase 9: Analytics and Testing
-  - [ ] 14.1 Implement analytics events
+  - [x] 14.1 Implement analytics events
     - Create OfflineMessagingEvent sealed class
     - Implement AnalyticsLogger with Firebase Analytics
     - Log BLE connection events (established, failed)
@@ -524,7 +524,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Log error events with context
     - _Requirements: 17.1, 17.2, 17.3, 17.4, 17.5, 17.6, 17.7, 17.8_
   
-  - [ ] 14.2 Implement performance metrics
+  - [x] 14.2 Implement performance metrics
     - Create PerformanceMetrics class
     - Track BLE discovery time, connection time, transmission time
     - Track encryption/decryption time

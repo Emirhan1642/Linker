@@ -170,6 +170,9 @@ dependencies {
 
     // Security
     implementation(libs.androidx.security.crypto)
+    
+    // Signal Protocol (Rust-based JNI)
+    implementation(libs.libsignal.client)
 
     // Testing
     testImplementation(libs.junit)

@@ -1,6 +1,7 @@
 [versions]
 # SDK Versions
 compileSdk = "35"
+libsignalClient = "0.86.5"
 minSdk = "26"
 targetSdk = "35"
 
@@ -102,6 +103,7 @@ androidx-room-compiler = { group = "androidx.room", name = "room-compiler", vers
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 
 # Networking
+libsignal-client = { module = "org.signal:libsignal-client", version.ref = "libsignalClient" }
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-converter-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }

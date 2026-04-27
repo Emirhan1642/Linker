@@ -1,6 +1,10 @@
 package com.linker.app.core.di
 
 import com.linker.app.data.cache.UserCache
+import com.linker.app.data.queue.MessageQueueProcessor
+import com.linker.app.data.queue.MessageQueueProcessorImpl
+import com.linker.app.data.queue.SyncManager
+import com.linker.app.data.queue.SyncManagerImpl
 import com.linker.app.data.repository.CurrentUserProviderImpl
 import com.linker.app.domain.usecase.chat.LoadMessageInfoUseCase
 import com.linker.app.domain.usecase.chat.LoadMessagesPagedUseCase
@@ -27,6 +31,18 @@ abstract class MessagingModule {
     abstract fun bindCurrentUserProvider(
         impl: CurrentUserProviderImpl
     ): CurrentUserProvider
+    
+    @Binds
+    @Singleton
+    abstract fun bindMessageQueueProcessor(
+        impl: MessageQueueProcessorImpl
+    ): MessageQueueProcessor
+    
+    @Binds
+    @Singleton
+    abstract fun bindSyncManager(
+        impl: SyncManagerImpl
+    ): SyncManager
 
     companion object {
 

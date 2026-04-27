@@ -33,7 +33,8 @@ data class MessageQueueEntity(
     val createdAt: Long,
     val lastAttemptAt: Long? = null,
     val sentAt: Long? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val pendingKeyExchange: Boolean = false // True if waiting for recipient's encryption key
 )
 
 enum class QueueStatus {

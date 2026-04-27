@@ -49,4 +49,36 @@ interface MessageQueueDao {
     
     @Query("SELECT COUNT(*) FROM message_queue WHERE queueStatus IN ('PENDING', 'SENDING')")
     fun observePendingCount(): Flow<Int>
+    
+    // Additional methods for SyncManager
+    
+    @Query("SELECT * FROM message_queue WHERE queueStatus = 'PENDING' ORDER BY createdAt ASC")
+    suspend fun getPendingMessages(): List<MessageQueueEntity>
+    
+    @Query("SELECT * FROM message_queue WHERE queueStatus = 'FAILED' AND retryCount < maxRetries ORDER BY createdAt ASC")
+    suspend fun getFailedMessages(): List<MessageQueueEntity>
+    
+    @Query("UPDATE message_queue SET queueStatus = :status, sentAt = :sentAt WHERE queueId = :queueId")
+    suspend fun updateQueueStatus(queueId: String, status: QueueStatus, sentAt: Long?)
+    
+    @Query("UPDATE message_queue SET retryCount = retryCount + 1 WHERE queueId = :queueId")
+    suspend fun incrementRetryCount(queueId: String)
+    
+    @Query("UPDATE message_queue SET errorMessage = :errorMessage WHERE queueId = :queueId")
+    suspend fun updateErrorMessage(queueId: String, errorMessage: String)
+    
+    @Query("UPDATE message_queue SET lastAttemptAt = :timestamp WHERE queueId = :queueId")
+    suspend fun updateLastAttempt(queueId: String, timestamp: Long)
+    
+    @Query("DELETE FROM message_queue WHERE queueStatus = 'SENT' AND sentAt < :cutoffTime")
+    suspend fun deleteOldSentMessages(cutoffTime: Long)
+    
+    @Query("SELECT COUNT(*) FROM message_queue")
+    suspend fun getQueueSize(): Int
+    
+    @Query("SELECT * FROM message_queue WHERE queueStatus = :status")
+    suspend fun getMessagesByStatus(status: QueueStatus): List<MessageQueueEntity>
+    
+    @Query("DELETE FROM message_queue WHERE queueId = :queueId")
+    suspend fun deleteQueueItem(queueId: String)
 }

@@ -37,6 +37,13 @@
     <!-- Vibration for notifications -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Boot completed for auto-start -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <!-- BLE Feature -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -80,6 +87,13 @@
             </intent-filter>
         </service>
 
+        <!-- Offline Messaging Foreground Service -->
+        <service
+            android:name=".core.service.OfflineMessagingService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+
         <receiver
             android:name=".core.notification.NotificationActionReceiver"
             android:exported="false" />
@@ -87,6 +101,16 @@
         <receiver
             android:name=".core.notification.ReactionNotificationDismissReceiver"
             android:exported="false" />
+
+        <!-- Boot Completed Receiver for auto-start -->
+        <receiver
+            android:name=".core.receiver.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- WorkManager for background uploads -->
         <provider

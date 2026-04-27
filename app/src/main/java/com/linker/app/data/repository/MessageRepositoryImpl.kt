@@ -55,7 +55,10 @@ class MessageRepositoryImpl @Inject constructor(
     private val userDao: UserDao,
     private val notificationRepository: NotificationRepository,
     private val messageReactionRepository: MessageReactionRepository,
-    private val supabaseNotificationApi: SupabaseNotificationApi
+    private val supabaseNotificationApi: SupabaseNotificationApi,
+    private val connectivityMonitor: com.linker.app.data.connectivity.ConnectivityMonitor,
+    private val messageQueueProcessor: com.linker.app.data.queue.MessageQueueProcessor,
+    private val messageDeduplicationManager: com.linker.app.data.queue.MessageDeduplicationManager
 ) : MessageRepository {
 
     private val chatsCollection = firestore.collection("chats")
@@ -165,12 +168,24 @@ class MessageRepositoryImpl @Inject constructor(
             }
         }
 
-        val isConnected = hasValidatedInternet()
+        // Use ConnectivityMonitor to check connectivity
+        val connectivityState = connectivityMonitor.observeConnectivityState().first()
+        val isConnected = connectivityState is com.linker.app.data.connectivity.ConnectivityState.Online
         val deliveryMethod = if (isConnected) DeliveryMethod.ONLINE else DeliveryMethod.BLE
 
         return safeCall {
             val messageId = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
+            
+            // Check for race condition - prevent duplicate processing
+            if (messageDeduplicationManager.isDuplicate(messageId)) {
+                android.util.Log.w("MessageRepository", "Duplicate message detected: $messageId")
+                throw Exception("Duplicate message")
+            }
+            
+            // Mark as processed to prevent race conditions
+            messageDeduplicationManager.markAsProcessed(messageId)
+            
             val domainMsgStatus = if (isConnected) MessageStatus.SENT else MessageStatus.SENDING
             val entityMsgStatus = if (isConnected) EntityMessageStatus.SENT else EntityMessageStatus.SENDING
 
@@ -205,7 +220,15 @@ class MessageRepositoryImpl @Inject constructor(
             if (deliveryMethod == DeliveryMethod.ONLINE) {
                 sendMessageOnline(chatId, messageId, messageData, content, participantIds, now)
             } else {
-                queueMessageForOffline(messageId, chatId, content, now, chat)
+                // Queue message for offline delivery via MessageQueueProcessor
+                val recipientId = chat.participants.firstOrNull { it.userId != currentUserId }?.userId ?: ""
+                messageQueueProcessor.enqueueMessage(
+                    messageId = messageId,
+                    chatId = chatId,
+                    recipientId = recipientId,
+                    content = content ?: "",
+                    messageType = messageType
+                )
             }
 
             val sender = getSender()
@@ -321,30 +344,6 @@ class MessageRepositoryImpl @Inject constructor(
             }
         batch.update(chatsCollection.document(chatId), chatUpdates)
         batch.commit().await()
-    }
-
-    private suspend fun queueMessageForOffline(
-        messageId: String,
-        chatId: String,
-        content: String?,
-        now: Long,
-        chat: Chat
-    ) {
-        val queueItem = com.linker.app.data.local.entity.MessageQueueEntity(
-            queueId = UUID.randomUUID().toString(),
-            messageId = messageId,
-            chatId = chatId,
-            recipientId = chat.participants.firstOrNull { it.userId != currentUserId }?.userId ?: "",
-            messagePayload = content ?: "",
-            queueStatus = QueueStatus.PENDING,
-            deliveryMethod = EntityDeliveryMethod.BLE,
-            retryCount = 0,
-            maxRetries = 3,
-            priority = 0,
-            ttl = 5,
-            createdAt = now
-        )
-        messageQueueDao.insertQueueItem(queueItem)
     }
 
     private suspend fun getSender(): User {

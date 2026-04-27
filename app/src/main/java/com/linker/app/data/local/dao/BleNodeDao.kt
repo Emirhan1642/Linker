@@ -53,10 +53,16 @@ interface BleNodeDao {
     suspend fun deleteStaleNodes(beforeTimestamp: Long): Int
     
     /**
-     * Update connection status for a node
+     * Update connection status for a node by nodeId
      */
     @Query("UPDATE ble_nodes SET isConnected = :isConnected, updatedAt = :timestamp WHERE nodeId = :nodeId")
     suspend fun updateConnectionStatus(nodeId: String, isConnected: Boolean, timestamp: Long)
+    
+    /**
+     * Update connection status for a node by device address
+     */
+    @Query("UPDATE ble_nodes SET isConnected = :isConnected, updatedAt = :timestamp WHERE deviceAddress = :deviceAddress")
+    suspend fun updateConnectionStatusByAddress(deviceAddress: String, isConnected: Boolean, timestamp: Long)
     
     /**
      * Update RSSI and last seen timestamp

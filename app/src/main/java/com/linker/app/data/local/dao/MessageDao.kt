@@ -79,4 +79,8 @@ interface MessageDao {
     // ✅ PAGINATION: Get oldest message timestamp for loading more
     @Query("SELECT MIN(createdAt) FROM messages WHERE chatId = :chatId")
     suspend fun getOldestMessageTimestamp(chatId: String): Long?
+    
+    // Offline messaging support
+    @Query("UPDATE messages SET deliveryMethod = :deliveryMethod WHERE messageId = :messageId")
+    suspend fun updateDeliveryMethod(messageId: String, deliveryMethod: com.linker.app.data.local.entity.DeliveryMethod)
 }

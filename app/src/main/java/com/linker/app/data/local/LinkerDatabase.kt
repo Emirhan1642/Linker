@@ -16,7 +16,7 @@ import com.linker.app.data.local.entity.*
         MediaCacheEntity::class, NotificationEntity::class,
         BleNodeEntity::class, MessageIdCacheEntity::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -116,6 +116,13 @@ abstract class LinkerDatabase : RoomDatabase() {
                 
                 // Create index for message_id_cache
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_message_id_cache_receivedAt ON message_id_cache(receivedAt)")
+            }
+        }
+        
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add pendingKeyExchange field to message_queue table
+                db.execSQL("ALTER TABLE message_queue ADD COLUMN pendingKeyExchange INTEGER NOT NULL DEFAULT 0")
             }
         }
     }
