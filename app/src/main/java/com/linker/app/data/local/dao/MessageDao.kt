@@ -14,19 +14,19 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE messageId = :messageId")
     suspend fun getMessageById(messageId: String): MessageEntity?
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND isDeleted = 0 ORDER BY createdAt ASC")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt ASC")
     fun observeMessagesByChat(chatId: String): Flow<List<MessageEntity>>
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND isDeleted = 0 ORDER BY createdAt ASC LIMIT :limit OFFSET :offset")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt ASC LIMIT :limit OFFSET :offset")
     suspend fun getMessagesByChat(chatId: String, limit: Int = 50, offset: Int = 0): List<MessageEntity>
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND messageStatus = :status AND isDeleted = 0")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND messageStatus = :status")
     suspend fun getMessagesByStatus(chatId: String, status: MessageStatus): List<MessageEntity>
     
-    @Query("SELECT * FROM messages WHERE messageStatus = :status AND isDeleted = 0")
+    @Query("SELECT * FROM messages WHERE messageStatus = :status")
     fun observeMessagesByStatus(status: MessageStatus): Flow<List<MessageEntity>>
     
-    @Query("SELECT * FROM messages WHERE replyToMessageId = :messageId AND isDeleted = 0")
+    @Query("SELECT * FROM messages WHERE replyToMessageId = :messageId")
     suspend fun getReplies(messageId: String): List<MessageEntity>
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -56,10 +56,10 @@ interface MessageDao {
     @Query("UPDATE messages SET messageStatus = :status WHERE chatId = :chatId AND senderId != :currentUserId AND messageStatus != :readStatus")
     suspend fun markChatMessagesAsRead(chatId: String, currentUserId: String, status: MessageStatus, readStatus: MessageStatus = MessageStatus.READ)
     
-    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId AND isDeleted = 0")
+    @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId")
     suspend fun getMessageCount(chatId: String): Int
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND (content LIKE '%' || :query || '%') AND isDeleted = 0 ORDER BY createdAt DESC")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND (content LIKE '%' || :query || '%') ORDER BY createdAt DESC")
     suspend fun searchMessagesInChat(chatId: String, query: String): List<MessageEntity>
 
     // ✅ PAGINATION: Load messages before a specific timestamp
@@ -67,7 +67,6 @@ interface MessageDao {
         SELECT * FROM messages 
         WHERE chatId = :chatId 
         AND createdAt < :beforeTimestamp 
-        AND isDeleted = 0 
         ORDER BY createdAt DESC 
         LIMIT :limit
     """)
@@ -78,6 +77,6 @@ interface MessageDao {
     ): List<MessageEntity>
 
     // ✅ PAGINATION: Get oldest message timestamp for loading more
-    @Query("SELECT MIN(createdAt) FROM messages WHERE chatId = :chatId AND isDeleted = 0")
+    @Query("SELECT MIN(createdAt) FROM messages WHERE chatId = :chatId")
     suspend fun getOldestMessageTimestamp(chatId: String): Long?
 }

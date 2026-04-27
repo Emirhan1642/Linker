@@ -144,7 +144,7 @@ class MinimalMessageRepository(
         
         android.util.Log.d(TAG, "Sending notifications to ${otherParticipants.size} participants")
         
-        // Get sender info from Firestore
+        // Get sender info and chat name from Firestore
         val senderName = try {
             val userDoc = firestore.collection("users").document(currentUserId).get().await()
             userDoc.getString("displayName")?.ifBlank { userDoc.getString("username") }
@@ -153,6 +153,18 @@ class MinimalMessageRepository(
         } catch (e: Exception) {
             android.util.Log.w(TAG, "Failed to get sender name: ${e.message}")
             "User"
+        }
+        
+        val chatName = if (chatType == "GROUP") {
+            try {
+                val chatDoc = firestore.collection("chats").document(chatId).get().await()
+                chatDoc.getString("chatName")
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Failed to get chat name: ${e.message}")
+                null
+            }
+        } else {
+            null
         }
         
         val displayText = content.take(50)
@@ -170,7 +182,8 @@ class MinimalMessageRepository(
                 messageText = notificationMessage,
                 chatId = chatId,
                 messageId = messageId,
-                chatType = chatType
+                chatType = chatType,
+                chatName = chatName
             )
         }
     }
@@ -184,7 +197,8 @@ class MinimalMessageRepository(
         messageText: String,
         chatId: String,
         messageId: String,
-        chatType: String
+        chatType: String,
+        chatName: String? = null
     ) {
         try {
             val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
@@ -200,7 +214,8 @@ class MinimalMessageRepository(
                     message = messageText,
                     chatId = chatId,
                     messageId = messageId,
-                    chatType = chatType
+                    chatType = chatType,
+                    chatName = chatName
                 )
             )
             

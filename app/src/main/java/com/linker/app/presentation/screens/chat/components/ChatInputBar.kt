@@ -149,7 +149,7 @@ fun ReplyPreviewBar(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xFF2A2A2E))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Reply indicator line

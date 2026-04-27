@@ -487,7 +487,8 @@ class MessageRepositoryImpl @Inject constructor(
                     messageText = notificationMessage,
                     chatId = chatId,
                     messageId = messageId,
-                    chatType = chat.chatType
+                    chatType = chat.chatType,
+                    chatName = if (chat.chatType == ChatType.GROUP) chat.chatName else null
                 )
             }
         }
@@ -499,7 +500,8 @@ class MessageRepositoryImpl @Inject constructor(
         messageText: String,
         chatId: String,
         messageId: String,
-        chatType: ChatType
+        chatType: ChatType,
+        chatName: String? = null
     ) {
         try {
             val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
@@ -514,7 +516,8 @@ class MessageRepositoryImpl @Inject constructor(
                     message = messageText,
                     chatId = chatId,
                     messageId = messageId,
-                    chatType = chatType.name
+                    chatType = chatType.name,
+                    chatName = chatName
                 )
             )
             
@@ -584,22 +587,82 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
+        android.util.Log.d("MessageRepository", "deleteMessage called: messageId=$messageId, forEveryone=$forEveryone")
         val ref = resolveMessageRef(messageId)
         val snap = ref.get().await()
         val chatId = snap.getString("chatId") ?: ""
-
-        ref.update(
-            mapOf(
-                "isDeleted" to true,
-                "deletedForEveryone" to forEveryone
-            )
-        ).await()
-        messageDao.markAsDeleted(messageId, forEveryone)
-
+        val senderId = snap.getString("senderId") ?: ""
+        val createdAt = snap.getLong("createdAt") ?: 0L
+        val now = System.currentTimeMillis()
+        
+        // Check if message can be deleted for everyone (within 1 hour)
+        val canDeleteForEveryone = senderId == currentUserId && (now - createdAt) <= 3600000 // 1 hour in ms
+        
+        // Determine actual deletion type
+        val actualForEveryone = forEveryone && canDeleteForEveryone
+        
+        android.util.Log.d("MessageRepository", "Delete type: actualForEveryone=$actualForEveryone, canDeleteForEveryone=$canDeleteForEveryone")
+        
+        if (actualForEveryone) {
+            android.util.Log.d("MessageRepository", "Deleting for everyone - updating Firestore")
+            // Delete for everyone - update Firestore
+            ref.update(
+                mapOf(
+                    "isDeleted" to true,
+                    "deletedForEveryone" to true
+                )
+            ).await()
+            
+            // Update local database
+            messageDao.markAsDeleted(messageId, true)
+            
+            // Send delete notification to other participants
+            if (chatId.isNotBlank()) {
+                try {
+                    val chatDoc = chatsCollection.document(chatId).get().await()
+                    val participantIds = (chatDoc.get("participantIds") as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                    val otherParticipants = participantIds.filter { it != currentUserId }
+                    
+                    val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
+                    for (recipientId in otherParticipants) {
+                        try {
+                            supabaseNotificationApi.deleteChatNotification(
+                                auth = "Bearer $key",
+                            apiKey = key,
+                            request = com.linker.app.core.di.DeleteChatNotificationRequest(
+                                recipientId = recipientId,
+                                messageId = messageId,
+                                chatId = chatId
+                            )
+                        )
+                        android.util.Log.d("MessageRepository", "Delete notification sent to $recipientId for message $messageId in chat $chatId")
+                    } catch (e: Exception) {
+                        android.util.Log.w("MessageRepository", "Failed to send delete notification to $recipientId: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("MessageRepository", "Failed to send delete notifications: ${e.message}")
+            }
+        } else {
+            android.util.Log.d("MessageRepository", "Deleting for me only - updating local database")
+            android.util.Log.d("MessageRepository", "About to call messageDao.markAsDeleted($messageId, false)")
+            // Delete for me only - only update local database, don't touch Firestore
+            try {
+                messageDao.markAsDeleted(messageId, false)
+                android.util.Log.d("MessageRepository", "Local database updated successfully")
+            } catch (e: Exception) {
+                android.util.Log.e("MessageRepository", "Failed to update local database", e)
+                throw e
+            }
+        }
+        
+        // Update last message in chat
         if (chatId.isNotBlank()) {
             updateChatLastMessageAfterDeletion(chatId)
         }
     }
+    }
+
 
     override suspend fun reactToMessage(
         messageId: String,

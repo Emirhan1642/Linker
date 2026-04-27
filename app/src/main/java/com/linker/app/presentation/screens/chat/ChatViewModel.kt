@@ -214,15 +214,19 @@ class ChatViewModel @Inject constructor(
     // ── Messages ───────────────────────────────────────────────────────────
 
     fun openChat(chatId: String) {
+        android.util.Log.d("ChatViewModel", "openChat called with chatId: $chatId")
         _messageState.value = ChatMessageUiState(isLoading = true, chatId = chatId)
 
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
-            // Try to find existing chat
-            val chatResult = getChatByIdUseCase(chatId)
+            try {
+                android.util.Log.d("ChatViewModel", "Starting to load chat...")
+                // Try to find existing chat
+                val chatResult = getChatByIdUseCase(chatId)
+                android.util.Log.d("ChatViewModel", "getChatByIdUseCase result: $chatResult")
 
-            val actualChatId: String
-            val actualChat: Chat?
+                val actualChatId: String
+                val actualChat: Chat?
 
             when (chatResult) {
                 is Result.Success -> {
@@ -294,9 +298,9 @@ class ChatViewModel @Inject constructor(
 
             // Observe messages
             observeMessagesUseCase(actualChatId).collect { messages ->
+                android.util.Log.d("ChatViewModel", "Received ${messages.size} messages from observeMessagesUseCase")
                 val uiMessages = coroutineScope {
                     messages
-                        .filter { !it.isDeleted }
                         .map { msg ->
                             async {
                                 val seenByUsers = msg.readReceipts
@@ -328,12 +332,15 @@ class ChatViewModel @Inject constructor(
                                     } else {
                                         msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
                                     },
-                                    senderAvatarUrl = msg.sender.profileImageUrl
+                                    senderAvatarUrl = msg.sender.profileImageUrl,
+                                    isDeleted = msg.isDeleted,
+                                    deletedForEveryone = msg.deletedForEveryone
                                 )
                             }
                         }
                         .awaitAll()
                 }
+                android.util.Log.d("ChatViewModel", "Converted to ${uiMessages.size} UI messages")
                 _messageState.value = _messageState.value.copy(
                     isLoading = false,
                     messages = uiMessages
@@ -348,6 +355,13 @@ class ChatViewModel @Inject constructor(
                     lastMarkedReadAtByChat[actualChatId] = latestIncoming
                     markChatAsReadUpToUseCase(actualChatId, latestIncoming)
                 }
+            }
+            } catch (e: Exception) {
+                android.util.Log.e("ChatViewModel", "Error in openChat", e)
+                _messageState.value = _messageState.value.copy(
+                    isLoading = false,
+                    error = "Error loading chat: ${e.message}"
+                )
             }
         }
     }
@@ -491,9 +505,11 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    fun deleteMessage(messageId: String) {
+    fun deleteMessage(messageId: String, forEveryone: Boolean = false) {
+        android.util.Log.d("ChatViewModel", "deleteMessage called: messageId=$messageId, forEveryone=$forEveryone")
         viewModelScope.launch {
-            deleteMessageUseCase(messageId, forEveryone = false)
+            val result = deleteMessageUseCase(messageId, forEveryone = forEveryone)
+            android.util.Log.d("ChatViewModel", "deleteMessage result: $result")
         }
     }
 

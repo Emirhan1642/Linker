@@ -13,9 +13,10 @@ import com.linker.app.data.local.entity.*
         UserEntity::class, LinkEntity::class, StoryEntity::class,
         NoteEntity::class, ChatEntity::class, MessageEntity::class,
         MessageQueueEntity::class, CommentEntity::class,
-        MediaCacheEntity::class, NotificationEntity::class
+        MediaCacheEntity::class, NotificationEntity::class,
+        BleNodeEntity::class, MessageIdCacheEntity::class
     ],
-    version = 5,
+    version = 8,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -31,6 +32,8 @@ abstract class LinkerDatabase : RoomDatabase() {
     abstract fun commentDao(): CommentDao
     abstract fun mediaCacheDao(): MediaCacheDao
     abstract fun notificationDao(): NotificationDao
+    abstract fun bleNodeDao(): BleNodeDao
+    abstract fun messageIdCacheDao(): MessageIdCacheDao
 
     companion object {
         const val DATABASE_NAME = "linker_database"
@@ -60,6 +63,59 @@ abstract class LinkerDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE messages ADD COLUMN reactions TEXT")
                 db.execSQL("ALTER TABLE messages ADD COLUMN messageStatus TEXT NOT NULL DEFAULT 'SENT'")
                 db.execSQL("ALTER TABLE messages ADD COLUMN readReceipts TEXT")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Added deletedMessage field for showing deletion info
+                db.execSQL("ALTER TABLE messages ADD COLUMN deletedMessage TEXT")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Removed deletedMessage field - now generated dynamically in UI
+                // SQLite doesn't support DROP COLUMN directly, so we'll leave it
+                // The field will be ignored by the entity
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add offline messaging tables for BLE mesh networking
+                
+                // Create ble_nodes table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS ble_nodes (
+                        nodeId TEXT PRIMARY KEY NOT NULL,
+                        deviceAddress TEXT NOT NULL,
+                        deviceName TEXT,
+                        rssi INTEGER NOT NULL,
+                        lastSeen INTEGER NOT NULL,
+                        isConnected INTEGER NOT NULL,
+                        hopCount INTEGER NOT NULL DEFAULT 1,
+                        routeQuality REAL NOT NULL DEFAULT 0.0,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """)
+                
+                // Create indices for ble_nodes
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_lastSeen ON ble_nodes(lastSeen)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_isConnected ON ble_nodes(isConnected)")
+                
+                // Create message_id_cache table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS message_id_cache (
+                        messageId TEXT PRIMARY KEY NOT NULL,
+                        receivedAt INTEGER NOT NULL,
+                        sourceNodeId TEXT NOT NULL
+                    )
+                """)
+                
+                // Create index for message_id_cache
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_id_cache_receivedAt ON message_id_cache(receivedAt)")
             }
         }
     }

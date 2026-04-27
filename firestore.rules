@@ -94,12 +94,16 @@ service cloud.firestore {
         allow read: if isChatParticipant(chatId);
         allow create: if isChatParticipant(chatId)
           && request.resource.data.senderId == request.auth.uid;
-        // Sender can edit/delete own message; participants can only update receipt/reaction system fields.
+        // Update rules:
+        // 1. Sender can edit/delete own message (including deletedForEveryone)
+        // 2. Any participant can mark message as deleted for themselves (isDeleted only, not deletedForEveryone)
+        // 3. Any participant can update reactions and read receipts
         allow update: if isChatParticipant(chatId)
           && request.resource.data.chatId == resource.data.chatId
           && request.resource.data.senderId == resource.data.senderId
           && request.resource.data.messageId == resource.data.messageId
           && (
+            // Sender can update their own message (including deletedForEveryone)
             (
               resource.data.senderId == request.auth.uid
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -117,6 +121,7 @@ service cloud.firestore {
               ])
             )
             ||
+            // Any participant can update reactions and read receipts
             (
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'reactions',
@@ -127,6 +132,16 @@ service cloud.firestore {
                 'deliveredAt',
                 'updatedAt'
               ])
+            )
+            ||
+            // Any participant can mark message as deleted for themselves (Delete for Me)
+            // But cannot set deletedForEveryone (only sender can do that)
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'isDeleted',
+                'updatedAt'
+              ])
+              && request.resource.data.deletedForEveryone == resource.data.deletedForEveryone
             )
           );
         allow delete: if isChatParticipant(chatId)

@@ -33,6 +33,13 @@ interface SupabaseNotificationApi {
         @Header("apikey") apiKey: String,
         @Body request: RegisterPushTokenRequest
     ): Response<PushNotificationResponse>
+
+    @POST("functions/v1/delete-chat-notification")
+    suspend fun deleteChatNotification(
+        @Header("Authorization") auth: String,
+        @Header("apikey") apiKey: String,
+        @Body request: DeleteChatNotificationRequest
+    ): Response<PushNotificationResponse>
 }
 
 @Serializable
@@ -52,7 +59,9 @@ data class ChatNotificationRequest(
     @SerialName("chat_id") val chatId: String,
     @SerialName("message_id") val messageId: String,
     /** Edge function FCM `data.chatType` olarak iletmeli: PRIVATE | GROUP */
-    @SerialName("chat_type") val chatType: String? = null
+    @SerialName("chat_type") val chatType: String? = null,
+    /** Grup sohbetleri için grup adı */
+    @SerialName("chat_name") val chatName: String? = null
 )
 
 @Serializable
@@ -60,6 +69,13 @@ data class RegisterPushTokenRequest(
     @SerialName("user_id") val userId: String,
     @SerialName("fcm_token") val fcmToken: String,
     @SerialName("platform") val platform: String? = null
+)
+
+@Serializable
+data class DeleteChatNotificationRequest(
+    @SerialName("recipient_id") val recipientId: String,
+    @SerialName("message_id") val messageId: String,
+    @SerialName("chat_id") val chatId: String? = null
 )
 
 @Serializable

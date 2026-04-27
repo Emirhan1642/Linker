@@ -37,7 +37,8 @@ object ChatNotificationHelper {
         senderName: String,
         messages: List<String>,
         remoteInputHistory: Array<CharSequence>? = null,
-        isGroupChat: Boolean = false
+        isGroupChat: Boolean = false,
+        chatName: String? = null
     ): NotificationCompat.Builder {
         val contentIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -111,8 +112,9 @@ object ChatNotificationHelper {
         // Create messaging style with proper title
         val messagingStyle = if (isGroupChat) {
             // For group chats, show group name or "Group Chat"
+            val groupTitle = chatName?.takeIf { it.isNotBlank() } ?: "Group Chat"
             NotificationCompat.MessagingStyle(userPerson)
-                .setConversationTitle("Group Chat")
+                .setConversationTitle(groupTitle)
                 .setGroupConversation(true)
         } else {
             // For private chats, show sender name
@@ -183,6 +185,10 @@ object ChatNotificationHelper {
             .addAction(replyAction)
             .addAction(likeAction)
             .addAction(readAction)
+        
+        // Add messageId and chatId to extras for deletion tracking
+        builder.extras.putString(EXTRA_MESSAGE_ID, messageId)
+        builder.extras.putString(EXTRA_CHAT_ID, chatId)
         
         // Set remote input history to show sent messages and clear progress indicator
         if (remoteInputHistory != null && remoteInputHistory.isNotEmpty()) {

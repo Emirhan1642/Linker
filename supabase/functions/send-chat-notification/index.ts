@@ -16,6 +16,8 @@ type RequestBody = {
   message_id: string;
   /** PRIVATE | GROUP | REACTION — Android tarafında bildirim dalı ve kanal için */
   chat_type?: string;
+  /** Grup sohbetleri için grup adı */
+  chat_name?: string;
 };
 
 Deno.serve(async (req) => {
@@ -78,6 +80,7 @@ Deno.serve(async (req) => {
         senderId: body.sender_id,
         recipientId: body.recipient_id,
         chatType,
+        chatName: body.chat_name || "",
       },
     });
 

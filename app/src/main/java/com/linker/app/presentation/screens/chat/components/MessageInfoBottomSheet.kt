@@ -153,7 +153,12 @@ fun MessagePreviewSection(state: MessageInfoState) {
 }
 
 @Composable
-fun ReplyPreviewHologram(preview: ReplyPreview, alignEnd: Boolean, alpha: Float) {
+fun ReplyPreviewHologram(
+    preview: ReplyPreview, 
+    alignEnd: Boolean, 
+    alpha: Float,
+    onClick: (() -> Unit)? = null
+) {
     val contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart
     val backgroundColor = if (preview.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
 
@@ -180,6 +185,13 @@ fun ReplyPreviewHologram(preview: ReplyPreview, alignEnd: Boolean, alpha: Float)
                 .alpha(alpha)
                 .clip(RoundedCornerShape(12.dp))
                 .background(backgroundColor.copy(alpha = 0.8f))
+                .then(
+                    if (onClick != null) {
+                        Modifier.clickable { onClick() }
+                    } else {
+                        Modifier
+                    }
+                )
                 .padding(horizontal = 10.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(8.dp))
         ) {

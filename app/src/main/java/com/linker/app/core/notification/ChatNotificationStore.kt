@@ -72,6 +72,10 @@ object ChatNotificationStore {
         return state
     }
 
+    fun getAll(): Map<Int, ChatNotificationState> {
+        return store.toMap()
+    }
+
     fun clear(notificationId: Int) {
         store.remove(notificationId)
     }

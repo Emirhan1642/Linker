@@ -55,6 +55,7 @@ fun MessageContextMenu(
     onForward: () -> Unit,
     onInfo: () -> Unit,
     onDelete: (() -> Unit)?,
+    onDeleteForEveryone: (() -> Unit)?,
     onReaction: (String) -> Unit,
     onShowMoreReactions: () -> Unit,
     showEmojiPicker: Boolean,
@@ -65,10 +66,19 @@ fun MessageContextMenu(
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
 
+    // Check if message can be deleted for everyone (within 1 hour)
+    val now = System.currentTimeMillis()
+    val canDeleteForEveryone = message.isSelf && (now - message.timestamp) <= 3600000 // 1 hour
+
     val actions = if (message.isSelf) {
-        listOf("Reply", "Copy", "Forward", "Message Info", "Delete")
+        val baseActions = mutableListOf("Reply", "Copy", "Forward", "Message Info")
+        if (canDeleteForEveryone) {
+            baseActions.add("Delete for Everyone")
+        }
+        baseActions.add("Delete for Me")
+        baseActions
     } else {
-        listOf("Reply", "Copy", "Forward", "Message Info")
+        listOf("Reply", "Copy", "Forward", "Message Info", "Delete for Me")
     }
 
     val paddingPx = with(density) { 8.dp.toPx() }
@@ -76,77 +86,140 @@ fun MessageContextMenu(
     val menuHeightPx = with(density) { (actions.size * 48).dp.toPx() + 16.dp.toPx() }
     val emojiBarWidthPx = with(density) { 280.dp.toPx() }
     val emojiBarHeightPx = with(density) { 52.dp.toPx() }
+    val emojiPickerHeightPx = with(density) { 320.dp.toPx() }
 
-    // Calculate menu position
-    val menuYSide = messageBounds.top + messageBounds.height / 2f - menuHeightPx / 2f
-    val sideXUnclamped = if (message.isSelf) {
-        messageBounds.left - menuWidthPx - paddingPx
-    } else {
-        messageBounds.right + paddingPx
-    }
-    val sideX = sideXUnclamped.coerceIn(paddingPx, screenWidth - menuWidthPx - paddingPx)
-
-    val belowY = messageBounds.bottom + paddingPx
-    val aboveY = messageBounds.top - menuHeightPx - paddingPx
-    val canBelow = belowY + menuHeightPx <= screenHeight - paddingPx
-    val canAbove = aboveY >= paddingPx
-
-    val menuY = when {
-        canBelow -> belowY
-        canAbove -> aboveY
-        else -> menuYSide.coerceIn(paddingPx, screenHeight - menuHeightPx - paddingPx)
-    }
-    val menuX = when {
-        canBelow || canAbove -> (messageBounds.left + (messageBounds.width - menuWidthPx) / 2f)
-            .coerceIn(paddingPx, screenWidth - menuWidthPx - paddingPx)
-        else -> sideX
-    }
-
-    // Calculate emoji bar position
-    val emojiYAbove = messageBounds.top - emojiBarHeightPx - paddingPx
-    val emojiYBelow = messageBounds.bottom + paddingPx
-    var emojiY = if (menuY == belowY) emojiYAbove else if (menuY == aboveY) emojiYBelow else {
-        if (emojiYAbove < paddingPx) emojiYBelow else emojiYAbove
-    }
+    // Calculate emoji bar position first
     val emojiXBase = if (message.isSelf) messageBounds.right - emojiBarWidthPx else messageBounds.left
     val emojiX = emojiXBase.coerceIn(paddingPx, screenWidth - emojiBarWidthPx - paddingPx)
-
-    // Check overlap
-    val menuRect = Rect(menuX, menuY, menuX + menuWidthPx, menuY + menuHeightPx)
-    val emojiRect = Rect(emojiX, emojiY, emojiX + emojiBarWidthPx, emojiY + emojiBarHeightPx)
-    val overlaps = !(emojiRect.right < menuRect.left || emojiRect.left > menuRect.right ||
-            emojiRect.bottom < menuRect.top || emojiRect.top > menuRect.bottom)
-    if (overlaps) {
-        emojiY = if (emojiY == emojiYAbove) emojiYBelow else emojiYAbove
-    }
+    
+    // Determine if emoji bar should be above or below message
+    val emojiYAbove = messageBounds.top - emojiBarHeightPx - paddingPx
+    val emojiYBelow = messageBounds.bottom + paddingPx
+    val spaceAboveMessage = messageBounds.top - paddingPx
+    val spaceBelowMessage = screenHeight - messageBounds.bottom - paddingPx
+    val emojiBarAbove = spaceAboveMessage >= emojiBarHeightPx || spaceAboveMessage > spaceBelowMessage
+    var emojiY = if (emojiBarAbove) emojiYAbove else emojiYBelow
     emojiY = emojiY.coerceIn(paddingPx, screenHeight - emojiBarHeightPx - paddingPx)
 
-    // Dismiss overlay
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color(0x77000000))
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null
-            ) { onDismiss() }
-    )
-
-    // Highlighted message
-    Box(
-        modifier = Modifier.offset {
-            IntOffset(messageBounds.left.roundToInt(), messageBounds.top.roundToInt())
+    // Calculate emoji picker position (if shown)
+    val emojiPickerY = if (showEmojiPicker) {
+        // Emoji picker should be above or below the emoji bar
+        val pickerAboveBar = emojiY - emojiPickerHeightPx - paddingPx
+        val pickerBelowBar = emojiY + emojiBarHeightPx + paddingPx
+        
+        val spaceAboveBar = emojiY - paddingPx
+        val spaceBelowBar = screenHeight - emojiY - emojiBarHeightPx - paddingPx
+        
+        if (spaceAboveBar >= emojiPickerHeightPx) {
+            // Enough space above emoji bar
+            pickerAboveBar
+        } else if (spaceBelowBar >= emojiPickerHeightPx) {
+            // Enough space below emoji bar
+            pickerBelowBar
+        } else {
+            // Not enough space either way, prefer above and clamp
+            pickerAboveBar.coerceAtLeast(paddingPx)
         }
-    ) {
-        MessageBubbleContent(
-            message = MessageItem(
-                text = message.content ?: "",
-                isSelf = message.isSelf,
-            )
-        )
+    } else {
+        0f
     }
 
-    // Emoji bar
+    // Calculate action menu position
+    val menuY: Float
+    val menuX: Float
+    
+    if (showEmojiPicker) {
+        // When emoji picker is shown, position menu relative to picker
+        val pickerTop = emojiPickerY
+        val pickerBottom = emojiPickerY + emojiPickerHeightPx
+        
+        // Try to place menu above emoji picker
+        val menuAbovePicker = pickerTop - menuHeightPx - paddingPx
+        val spaceAbovePicker = pickerTop - paddingPx
+        
+        if (spaceAbovePicker >= menuHeightPx) {
+            // Place menu above emoji picker
+            menuY = menuAbovePicker
+        } else {
+            // Place menu at bottom of screen
+            menuY = (screenHeight - menuHeightPx - paddingPx).coerceAtLeast(paddingPx)
+        }
+        
+        // Keep X position same as original (don't move horizontally)
+        menuX = (messageBounds.left + (messageBounds.width - menuWidthPx) / 2f)
+            .coerceIn(paddingPx, screenWidth - menuWidthPx - paddingPx)
+    } else {
+        // Original positioning when emoji picker is not shown
+        val menuYSide = messageBounds.top + messageBounds.height / 2f - menuHeightPx / 2f
+        val sideXUnclamped = if (message.isSelf) {
+            messageBounds.left - menuWidthPx - paddingPx
+        } else {
+            messageBounds.right + paddingPx
+        }
+        val sideX = sideXUnclamped.coerceIn(paddingPx, screenWidth - menuWidthPx - paddingPx)
+
+        val belowY = messageBounds.bottom + paddingPx
+        val aboveY = messageBounds.top - menuHeightPx - paddingPx
+        val canBelow = belowY + menuHeightPx <= screenHeight - paddingPx
+        val canAbove = aboveY >= paddingPx
+
+        menuY = when {
+            canBelow -> belowY
+            canAbove -> aboveY
+            else -> menuYSide.coerceIn(paddingPx, screenHeight - menuHeightPx - paddingPx)
+        }
+        menuX = when {
+            canBelow || canAbove -> (messageBounds.left + (messageBounds.width - menuWidthPx) / 2f)
+                .coerceIn(paddingPx, screenWidth - menuWidthPx - paddingPx)
+            else -> sideX
+        }
+        
+        // Check overlap with emoji bar
+        val menuRect = Rect(menuX, menuY, menuX + menuWidthPx, menuY + menuHeightPx)
+        val emojiRect = Rect(emojiX, emojiY, emojiX + emojiBarWidthPx, emojiY + emojiBarHeightPx)
+        val overlaps = !(emojiRect.right < menuRect.left || emojiRect.left > menuRect.right ||
+                emojiRect.bottom < menuRect.top || emojiRect.top > menuRect.bottom)
+        if (overlaps) {
+            emojiY = if (emojiY == emojiYAbove) emojiYBelow else emojiYAbove
+        }
+        emojiY = emojiY.coerceIn(paddingPx, screenHeight - emojiBarHeightPx - paddingPx)
+    }
+
+    // Wrap everything in a single Box to ensure proper z-ordering
+    Box(modifier = modifier.fillMaxSize()) {
+        // 1. Dismiss overlay (blurred background) - bottom layer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x77000000))
+                .clickable(
+                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    indication = null
+                ) { onDismiss() }
+        )
+
+        // 2. Highlighted message (on top of blur, not blurred)
+        // Draw a box with exact same size and position as original message
+        Box(
+            modifier = Modifier
+                .offset {
+                    android.util.Log.d("MessageContextMenu", "Highlighted message offset: left=${messageBounds.left}, top=${messageBounds.top}, width=${messageBounds.width}, height=${messageBounds.height}, isSelf=${message.isSelf}")
+                    IntOffset(messageBounds.left.roundToInt(), messageBounds.top.roundToInt())
+                }
+                .size(
+                    width = with(density) { messageBounds.width.toDp() },
+                    height = with(density) { messageBounds.height.toDp() }
+                )
+        ) {
+            MessageBubbleContent(
+                message = MessageItem(
+                    text = message.content ?: "",
+                    isSelf = message.isSelf,
+                )
+            )
+        }
+
+        // 3. Emoji bar
         QuickReactionsBar(
             reactions = quickReactions,
             onReactionClick = { emoji ->
@@ -154,22 +227,40 @@ fun MessageContextMenu(
                 onDismiss()
             },
             onShowMoreClick = onShowMoreReactions,
-            modifier = Modifier.offset {
-                IntOffset(emojiX.roundToInt(), emojiY.roundToInt())
-            }
+            modifier = Modifier
+                .offset {
+                    IntOffset(emojiX.roundToInt(), emojiY.roundToInt())
+                }
         )
 
-    // Action menu
-    Column(
-        modifier = Modifier
-            .offset { IntOffset(menuX.roundToInt(), menuY.roundToInt()) }
-            .width(with(density) { menuWidthPx.toDp() })
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1F1F23))
-            .padding(vertical = 8.dp)
-    ) {
+        // 4. Emoji picker panel (shown when + button is clicked)
+        if (showEmojiPicker) {
+            EmojiPickerPanel(
+                emojiBarX = emojiX,
+                emojiBarY = emojiY,
+                emojiBarWidth = emojiBarWidthPx,
+                emojiBarHeight = emojiBarHeightPx,
+                screenHeight = screenHeight,
+                messageBounds = messageBounds,
+                onEmojiSelected = { emoji ->
+                    onReaction(emoji)
+                    onDismiss()
+                }
+            )
+        }
+
+        // 5. Action menu (hidden when emoji picker is shown)
+        if (!showEmojiPicker) {
+            Column(
+                modifier = Modifier
+                    .offset { IntOffset(menuX.roundToInt(), menuY.roundToInt()) }
+                    .width(with(density) { menuWidthPx.toDp() })
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF1F1F23))
+                    .padding(vertical = 8.dp)
+            ) {
         actions.forEach { action ->
-            val isDelete = action == "Delete"
+            val isDelete = action == "Delete for Me" || action == "Delete for Everyone"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -180,7 +271,8 @@ fun MessageContextMenu(
                             "Copy" -> onCopy()
                             "Forward" -> onForward()
                             "Message Info" -> onInfo()
-                            "Delete" -> onDelete?.invoke()
+                            "Delete for Me" -> onDelete?.invoke()
+                            "Delete for Everyone" -> onDeleteForEveryone?.invoke()
                         }
                         onDismiss()
                     }
@@ -194,7 +286,7 @@ fun MessageContextMenu(
                             "Copy" -> R.drawable.ic_archive_book_outline
                             "Forward" -> R.drawable.ic_forward_outline
                             "Message Info" -> R.drawable.ic_search_status_1_outline
-                            "Delete" -> R.drawable.ic_cloud_cross_bold
+                            "Delete for Me", "Delete for Everyone" -> R.drawable.ic_cloud_cross_bold
                             else -> R.drawable.ic_arrow_down_02_bold
                         }
                     ),
@@ -210,7 +302,9 @@ fun MessageContextMenu(
                 )
             }
         }
+        }
     }
+    } // Close wrapper Box
 }
 
 @Composable

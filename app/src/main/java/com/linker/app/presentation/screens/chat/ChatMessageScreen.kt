@@ -110,7 +110,6 @@ fun ChatMessageScreen(
     val haptic = LocalHapticFeedback.current
     val clipboardManager = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
-    var highlightMessageId by remember { mutableStateOf<String?>(null) }
 
     // UI States
     var showContextMenu by remember { mutableStateOf(false) }
@@ -123,6 +122,7 @@ fun ChatMessageScreen(
     var showSeenBySheet by remember { mutableStateOf(false) }
     var reactionsMessageId by remember { mutableStateOf<String?>(null) }
     var replyToMessage by remember { mutableStateOf<MessageUiModel?>(null) }
+    var highlightMessageId by remember { mutableStateOf<String?>(null) }
     var seenByUsersForSheet by remember { mutableStateOf<List<SeenByUserUi>>(emptyList()) }
     var quickReactions by rememberSaveable {
         mutableStateOf(listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F"))
@@ -428,18 +428,22 @@ fun ChatMessageScreen(
                             }
                         }
 
-                        itemsIndexed(uiState.messages) { index, msg ->
-                            val prevIsSelf = if (index > 0) uiState.messages[index - 1].isSelf else !msg.isSelf
-                            val nextIsSelf = if (index < uiState.messages.size - 1) uiState.messages[index + 1].isSelf else !msg.isSelf
+                        // No filtering - show all messages
+                        // Deleted messages will show appropriate text
+                        val visibleMessages = uiState.messages
+
+                        itemsIndexed(visibleMessages) { index, msg ->
+                            val prevIsSelf = if (index > 0) visibleMessages[index - 1].isSelf else !msg.isSelf
+                            val nextIsSelf = if (index < visibleMessages.size - 1) visibleMessages[index + 1].isSelf else !msg.isSelf
 
                             // Reply preview if exists
                             val repliedIndex = msg.replyToMessageId?.let { id ->
-                                uiState.messages.indexOfFirst { it.messageId == id }
+                                visibleMessages.indexOfFirst { it.messageId == id }
                             } ?: -1
 
                             if (!msg.replyToMessageId.isNullOrBlank()) {
                                 val preview = if (repliedIndex >= 0) {
-                                    val replied = uiState.messages[repliedIndex]
+                                    val replied = visibleMessages[repliedIndex]
                                     val repliedName = if (replied.isSelf) {
                                         "You"
                                     } else {
@@ -460,7 +464,20 @@ fun ChatMessageScreen(
                                 ReplyPreviewHologram(
                                     preview = preview,
                                     alignEnd = msg.isSelf,
-                                    alpha = 0.7f
+                                    alpha = 0.7f,
+                                    onClick = if (repliedIndex >= 0) {
+                                        {
+                                            // Scroll to replied message
+                                            coroutineScope.launch {
+                                                listState.animateScrollToItem(repliedIndex)
+                                                // Highlight the message
+                                                highlightMessageId = msg.replyToMessageId
+                                                // Remove highlight after 2 seconds
+                                                kotlinx.coroutines.delay(2000)
+                                                highlightMessageId = null
+                                            }
+                                        }
+                                    } else null
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
@@ -488,11 +505,25 @@ fun ChatMessageScreen(
                                 // Chat Bubble
                                 ChatBubble(
                                     message = MessageItem(
-                                        text = msg.content ?: "",
+                                        text = if (msg.isDeleted) {
+                                            // Generate deleted message text dynamically
+                                            when {
+                                                // I deleted my own message (for me or for everyone)
+                                                msg.isSelf -> "You deleted this message"
+                                                // I deleted other's message (for me only)
+                                                !msg.isSelf && !msg.deletedForEveryone -> "You deleted this message"
+                                                // Other deleted their own message (for everyone)
+                                                !msg.isSelf && msg.deletedForEveryone -> "This message was deleted"
+                                                else -> msg.content ?: ""
+                                            }
+                                        } else {
+                                            msg.content ?: ""
+                                        },
                                         isSelf = msg.isSelf,
                                         status = msg.status,
                                         prevIsSelf = prevIsSelf,
-                                        nextIsSelf = nextIsSelf
+                                        nextIsSelf = nextIsSelf,
+                                        isDeleted = msg.isDeleted
                                     ),
                                     coroutineScope = coroutineScope,
                                     onBubblePositioned = { bounds ->
@@ -651,9 +682,13 @@ fun ChatMessageScreen(
                         showMessageInfo = true
                         showContextMenu = false
                     },
-                    onDelete = if (message.isSelf) {
+                    onDelete = {
+                        viewModel.deleteMessage(message.messageId, forEveryone = false)
+                        showContextMenu = false
+                    },
+                    onDeleteForEveryone = if (message.isSelf) {
                         {
-                            viewModel.deleteMessage(message.messageId)
+                            viewModel.deleteMessage(message.messageId, forEveryone = true)
                             showContextMenu = false
                         }
                     } else null,

@@ -59,7 +59,8 @@ data class MessageUiModel(
     val senderId: String = "",
     val senderDisplayName: String = "User",
     val senderAvatarUrl: String? = null,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val deletedForEveryone: Boolean = false
 )
 
 data class SeenByUserUi(
@@ -112,7 +113,8 @@ data class MessageItem(
     val isSelf: Boolean,
     val status: MessageStatus = MessageStatus.SENT,
     val prevIsSelf: Boolean = false,
-    val nextIsSelf: Boolean = false
+    val nextIsSelf: Boolean = false,
+    val isDeleted: Boolean = false
 )
 
 data class ReactionInfo(

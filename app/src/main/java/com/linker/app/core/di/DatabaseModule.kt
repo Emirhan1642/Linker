@@ -22,7 +22,10 @@ object DatabaseModule {
             .addMigrations(
                 LinkerDatabase.MIGRATION_2_3,
                 LinkerDatabase.MIGRATION_3_4,
-                LinkerDatabase.MIGRATION_4_5
+                LinkerDatabase.MIGRATION_4_5,
+                LinkerDatabase.MIGRATION_5_6,
+                LinkerDatabase.MIGRATION_6_7,
+                LinkerDatabase.MIGRATION_7_8
             )
             // ✅ REMOVED: fallbackToDestructiveMigration() - Data loss risk
             .build()
@@ -38,4 +41,6 @@ object DatabaseModule {
     @Provides @Singleton fun provideCommentDao(db: LinkerDatabase)      = db.commentDao()
     @Provides @Singleton fun provideMediaCacheDao(db: LinkerDatabase)   = db.mediaCacheDao()
     @Provides @Singleton fun provideNotificationDao(db: LinkerDatabase) = db.notificationDao()
+    @Provides @Singleton fun provideBleNodeDao(db: LinkerDatabase)      = db.bleNodeDao()
+    @Provides @Singleton fun provideMessageIdCacheDao(db: LinkerDatabase) = db.messageIdCacheDao()
 }

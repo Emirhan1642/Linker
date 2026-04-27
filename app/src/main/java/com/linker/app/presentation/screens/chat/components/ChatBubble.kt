@@ -1,6 +1,7 @@
 package com.linker.app.presentation.screens.chat.components
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -81,9 +82,11 @@ fun ChatBubble(
 
     LaunchedEffect(isHighlighted) {
         if (isHighlighted) {
-            highlightAlpha.animateTo(1f, tween(150))
-            delay(800)
-            highlightAlpha.animateTo(0f, tween(400))
+            // 3 kez yumuşak yanıp sönme
+            repeat(3) {
+                highlightAlpha.animateTo(1f, tween(600, easing = FastOutSlowInEasing))
+                highlightAlpha.animateTo(0f, tween(600, easing = FastOutSlowInEasing))
+            }
         }
     }
 
@@ -143,6 +146,13 @@ fun MessageBubbleContent(
 ) {
     val bubbleColor = if (message.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
     val alignment = if (message.isSelf) Alignment.CenterEnd else Alignment.CenterStart
+    
+    // Highlight efekti için alpha değerini hesapla (0.5 ile 1.0 arası)
+    val finalAlpha = if (highlightAlpha > 0f) {
+        0.5f + (highlightAlpha * 0.5f)
+    } else {
+        1f
+    }
 
     Box(
         modifier = modifier.fillMaxWidth(),
@@ -153,15 +163,6 @@ fun MessageBubbleContent(
                 .widthIn(max = 280.dp)
                 .onGloballyPositioned { coordinates ->
                     onBubblePositioned?.invoke(coordinates.boundsInRoot())
-                }
-                .drawBehind {
-                    if (highlightAlpha > 0f) {
-                        drawCircle(
-                            color = Color(0xFFFFD700).copy(alpha = highlightAlpha * 0.3f),
-                            radius = size.width.coerceAtLeast(size.height) * 0.8f,
-                            center = Offset(size.width / 2, size.height / 2)
-                        )
-                    }
                 }
         ) {
             Box(
@@ -174,14 +175,15 @@ fun MessageBubbleContent(
                             bottomEnd = if (message.isSelf) 4.dp else 18.dp
                         )
                     )
-                    .background(bubbleColor)
+                    .background(bubbleColor.copy(alpha = finalAlpha))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
                 Text(
                     text = message.text,
-                    color = TextPrimary,
+                    color = if (message.isDeleted) TextSecondary else TextPrimary,
                     fontSize = 15.sp,
-                    lineHeight = 20.sp
+                    lineHeight = 20.sp,
+                    fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
                 )
             }
 
