@@ -45,6 +45,7 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToAccountCenter: () -> Unit = {},
     onNavigateToPendingRequests: () -> Unit = {},
+    onNavigateToOfflineMessaging: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -110,6 +111,9 @@ fun SettingsScreen(
             SettingsItem.Navigation(R.drawable.ic_paint_brush_2_outline, "Theme", "Default"),
             SettingsItem.Toggle(R.drawable.ic_gallery_outline, "Auto-Play Videos", "autoplay", autoPlayVideos) { autoPlayVideos = it },
             SettingsItem.Toggle(R.drawable.ic_ai_sand_timer_outline, "Data Saver", "datasaver", dataSaver) { dataSaver = it }
+        )),
+        SettingsSection("Connectivity", listOf(
+            SettingsItem.Navigation(R.drawable.ic_bluetooth_outline, "Offline Messaging", onClick = onNavigateToOfflineMessaging)
         )),
         SettingsSection("Support & About", listOf(
             SettingsItem.Navigation(R.drawable.ic_search_outline, "Help Center"),

@@ -310,7 +310,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 - [ ] 8. Checkpoint - Message queue and sync complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 9. Phase 5: Foreground Service
+- [x] 9. Phase 5: Foreground Service
   - [x] 9.1 Implement OfflineMessagingService
     - Create foreground service with notification
     - Implement onCreate() with notification channel creation
@@ -365,7 +365,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Add required permissions (BLUETOOTH_SCAN, BLUETOOTH_CONNECT, BLUETOOTH_ADVERTISE, ACCESS_FINE_LOCATION, NEARBY_WIFI_DEVICES)
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5_
 
-- [ ] 10. Phase 6: Wi-Fi Direct (Nearby Connections)
+- [x] 10. Phase 6: Wi-Fi Direct (Nearby Connections)
   - [x] 10.1 Add Nearby Connections dependency
     - Add play-services-nearby to build.gradle.kts
     - Sync project dependencies
@@ -409,7 +409,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 - [ ] 11. Checkpoint - Wi-Fi Direct complete
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 12. Phase 7: UI Integration
+- [x] 12. Phase 7: UI Integration
   - [x] 12.1 Create OfflineMessagingSettingsScreen
     - Create Compose screen with settings UI
     - Add toggle for enable/disable offline messaging
@@ -477,7 +477,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test permission request flow
     - Test settings dialog interactions
 
-- [ ] 13. Phase 8: Error Handling
+- [x] 13. Phase 8: Error Handling
   - [x] 13.1 Implement BLE error handling
     - Create BLEError sealed class hierarchy
     - Create BLEErrorHandler with retry logic
@@ -514,7 +514,7 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
     - Test encryption error handling
     - Test network error fallback
 
-- [ ] 14. Phase 9: Analytics and Testing
+- [x] 14. Phase 9: Analytics and Testing
   - [x] 14.1 Implement analytics events
     - Create OfflineMessagingEvent sealed class
     - Implement AnalyticsLogger with Firebase Analytics

@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.linker.app.data.bluetooth.BluetoothManager
+import com.linker.app.data.bluetooth.BluetoothManagerImpl
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -42,5 +44,11 @@ object AppModule {
     @Singleton
     fun provideFirebaseStorage(): FirebaseStorage {
         return FirebaseStorage.getInstance()
+    }
+    
+    @Provides
+    @Singleton
+    fun provideBluetoothManager(impl: BluetoothManagerImpl): BluetoothManager {
+        return impl
     }
 }

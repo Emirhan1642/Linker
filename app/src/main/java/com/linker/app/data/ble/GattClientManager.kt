@@ -2,6 +2,7 @@ package com.linker.app.data.ble
 
 import android.bluetooth.*
 import android.content.Context
+import android.os.Build
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -12,6 +13,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Manages GATT Client connections for transmitting BLE mesh packets
@@ -27,7 +29,7 @@ class GattClientManager @Inject constructor(
     companion object {
         private const val TAG = "GattClientManager"
         private const val MAX_CONNECTIONS = 7 // Android BLE limit
-        private const val CONNECTION_TIMEOUT = 5000L // 5 seconds
+        private const val CONNECTION_TIMEOUT = 20000L // 20 seconds - increased from 5s for GATT handshake
         private const val MTU_SIZE = 512
     }
     
@@ -46,6 +48,7 @@ class GattClientManager @Inject constructor(
         
         // Check if already connected
         if (connections.containsKey(deviceAddress)) {
+            Log.d(TAG, "Already connected to $deviceAddress")
             return@withTimeout true
         }
         
@@ -57,7 +60,18 @@ class GattClientManager @Inject constructor(
             }
         }
         
-        suspendCoroutine { continuation ->
+        suspendCancellableCoroutine<Boolean> { continuation ->
+            var gattConnection: BluetoothGatt? = null
+            var connectionAttempted = false
+            
+            // Setup cancellation handler
+            continuation.invokeOnCancellation {
+                Log.d(TAG, "Connection cancelled for $deviceAddress")
+                gattConnection?.disconnect()
+                gattConnection?.close()
+                connections.remove(deviceAddress)
+            }
+            
             try {
                 val gattCallback = object : BluetoothGattCallback() {
                     override fun onConnectionStateChange(
@@ -65,47 +79,93 @@ class GattClientManager @Inject constructor(
                         status: Int,
                         newState: Int
                     ) {
+                        Log.d(TAG, "onConnectionStateChange - device=$deviceAddress, status=$status, newState=$newState")
+                        
                         when (newState) {
                             BluetoothProfile.STATE_CONNECTED -> {
-                                Log.d(TAG, "Connected to $deviceAddress")
-                                
-                                // Request MTU
-                                gatt?.requestMtu(MTU_SIZE)
-                                
-                                // Discover services
-                                gatt?.discoverServices()
+                                if (status == BluetoothGatt.GATT_SUCCESS) {
+                                    Log.d(TAG, "Connected to $deviceAddress, requesting MTU")
+                                    
+                                    // Store connection immediately upon successful connection
+                                    // This ensures the connection is tracked even if service discovery fails
+                                    gatt?.let { 
+                                        connections[deviceAddress] = it
+                                        Log.d(TAG, "Connection stored in map for $deviceAddress")
+                                    }
+                                    
+                                    // Request MTU first, then discover services in onMtuChanged
+                                    gatt?.requestMtu(MTU_SIZE)
+                                } else {
+                                    Log.e(TAG, "Connection state changed to CONNECTED but status=$status (not GATT_SUCCESS)")
+                                    gatt?.disconnect()
+                                    
+                                    if (continuation.isActive) {
+                                        continuation.resume(false)
+                                    }
+                                }
                             }
                             BluetoothProfile.STATE_DISCONNECTED -> {
-                                Log.d(TAG, "Disconnected from $deviceAddress")
+                                Log.d(TAG, "Disconnected from $deviceAddress, status=$status")
                                 connections.remove(deviceAddress)
                                 gatt?.close()
-                            }
-                        }
-                    }
-                    
-                    override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-                        if (status == BluetoothGatt.GATT_SUCCESS) {
-                            Log.d(TAG, "Services discovered for $deviceAddress")
-                            
-                            // Store connection
-                            gatt?.let { connections[deviceAddress] = it }
-                            
-                            if (continuation.context.isActive) {
-                                continuation.resume(true)
-                            }
-                        } else {
-                            Log.e(TAG, "Service discovery failed for $deviceAddress: $status")
-                            gatt?.disconnect()
-                            
-                            if (continuation.context.isActive) {
-                                continuation.resume(false)
+                                
+                                // Only resume with false if we haven't already resumed
+                                if (continuation.isActive && !connectionAttempted) {
+                                    connectionAttempted = true
+                                    continuation.resume(false)
+                                }
                             }
                         }
                     }
                     
                     override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+                        Log.d(TAG, "onMtuChanged - device=$deviceAddress, mtu=$mtu, status=$status")
+                        
                         if (status == BluetoothGatt.GATT_SUCCESS) {
-                            Log.d(TAG, "MTU changed to $mtu for $deviceAddress")
+                            Log.d(TAG, "MTU changed to $mtu for $deviceAddress, discovering services")
+                        } else {
+                            Log.w(TAG, "MTU change failed for $deviceAddress: $status, still attempting service discovery")
+                        }
+                        
+                        // Start service discovery after MTU negotiation (even if MTU failed)
+                        gatt?.discoverServices()
+                    }
+                    
+                    override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+                        Log.d(TAG, "onServicesDiscovered - device=$deviceAddress, status=$status")
+                        
+                        if (status == BluetoothGatt.GATT_SUCCESS) {
+                            Log.d(TAG, "Services discovered for $deviceAddress")
+                            
+                            // Verify our service exists
+                            val service = gatt?.getService(GattServerManager.SERVICE_UUID)
+                            if (service != null) {
+                                Log.d(TAG, "Found Linker Mesh Service on $deviceAddress")
+                                
+                                // Connection already stored in onConnectionStateChange
+                                if (continuation.isActive) {
+                                    connectionAttempted = true
+                                    continuation.resume(true)
+                                }
+                            } else {
+                                Log.w(TAG, "Linker Mesh Service not found on $deviceAddress, but connection is valid")
+                                
+                                // Connection already stored, still consider it successful
+                                // The service might be discovered later
+                                if (continuation.isActive) {
+                                    connectionAttempted = true
+                                    continuation.resume(true)
+                                }
+                            }
+                        } else {
+                            Log.w(TAG, "Service discovery failed for $deviceAddress: $status, but connection is still valid")
+                            
+                            // Connection already stored, still consider it successful
+                            // We can still try to write characteristics
+                            if (continuation.isActive) {
+                                connectionAttempted = true
+                                continuation.resume(true)
+                            }
                         }
                     }
                     
@@ -127,16 +187,26 @@ class GattClientManager @Inject constructor(
                 }
                 
                 // Connect to GATT server
-                device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                Log.d(TAG, "Initiating GATT connection to $deviceAddress")
+                gattConnection = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                
+                if (gattConnection == null) {
+                    Log.e(TAG, "connectGatt() returned null for $deviceAddress")
+                    if (continuation.isActive) {
+                        continuation.resume(false)
+                    }
+                } else {
+                    Log.d(TAG, "connectGatt() returned successfully for $deviceAddress, waiting for callbacks...")
+                }
                 
             } catch (e: SecurityException) {
                 Log.e(TAG, "Security exception connecting to $deviceAddress", e)
-                if (continuation.context.isActive) {
+                if (continuation.isActive) {
                     continuation.resume(false)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error connecting to $deviceAddress", e)
-                if (continuation.context.isActive) {
+                if (continuation.isActive) {
                     continuation.resume(false)
                 }
             }
@@ -158,32 +228,68 @@ class GattClientManager @Inject constructor(
             return false
         }
         
-        val service = gatt.getService(GattServerManager.SERVICE_UUID)
-        if (service == null) {
-            Log.e(TAG, "Service not found for $deviceAddress")
-            return false
-        }
-        
-        val characteristic = service.getCharacteristic(GattServerManager.CHARACTERISTIC_UUID)
-        if (characteristic == null) {
-            Log.e(TAG, "Characteristic not found for $deviceAddress")
-            return false
-        }
+        Log.d(TAG, "Attempting to write characteristic to $deviceAddress (data size: ${data.size} bytes)")
         
         return try {
             val deferred = CompletableDeferred<Boolean>()
             pendingWrites[deviceAddress] = deferred
             
-            characteristic.value = data
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            // Try to get service and characteristic, but don't fail if not found
+            // (they might be discovered later or the device might still accept writes)
+            val service = gatt.getService(GattServerManager.SERVICE_UUID)
+            if (service == null) {
+                Log.w(TAG, "Service not found for $deviceAddress, cannot write")
+                pendingWrites.remove(deviceAddress)
+                return false
+            }
             
-            val writeInitiated = gatt.writeCharacteristic(characteristic)
+            val characteristic = service.getCharacteristic(GattServerManager.CHARACTERISTIC_UUID)
+            if (characteristic == null) {
+                Log.w(TAG, "Characteristic not found for $deviceAddress, cannot write")
+                pendingWrites.remove(deviceAddress)
+                return false
+            }
+            
+            Log.d(TAG, "Found service and characteristic for $deviceAddress")
+            
+            val writeInitiated = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                // API 33+ - Use new API
+                try {
+                    val result = gatt.writeCharacteristic(
+                        characteristic,
+                        data,
+                        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    )
+                    Log.d(TAG, "writeCharacteristic (API 33+) returned: $result for $deviceAddress")
+                    result == BluetoothGatt.GATT_SUCCESS
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing characteristic on API 33+: ${e.message}")
+                    false
+                }
+            } else {
+                // API < 33 - Use deprecated API
+                try {
+                    @Suppress("DEPRECATION")
+                    characteristic.value = data
+                    @Suppress("DEPRECATION")
+                    characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                    @Suppress("DEPRECATION")
+                    val result = gatt.writeCharacteristic(characteristic)
+                    Log.d(TAG, "writeCharacteristic (API < 33) returned: $result for $deviceAddress")
+                    result
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error writing characteristic on API < 33: ${e.message}")
+                    false
+                }
+            }
             
             if (!writeInitiated) {
                 pendingWrites.remove(deviceAddress)
                 Log.e(TAG, "Failed to initiate write for $deviceAddress")
                 return false
             }
+            
+            Log.d(TAG, "Write initiated for $deviceAddress, waiting for callback")
             
             // Wait for write callback with timeout
             withTimeout(5000L) {

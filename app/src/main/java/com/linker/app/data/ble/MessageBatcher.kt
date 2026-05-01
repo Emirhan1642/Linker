@@ -22,6 +22,7 @@ import javax.inject.Singleton
 class MessageBatcher @Inject constructor() {
     
     private val messageQueue = ConcurrentLinkedQueue<BLEPacket>()
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
     private var flushJob: Job? = null
     
     private var onBatchReady: ((List<BLEPacket>) -> Unit)? = null
@@ -99,7 +100,7 @@ class MessageBatcher @Inject constructor() {
             return
         }
         
-        flushJob = CoroutineScope(Dispatchers.Default).launch {
+        flushJob = coroutineScope.launch {
             delay(BATCH_TIMEOUT_MS)
             
             if (messageQueue.isNotEmpty()) {

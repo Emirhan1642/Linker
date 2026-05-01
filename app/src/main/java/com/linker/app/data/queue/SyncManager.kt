@@ -134,6 +134,9 @@ class SyncManagerImpl @Inject constructor(
                             failedCount++
                             errors.add("Message ${queueItem.messageId}: ${result.message}")
                         }
+                        is com.linker.app.core.util.Result.Loading -> {
+                            // Should not happen, ignore
+                        }
                     }
                     
                     // Update progress
@@ -194,7 +197,7 @@ class SyncManagerImpl @Inject constructor(
                     val timeSinceLastAttempt = System.currentTimeMillis() - (queueItem.lastAttemptAt ?: 0)
                     if (timeSinceLastAttempt < retryDelay) {
                         // Skip this message, not ready for retry yet
-                        continue
+                        return@forEachIndexed
                     }
                     
                     // Update last attempt timestamp
@@ -245,6 +248,9 @@ class SyncManagerImpl @Inject constructor(
                             
                             failedCount++
                             errors.add("Message ${queueItem.messageId}: ${result.message}")
+                        }
+                        is com.linker.app.core.util.Result.Loading -> {
+                            // Should not happen, ignore
                         }
                     }
                     

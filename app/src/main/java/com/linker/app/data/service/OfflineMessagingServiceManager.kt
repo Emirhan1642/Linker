@@ -46,22 +46,27 @@ class OfflineMessagingServiceManager @Inject constructor(
      */
     fun startService(): Boolean {
         return try {
+            android.util.Log.d("OfflineMessagingServiceManager", "Starting service...")
             val intent = Intent(context, OfflineMessagingService::class.java).apply {
                 action = OfflineMessagingService.ACTION_START
             }
             
             // Start foreground service based on API level
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                android.util.Log.d("OfflineMessagingServiceManager", "Using startForegroundService (API 26+)")
                 context.startForegroundService(intent)
             } else {
+                android.util.Log.d("OfflineMessagingServiceManager", "Using startService (API < 26)")
                 context.startService(intent)
             }
             
             // Update state
             updateServiceState(true)
+            android.util.Log.d("OfflineMessagingServiceManager", "Service started successfully")
             
             true
         } catch (e: Exception) {
+            android.util.Log.e("OfflineMessagingServiceManager", "Error starting service: ${e.message}", e)
             // Log error
             false
         }

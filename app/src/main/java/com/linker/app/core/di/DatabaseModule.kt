@@ -26,7 +26,8 @@ object DatabaseModule {
                 LinkerDatabase.MIGRATION_5_6,
                 LinkerDatabase.MIGRATION_6_7,
                 LinkerDatabase.MIGRATION_7_8,
-                LinkerDatabase.MIGRATION_8_9
+                LinkerDatabase.MIGRATION_8_9,
+                LinkerDatabase.MIGRATION_9_10
             )
             // ✅ REMOVED: fallbackToDestructiveMigration() - Data loss risk
             .build()
@@ -44,4 +45,9 @@ object DatabaseModule {
     @Provides @Singleton fun provideNotificationDao(db: LinkerDatabase) = db.notificationDao()
     @Provides @Singleton fun provideBleNodeDao(db: LinkerDatabase)      = db.bleNodeDao()
     @Provides @Singleton fun provideMessageIdCacheDao(db: LinkerDatabase) = db.messageIdCacheDao()
+
+    @Provides @Singleton fun provideSignalIdentityDao(db: LinkerDatabase) = db.signalIdentityDao()
+    @Provides @Singleton fun provideSignalSessionDao(db: LinkerDatabase) = db.signalSessionDao()
+    @Provides @Singleton fun provideSignalPreKeyDao(db: LinkerDatabase) = db.signalPreKeyDao()
+    @Provides @Singleton fun provideSignalSignedPreKeyDao(db: LinkerDatabase) = db.signalSignedPreKeyDao()
 }

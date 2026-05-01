@@ -2,7 +2,7 @@
 # SDK Versions
 compileSdk = "35"
 libsignalClient = "0.86.5"
-minSdk = "26"
+minSdk = "25"
 targetSdk = "35"
 
 # Core

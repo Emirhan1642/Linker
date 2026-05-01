@@ -5,9 +5,11 @@ import com.linker.app.data.ble.BLEMeshManager
 import com.linker.app.data.ble.BLEPacket
 import com.linker.app.data.encryption.EncryptionManager
 import com.linker.app.data.local.dao.MessageQueueDao
+import com.linker.app.data.local.dao.MessageDao
 import com.linker.app.data.local.entity.DeliveryMethod
 import com.linker.app.data.local.entity.MessageQueueEntity
 import com.linker.app.data.local.entity.QueueStatus
+import com.linker.app.data.local.entity.MessageStatus as EntityMessageStatus
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +26,10 @@ import javax.inject.Singleton
 @Singleton
 class MessageQueueProcessorImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
+    private val messageDao: MessageDao,
     private val bleMeshManager: BLEMeshManager,
-    private val encryptionManager: EncryptionManager
+    private val encryptionManager: EncryptionManager,
+    private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider
 ) : MessageQueueProcessor {
     
     companion object {
@@ -198,12 +202,20 @@ class MessageQueueProcessorImpl @Inject constructor(
             }
             
             if (result.isSuccess) {
-                // Mark as SENT
+                // Mark as SENT in queue
                 val sent = message.copy(
                     queueStatus = QueueStatus.SENT,
                     sentAt = System.currentTimeMillis()
                 )
                 messageQueueDao.updateQueueItem(sent)
+                
+                // Update message status in database
+                try {
+                    messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.DELIVERED)
+                    Log.d(TAG, "Updated message ${message.messageId} status to DELIVERED")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating message status: ${e.message}")
+                }
                 
                 Log.d(TAG, "Message ${message.messageId} sent successfully")
             } else {
@@ -221,18 +233,35 @@ class MessageQueueProcessorImpl @Inject constructor(
      */
     private suspend fun sendViaBLE(message: MessageQueueEntity): Result<Unit> {
         return try {
+            // Get current user ID
+            val currentUserId = currentUserProvider.getCurrentUserId()
+            if (currentUserId == null) {
+                Log.e(TAG, "Cannot send BLE message: current user ID not available")
+                return Result.failure(Exception("Current user ID not available"))
+            }
+            
             // Create BLE packet
             val packet = BLEPacket.create(
                 messageId = message.messageId,
-                senderId = "current_user_id", // TODO: Get from session
+                senderId = currentUserId,  // Use actual current user ID
                 recipientId = message.recipientId,
                 ttl = message.ttl.toByte(),
                 hopCount = 0,
                 encryptedPayload = message.messagePayload.toByteArray()
             )
             
+            Log.d(TAG, "Attempting to send BLE packet for message ${message.messageId} from $currentUserId to recipient ${message.recipientId}")
+            
             // Send via BLE mesh manager
-            bleMeshManager.sendMessage(packet)
+            val result = bleMeshManager.sendMessage(packet)
+            
+            if (result.isSuccess) {
+                Log.d(TAG, "BLE packet sent successfully for message ${message.messageId}")
+            } else {
+                Log.e(TAG, "BLE packet send failed for message ${message.messageId}: ${result.exceptionOrNull()?.message}")
+            }
+            
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Error sending via BLE: ${message.messageId}", e)
             Result.failure(e)

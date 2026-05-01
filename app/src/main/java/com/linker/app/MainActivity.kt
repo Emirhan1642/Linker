@@ -40,12 +40,16 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
     @Inject lateinit var accountRepository: AccountRepository
     @Inject lateinit var hybridAccountManager: HybridAccountManager
+    @Inject lateinit var connectivityMonitor: com.linker.app.data.connectivity.ConnectivityMonitor
 
     private var pendingChatId by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        // Start monitoring connectivity
+        connectivityMonitor.startMonitoring()
 
         setContent {
             LinkerTheme {
@@ -109,6 +113,8 @@ class MainActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
+        // Stop monitoring connectivity
+        connectivityMonitor.stopMonitoring()
         // Cleanup all passive sessions when app is destroyed
         if (isFinishing) {
             hybridAccountManager.cleanupAllSessions()

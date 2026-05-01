@@ -4,7 +4,8 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.signal.libsignal.protocol.*
-import org.signal.libsignal.protocol.message.CiphertextMessage
+import org.signal.libsignal.protocol.ecc.*
+import org.signal.libsignal.protocol.kem.*
 import org.signal.libsignal.protocol.message.PreKeySignalMessage
 import org.signal.libsignal.protocol.message.SignalMessage
 import org.signal.libsignal.protocol.state.PreKeyBundle
@@ -49,7 +50,7 @@ class EncryptionManagerImpl @Inject constructor(
             
             if (!hasIdentity) {
                 // Generate new identity key pair
-                val identityKeyPair = KeyHelper.generateIdentityKeyPair()
+                val identityKeyPair = IdentityKeyPair.generate()
                 val registrationId = KeyHelper.generateRegistrationId(false)
                 
                 protocolStore.initialize(identityKeyPair, registrationId)
@@ -135,14 +136,17 @@ class EncryptionManagerImpl @Inject constructor(
         protocolStore.containsSession(address)
     }
     
-    override suspend fun rotateKeys() = withContext(Dispatchers.IO) {
+    override suspend fun rotateKeys(): Unit = withContext(Dispatchers.IO) {
         try {
             // Generate new signed pre-key
             val identityKeyPair = protocolStore.getIdentityKeyPair()
             val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
             
-            val signedPreKeyPair = KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId)
-            protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKeyPair)
+            val signedPreKeyPair = ECKeyPair.generate()
+            val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
+            val signedPreKeyRecord = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
+            
+            protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKeyRecord)
             
             // Generate new batch of pre-keys
             generatePreKeys()
@@ -173,14 +177,19 @@ class EncryptionManagerImpl @Inject constructor(
         val identityKeyPair = protocolStore.getIdentityKeyPair()
         
         // Generate one-time pre-keys
-        val preKeys = KeyHelper.generatePreKeys(PRE_KEY_START_ID, PRE_KEY_COUNT)
-        for (preKey in preKeys) {
-            protocolStore.storePreKey(preKey.id, preKey)
+        for (i in 0 until PRE_KEY_COUNT) {
+            val id = PRE_KEY_START_ID + i
+            val keyPair = ECKeyPair.generate()
+            val preKeyRecord = PreKeyRecord(id, keyPair)
+            protocolStore.storePreKey(id, preKeyRecord)
         }
         
         // Generate signed pre-key
         val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
-        val signedPreKey = KeyHelper.generateSignedPreKey(identityKeyPair, signedPreKeyId)
+        val signedPreKeyPair = ECKeyPair.generate()
+        val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
+        val signedPreKey = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
+        
         protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKey)
         
         Log.d(TAG, "Generated $PRE_KEY_COUNT pre-keys and 1 signed pre-key")
@@ -227,6 +236,11 @@ class EncryptionManagerImpl @Inject constructor(
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }
             ?: throw IllegalStateException("No signed pre-key available")
         
+        // Generate a Kyber pre-key (required by libsignal 0.86.5+)
+        val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
+        val kyberPreKeyPublic = kyberKeyPair.publicKey
+        val kyberPreKeySignature = identityKeyPair.privateKey.calculateSignature(kyberPreKeyPublic.serialize())
+        
         PreKeyBundle(
             registrationId,
             DEVICE_ID,
@@ -235,7 +249,10 @@ class EncryptionManagerImpl @Inject constructor(
             signedPreKey.id,
             signedPreKey.keyPair.publicKey,
             signedPreKey.signature,
-            identityKeyPair.publicKey
+            identityKeyPair.publicKey,
+            0, // kyberPreKeyId
+            kyberPreKeyPublic,
+            kyberPreKeySignature
         )
     }
 }

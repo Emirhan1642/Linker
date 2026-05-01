@@ -35,8 +35,18 @@ class GattServerManager @Inject constructor(
     private var bluetoothManager: BluetoothManager? = null
     private var gattServer: BluetoothGattServer? = null
     
-    private val _incomingPackets = MutableSharedFlow<BLEPacket>(replay = 0, extraBufferCapacity = 64)
-    val incomingPackets: SharedFlow<BLEPacket> = _incomingPackets.asSharedFlow()
+    // Packet with sender MAC address for routing
+    data class IncomingPacketWithAddress(
+        val packet: BLEPacket,
+        val senderMacAddress: String
+    )
+    
+    private val _incomingPackets = MutableSharedFlow<IncomingPacketWithAddress>(replay = 0, extraBufferCapacity = 64)
+    val incomingPackets: SharedFlow<IncomingPacketWithAddress> = _incomingPackets.asSharedFlow()
+    
+    // Track connected devices from incoming GATT connections
+    private val _incomingConnections = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 16)
+    val incomingConnections: SharedFlow<String> = _incomingConnections.asSharedFlow()
     
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         
@@ -48,6 +58,11 @@ class GattServerManager @Inject constructor(
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.d(TAG, "Device connected: ${device?.address}")
+                    // Emit incoming connection
+                    device?.address?.let { address ->
+                        _incomingConnections.tryEmit(address)
+                        Log.d(TAG, "Emitted incoming connection from $address")
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.d(TAG, "Device disconnected: ${device?.address}")
@@ -71,8 +86,8 @@ class GattServerManager @Inject constructor(
                     
                     // Validate checksum
                     if (BLEPacket.validateChecksum(packet)) {
-                        // Emit packet for processing
-                        _incomingPackets.tryEmit(packet)
+                        // Emit packet with sender MAC address for routing
+                        _incomingPackets.tryEmit(IncomingPacketWithAddress(packet, device?.address ?: "unknown"))
                         
                         Log.d(TAG, "Received valid packet from ${device?.address}: messageId=${packet.messageId}")
                         

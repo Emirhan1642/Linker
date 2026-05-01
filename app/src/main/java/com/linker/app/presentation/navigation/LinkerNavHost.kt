@@ -20,6 +20,7 @@ import com.linker.app.presentation.screens.home.HomeScreen
 import com.linker.app.presentation.screens.profile.ProfileScreen
 import com.linker.app.presentation.screens.search.SearchScreen
 import com.linker.app.presentation.screens.settings.SettingsScreen
+import com.linker.app.presentation.screens.settings.OfflineMessagingSettingsScreen
 import com.linker.app.presentation.screens.splash.SplashScreen
 import com.linker.app.presentation.screens.story.StoryScreen
 import com.linker.app.presentation.screens.userprofile.UserProfileScreen
@@ -222,7 +223,14 @@ fun LinkerNavHost(
                 onNavigateToPendingRequests = {
                     val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
                     navController.navigate(Route.FollowList(uid, "PENDING_REQUESTS"))
-                }
+                },
+                onNavigateToOfflineMessaging = { navController.navigate(Route.OfflineMessagingSettings) }
+            )
+        }
+
+        composable<Route.OfflineMessagingSettings> {
+            OfflineMessagingSettingsScreen(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 

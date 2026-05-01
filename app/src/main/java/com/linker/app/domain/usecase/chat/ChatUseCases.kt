@@ -174,3 +174,18 @@ class GetMessageByIdUseCase @Inject constructor(
     suspend operator fun invoke(messageId: String): Message =
         chatRepository.getMessageById(messageId)
 }
+
+// ─── Sync Messages From Firestore ─────────────────────────────────────────────
+
+class SyncMessagesFromFirestoreUseCase @Inject constructor(
+    private val messageRepository: com.linker.app.domain.repository.MessageRepository
+) {
+    suspend operator fun invoke(chatId: String): Result<Unit> {
+        return try {
+            (messageRepository as? com.linker.app.data.repository.MessageRepositoryImpl)?.syncMessagesFromFirestore(chatId)
+                ?: Result.Error("MessageRepository is not MessageRepositoryImpl")
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Unknown error")
+        }
+    }
+}

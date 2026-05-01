@@ -1,5 +1,6 @@
 package com.linker.app.data.ble
 
+import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
@@ -7,6 +8,7 @@ import android.bluetooth.le.*
 import android.content.Context
 import android.os.ParcelUuid
 import android.util.Log
+import androidx.annotation.RequiresPermission
 import com.linker.app.data.local.dao.BleNodeDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -28,11 +30,15 @@ class BLEMeshManagerImpl @Inject constructor(
     private val routingTable: BLERoutingTable,
     private val messageIdCache: MessageIdCache,
     private val bleNodeDao: BleNodeDao,
-    private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider
+    private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider,
+    private val adaptiveScanningStrategy: AdaptiveScanningStrategy,
+    private val fragmentManager: FragmentManager
 ) : BLEMeshManager {
     
     companion object {
         private const val TAG = "BLEMeshManager"
+        private const val CONNECTION_RETRY_DELAY_MS = 2000L // 2 seconds initial delay
+        private const val CONNECTION_MAX_RETRIES = 3
     }
     
     private var bluetoothManager: BluetoothManager? = null
@@ -41,6 +47,18 @@ class BLEMeshManagerImpl @Inject constructor(
     private var bleAdvertiser: BluetoothLeAdvertiser? = null
     
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    
+    private var isScanning = false
+    private var isAdvertising = false
+    
+    // Track connection attempts to avoid duplicate retries
+    private val connectionAttempts = mutableMapOf<String, Int>()
+    
+    // Map sender user ID to MAC address for routing
+    private val userIdToMacAddress = mutableMapOf<String, String>()
+    
+    // Track incoming connections (MAC address -> connection time)
+    private val incomingConnections = mutableMapOf<String, Long>()
     
     private val _meshStatus = MutableStateFlow<MeshStatus>(MeshStatus.Idle)
     private val _connectedPeers = MutableStateFlow<List<BleNode>>(emptyList())
@@ -65,6 +83,7 @@ class BLEMeshManagerImpl @Inject constructor(
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
             Log.d(TAG, "Advertising started successfully")
+            isAdvertising = true
             updateMeshStatus()
         }
         
@@ -100,8 +119,43 @@ class BLEMeshManagerImpl @Inject constructor(
         
         // Start listening to incoming packets from GATT server
         coroutineScope.launch {
-            gattServerManager.incomingPackets.collect { packet ->
-                handleIncomingPacket(packet)
+            gattServerManager.incomingPackets.collect { packetWithAddress ->
+                handleIncomingPacket(packetWithAddress.packet, packetWithAddress.senderMacAddress)
+            }
+        }
+        
+        // Listen to incoming GATT connections from other devices
+        coroutineScope.launch {
+            gattServerManager.incomingConnections.collect { deviceAddress ->
+                Log.d(TAG, "Incoming GATT connection from $deviceAddress")
+                // Track incoming connection
+                incomingConnections[deviceAddress] = System.currentTimeMillis()
+                
+                // Add temporary route with MAC address
+                // This will be updated when we receive the first packet with sender ID
+                routingTable.addRoute(
+                    nodeId = deviceAddress,
+                    deviceAddress = deviceAddress,
+                    rssi = -50, // Default RSSI for connected devices
+                    hopCount = 1,
+                    timestamp = System.currentTimeMillis()
+                )
+                Log.d(TAG, "Added temporary route for incoming connection from $deviceAddress")
+                
+                // Store MAC address for later mapping with user ID
+                // We'll update this when we receive a packet from this device
+                Log.d(TAG, "Stored MAC address for incoming connection: $deviceAddress")
+            }
+        }
+        
+        // Observe adaptive scanning settings
+        coroutineScope.launch {
+            adaptiveScanningStrategy.scanSettings.collect { settings ->
+                // Restart scanning with new settings if currently scanning
+                if (isScanning) {
+                    stopScanning()
+                    startScanning()
+                }
             }
         }
         
@@ -123,11 +177,15 @@ class BLEMeshManagerImpl @Inject constructor(
         Log.d(TAG, "Mesh network started")
     }
     
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun stopMeshNetwork() {
         stopScanning()
         stopAdvertising()
         gattServerManager.stopServer()
         gattClientManager.disconnectAll()
+        
+        // Cancel all coroutines
+        coroutineScope.coroutineContext[Job]?.cancelChildren()
         
         _meshStatus.value = MeshStatus.Idle
         _connectedPeers.value = emptyList()
@@ -142,9 +200,7 @@ class BLEMeshManagerImpl @Inject constructor(
         }
         
         try {
-            val scanSettings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .build()
+            val scanSettings = adaptiveScanningStrategy.scanSettings.value
             
             val scanFilter = ScanFilter.Builder()
                 .setServiceUuid(ParcelUuid(GattServerManager.SERVICE_UUID))
@@ -152,6 +208,7 @@ class BLEMeshManagerImpl @Inject constructor(
             
             bleScanner?.startScan(listOf(scanFilter), scanSettings, scanCallback)
             
+            isScanning = true
             updateMeshStatus()
             Log.d(TAG, "Scanning started")
         } catch (e: SecurityException) {
@@ -163,9 +220,11 @@ class BLEMeshManagerImpl @Inject constructor(
         }
     }
     
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun stopScanning() {
         try {
             bleScanner?.stopScan(scanCallback)
+            isScanning = false
             updateMeshStatus()
             Log.d(TAG, "Scanning stopped")
         } catch (e: Exception) {
@@ -204,9 +263,11 @@ class BLEMeshManagerImpl @Inject constructor(
         }
     }
     
+    @RequiresPermission(Manifest.permission.BLUETOOTH_ADVERTISE)
     override fun stopAdvertising() {
         try {
             bleAdvertiser?.stopAdvertising(advertiseCallback)
+            isAdvertising = false
             updateMeshStatus()
             Log.d(TAG, "Advertising stopped")
         } catch (e: Exception) {
@@ -225,6 +286,36 @@ class BLEMeshManagerImpl @Inject constructor(
                 
                 if (connected) {
                     updateConnectedPeers()
+                    
+                    // Send a test packet to establish routing
+                    // This allows the other device to learn our user ID
+                    try {
+                        val currentUserId = currentUserProvider.getCurrentUserId()
+                        if (currentUserId != null) {
+                            Log.d(TAG, "Sending test packet to $deviceAddress to establish routing")
+                            
+                            val testPacket = BLEPacket.create(
+                                messageId = "test-${System.currentTimeMillis()}",
+                                senderId = currentUserId,
+                                recipientId = deviceAddress, // Use MAC address as temporary recipient
+                                ttl = 1,
+                                hopCount = 0,
+                                encryptedPayload = "HELLO".toByteArray()
+                            )
+                            
+                            val data = BLEPacket.serialize(testPacket)
+                            val writeSuccess = gattClientManager.writeCharacteristic(deviceAddress, data)
+                            
+                            if (writeSuccess) {
+                                Log.d(TAG, "Test packet sent successfully to $deviceAddress")
+                            } else {
+                                Log.w(TAG, "Failed to send test packet to $deviceAddress")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error sending test packet to $deviceAddress", e)
+                    }
+                    
                     Result.success(Unit)
                 } else {
                     Result.failure(Exception("Connection failed"))
@@ -247,25 +338,33 @@ class BLEMeshManagerImpl @Inject constructor(
             val route = routingTable.getRoute(packet.recipientId)
             
             if (route == null) {
-                Log.w(TAG, "No route to recipient ${packet.recipientId}")
-                return Result.failure(Exception("No route to recipient"))
+                Log.w(TAG, "No route to recipient ${packet.recipientId} - checking connected devices")
+                
+                // Log available routes for debugging
+                val connectedDevices = gattClientManager.getConnectedDevices()
+                Log.w(TAG, "Currently connected devices: $connectedDevices (count: ${connectedDevices.size})")
+                
+                return Result.failure(Exception("No route to recipient ${packet.recipientId}"))
             }
+            
+            Log.d(TAG, "Found route to ${packet.recipientId} via ${route.deviceAddress} (quality: ${route.routeQuality}, hops: ${route.hopCount})")
             
             // Serialize packet
             val data = BLEPacket.serialize(packet)
             
             // Send to next hop
+            Log.d(TAG, "Writing characteristic to ${route.deviceAddress} (packet size: ${data.size} bytes)")
             val success = gattClientManager.writeCharacteristic(route.deviceAddress, data)
             
             if (success) {
-                Log.d(TAG, "Message sent successfully to ${route.deviceAddress}")
+                Log.d(TAG, "Message ${packet.messageId} sent successfully to ${route.deviceAddress}")
                 Result.success(Unit)
             } else {
-                Log.e(TAG, "Failed to send message to ${route.deviceAddress}")
-                Result.failure(Exception("Write failed"))
+                Log.e(TAG, "Failed to send message ${packet.messageId} to ${route.deviceAddress}")
+                Result.failure(Exception("Write failed to ${route.deviceAddress}"))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending message", e)
+            Log.e(TAG, "Error sending message ${packet.messageId}", e)
             Result.failure(e)
         }
     }
@@ -290,9 +389,10 @@ class BLEMeshManagerImpl @Inject constructor(
     }
     
     override suspend fun updateRoutingTable(nodeId: String, rssi: Int, timestamp: Long) {
+        // Note: deviceAddress will be updated when actual connection is established
         routingTable.addRoute(
             nodeId = nodeId,
-            deviceAddress = "", // Will be updated when connecting
+            deviceAddress = nodeId, // Use nodeId as temporary address until connection
             rssi = rssi,
             hopCount = 1,
             timestamp = timestamp
@@ -344,9 +444,14 @@ class BLEMeshManagerImpl @Inject constructor(
                 com.linker.app.data.local.entity.BleNodeEntity(
                     nodeId = nodeId,
                     deviceAddress = device.address,
+                    deviceName = try { device.name } catch (e: SecurityException) { null },
                     rssi = rssi,
                     lastSeen = timestamp,
-                    isConnected = false
+                    isConnected = false,
+                    hopCount = 1,
+                    routeQuality = 0.0f,
+                    createdAt = timestamp,
+                    updatedAt = timestamp
                 )
             )
             
@@ -362,53 +467,152 @@ class BLEMeshManagerImpl @Inject constructor(
             // Attempt connection if not already connected and under connection limit
             if (!gattClientManager.isConnected(device.address) && 
                 gattClientManager.getConnectionCount() < 7) {
-                val result = connectToPeer(device.address)
-                if (result.isSuccess) {
-                    Log.d(TAG, "Successfully connected to ${device.address}")
-                    // Update node as connected
-                    bleNodeDao.updateConnectionStatusByAddress(device.address, true, System.currentTimeMillis())
+                
+                // Check if we've already attempted this connection
+                val attemptCount = connectionAttempts.getOrDefault(device.address, 0)
+                
+                if (attemptCount < CONNECTION_MAX_RETRIES) {
+                    // Calculate delay with exponential backoff
+                    val delayMs = CONNECTION_RETRY_DELAY_MS * (1 shl attemptCount) // 2s, 4s, 8s
+                    
+                    Log.d(TAG, "Scheduling connection attempt ${attemptCount + 1}/$CONNECTION_MAX_RETRIES to ${device.address} after ${delayMs}ms")
+                    
+                    delay(delayMs)
+                    
+                    val result = connectToPeer(device.address)
+                    if (result.isSuccess) {
+                        Log.d(TAG, "Successfully connected to ${device.address}")
+                        connectionAttempts.remove(device.address)
+                        // Update node as connected
+                        bleNodeDao.updateConnectionStatusByAddress(device.address, true, System.currentTimeMillis())
+                    } else {
+                        Log.w(TAG, "Failed to connect to ${device.address} (attempt ${attemptCount + 1}): ${result.exceptionOrNull()?.message}")
+                        connectionAttempts[device.address] = attemptCount + 1
+                        
+                        // Schedule retry if we haven't exceeded max retries
+                        if (attemptCount + 1 < CONNECTION_MAX_RETRIES) {
+                            Log.d(TAG, "Will retry connection to ${device.address} on next scan")
+                        } else {
+                            Log.e(TAG, "Max connection attempts reached for ${device.address}, giving up")
+                        }
+                    }
                 } else {
-                    Log.w(TAG, "Failed to connect to ${device.address}: ${result.exceptionOrNull()?.message}")
+                    Log.w(TAG, "Already attempted max retries for ${device.address}, skipping")
                 }
             }
         }
     }
     
-    private fun handleIncomingPacket(packet: BLEPacket) {
-        coroutineScope.launch {
+    private suspend fun handleIncomingPacket(packet: BLEPacket, senderMacAddress: String) {
+            // Check if this is a test packet (used for routing establishment)
+            val isTestPacket = packet.messageId.startsWith("test-")
+            
+            if (isTestPacket) {
+                Log.d(TAG, "Received test packet from ${packet.senderId}, establishing bidirectional connection")
+            }
+            
             // Check for duplicates
             if (messageIdCache.contains(packet.messageId)) {
                 Log.d(TAG, "Duplicate packet ${packet.messageId}, ignoring")
-                return@launch
+                return
             }
             
             // Add to cache
             messageIdCache.add(packet.messageId, packet.senderId)
             
+            // Update routing table with sender's user ID
+            // This allows us to send messages back to the sender
+            Log.d(TAG, "Updating routing table: sender ${packet.senderId} is reachable via BLE")
+            try {
+                // Map sender user ID to MAC address for future routing
+                userIdToMacAddress[packet.senderId] = senderMacAddress
+                Log.d(TAG, "Mapped sender ${packet.senderId} to MAC address $senderMacAddress")
+                
+                // Add route using sender ID as nodeId and MAC address as deviceAddress
+                routingTable.addRoute(
+                    nodeId = packet.senderId,
+                    deviceAddress = senderMacAddress,
+                    rssi = -50, // Default RSSI for received packets
+                    hopCount = packet.hopCount.toInt() + 1,
+                    timestamp = System.currentTimeMillis()
+                )
+                Log.d(TAG, "Route updated for sender ${packet.senderId} via $senderMacAddress")
+                
+                // If this is a test packet, establish an outgoing connection to enable bidirectional communication
+                if (isTestPacket) {
+                    Log.d(TAG, "Initiating outgoing connection to $senderMacAddress for bidirectional messaging")
+                    try {
+                        val bluetoothAdapter = bluetoothAdapter
+                        if (bluetoothAdapter != null) {
+                            val device = bluetoothAdapter.getRemoteDevice(senderMacAddress)
+                            
+                            // Check if not already connected
+                            if (!gattClientManager.isConnected(senderMacAddress)) {
+                                val connected = gattClientManager.connectToDevice(device)
+                                if (connected) {
+                                    Log.d(TAG, "Successfully established outgoing connection to $senderMacAddress")
+                                } else {
+                                    Log.w(TAG, "Failed to establish outgoing connection to $senderMacAddress")
+                                }
+                            } else {
+                                Log.d(TAG, "Already have outgoing connection to $senderMacAddress")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error establishing outgoing connection to $senderMacAddress", e)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating routing table for sender ${packet.senderId}", e)
+            }
+            
+            // Don't process test packets further
+            if (isTestPacket) {
+                Log.d(TAG, "Test packet processed, not forwarding")
+                return
+            }
+            
+            // Handle fragmentation
+            val completePayload = if (packet.totalFragments > 1) {
+                // This is a fragmented message
+                val reassembledPayload = fragmentManager.addFragment(packet)
+                
+                if (reassembledPayload == null) {
+                    // Waiting for more fragments
+                    Log.d(TAG, "Received fragment ${packet.fragmentIndex + 1}/${packet.totalFragments} for ${packet.messageId}")
+                    return
+                }
+                
+                // All fragments received, create complete packet with reassembled payload
+                packet.copy(encryptedPayload = reassembledPayload)
+            } else {
+                // Single packet message
+                packet
+            }
+            
             // Get current user ID
             val currentUserId = currentUserProvider.getCurrentUserId()
             
             // Check if packet is for us
-            val isForUs = currentUserId != null && packet.recipientId == currentUserId
+            val isForUs = currentUserId != null && completePayload.recipientId == currentUserId
             
             if (isForUs) {
                 // Deliver locally
-                messageReceivedCallback?.invoke(packet)
-                Log.d(TAG, "Packet ${packet.messageId} delivered locally to $currentUserId")
-            } else if (packet.ttl > 0) {
+                messageReceivedCallback?.invoke(completePayload)
+                Log.d(TAG, "Packet ${completePayload.messageId} delivered locally to $currentUserId")
+            } else if (completePayload.ttl > 0) {
                 // Forward to next hop if TTL allows
-                val result = forwardMessage(packet)
+                val result = forwardMessage(completePayload)
                 if (result.isSuccess) {
-                    Log.d(TAG, "Packet ${packet.messageId} forwarded (TTL: ${packet.ttl}, Hops: ${packet.hopCount})")
+                    Log.d(TAG, "Packet ${completePayload.messageId} forwarded (TTL: ${completePayload.ttl}, Hops: ${completePayload.hopCount})")
                 } else {
-                    Log.w(TAG, "Failed to forward packet ${packet.messageId}: ${result.exceptionOrNull()?.message}")
+                    Log.w(TAG, "Failed to forward packet ${completePayload.messageId}: ${result.exceptionOrNull()?.message}")
                 }
             } else {
                 // TTL exhausted, drop packet
-                Log.w(TAG, "Packet ${packet.messageId} dropped: TTL exhausted")
+                Log.w(TAG, "Packet ${completePayload.messageId} dropped: TTL exhausted")
             }
         }
-    }
     
     private suspend fun updateConnectedPeers() {
         val connectedAddresses = gattClientManager.getConnectedDevices()
@@ -430,8 +634,8 @@ class BLEMeshManagerImpl @Inject constructor(
         val peerCount = gattClientManager.getConnectionCount()
         _meshStatus.value = when {
             peerCount > 0 -> MeshStatus.Connected(peerCount)
-            bleScanner != null -> MeshStatus.Scanning
-            bleAdvertiser != null -> MeshStatus.Advertising
+            isScanning -> MeshStatus.Scanning
+            isAdvertising -> MeshStatus.Advertising
             else -> MeshStatus.Idle
         }
     }

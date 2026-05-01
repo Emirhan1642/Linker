@@ -14,9 +14,11 @@ import com.linker.app.data.local.entity.*
         NoteEntity::class, ChatEntity::class, MessageEntity::class,
         MessageQueueEntity::class, CommentEntity::class,
         MediaCacheEntity::class, NotificationEntity::class,
-        BleNodeEntity::class, MessageIdCacheEntity::class
+        BleNodeEntity::class, MessageIdCacheEntity::class,
+        SignalIdentityEntity::class, SignalSessionEntity::class,
+        SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -34,6 +36,10 @@ abstract class LinkerDatabase : RoomDatabase() {
     abstract fun notificationDao(): NotificationDao
     abstract fun bleNodeDao(): BleNodeDao
     abstract fun messageIdCacheDao(): MessageIdCacheDao
+    abstract fun signalIdentityDao(): SignalIdentityDao
+    abstract fun signalSessionDao(): SignalSessionDao
+    abstract fun signalPreKeyDao(): SignalPreKeyDao
+    abstract fun signalSignedPreKeyDao(): SignalSignedPreKeyDao
 
     companion object {
         const val DATABASE_NAME = "linker_database"
@@ -123,6 +129,46 @@ abstract class LinkerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add pendingKeyExchange field to message_queue table
                 db.execSQL("ALTER TABLE message_queue ADD COLUMN pendingKeyExchange INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Create Signal Protocol tables
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_identities (
+                        address TEXT PRIMARY KEY NOT NULL,
+                        identityKey BLOB NOT NULL,
+                        trustLevel INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """)
+                
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_sessions (
+                        address TEXT PRIMARY KEY NOT NULL,
+                        sessionRecord BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """)
+                
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_prekeys (
+                        preKeyId INTEGER PRIMARY KEY NOT NULL,
+                        preKeyRecord BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """)
+                
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_signed_prekeys (
+                        signedPreKeyId INTEGER PRIMARY KEY NOT NULL,
+                        signedPreKeyRecord BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL
+                    )
+                """)
             }
         }
     }

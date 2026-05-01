@@ -47,7 +47,8 @@ class ChatViewModel @Inject constructor(
     private val currentUserProvider: CurrentUserProvider,
     private val getUserDisplayNameUseCase: GetUserDisplayNameUseCase,
     private val loadMessageInfoUseCase: LoadMessageInfoUseCase,
-    private val getUserByIdUseCase: GetUserByIdUseCase
+    private val getUserByIdUseCase: GetUserByIdUseCase,
+    private val syncMessagesFromFirestoreUseCase: com.linker.app.domain.usecase.chat.SyncMessagesFromFirestoreUseCase
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -270,7 +271,12 @@ class ChatViewModel @Inject constructor(
             val name = if (isGroup) {
                 chat.chatName ?: "Group Chat"
             } else if (otherUser != null) {
-                resolveUserDisplayName(otherUser.userId)
+                try {
+                    resolveUserDisplayName(otherUser.userId)
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "Failed to resolve user display name: ${e.message}")
+                    otherUser.username.ifBlank { otherUser.userId }
+                }
             } else "Chat"
 
             // Compute canSendMessages from groupPermissions
@@ -293,12 +299,34 @@ class ChatViewModel @Inject constructor(
                 canSendMessages = canSend
             )
 
-            // Mark as read
-            markChatAsReadUseCase(actualChatId)
+            // Sync messages from Firestore to local DB (for offline access)
+            android.util.Log.d("ChatViewModel", "Syncing messages from Firestore for chat: $actualChatId")
+            viewModelScope.launch {
+                try {
+                    syncMessagesFromFirestoreUseCase(actualChatId)
+                    android.util.Log.d("ChatViewModel", "Message sync completed")
+                } catch (e: Exception) {
+                    android.util.Log.d("ChatViewModel", "Message sync failed (continuing anyway): ${e.message}")
+                    // Continue even if sync fails (e.g., offline)
+                }
+            }
 
-            // Observe messages
+            // Mark as read (skip if offline to avoid blocking)
+            android.util.Log.d("ChatViewModel", "About to mark chat as read for: $actualChatId")
+            viewModelScope.launch {
+                try {
+                    markChatAsReadUseCase(actualChatId)
+                    android.util.Log.d("ChatViewModel", "markChatAsReadUseCase completed")
+                } catch (e: Exception) {
+                    android.util.Log.e("ChatViewModel", "markChatAsReadUseCase failed (continuing anyway): ${e.message}")
+                    // Continue even if marking as read fails (e.g., offline)
+                }
+            }
+
+            // Observe messages (don't wait for markChatAsRead to complete)
+            android.util.Log.d("ChatViewModel", "About to call observeMessagesUseCase for chat: $actualChatId")
             observeMessagesUseCase(actualChatId).collect { messages ->
-                android.util.Log.d("ChatViewModel", "Received ${messages.size} messages from observeMessagesUseCase")
+                //android.util.Log.d("ChatViewModel", "Received ${messages.size} messages from observeMessagesUseCase")
                 val uiMessages = coroutineScope {
                     messages
                         .map { msg ->
@@ -340,7 +368,7 @@ class ChatViewModel @Inject constructor(
                         }
                         .awaitAll()
                 }
-                android.util.Log.d("ChatViewModel", "Converted to ${uiMessages.size} UI messages")
+                //android.util.Log.d("ChatViewModel", "Converted to ${uiMessages.size} UI messages")
                 _messageState.value = _messageState.value.copy(
                     isLoading = false,
                     messages = uiMessages
@@ -356,6 +384,9 @@ class ChatViewModel @Inject constructor(
                     markChatAsReadUpToUseCase(actualChatId, latestIncoming)
                 }
             }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Job was cancelled (user navigated away) — this is normal, don't log as error
+                android.util.Log.d("ChatViewModel", "Chat loading cancelled (user navigated away)")
             } catch (e: Exception) {
                 android.util.Log.e("ChatViewModel", "Error in openChat", e)
                 _messageState.value = _messageState.value.copy(

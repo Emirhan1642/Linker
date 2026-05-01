@@ -22,6 +22,7 @@ sealed interface Route {
     @Serializable data class StoryViewer(val userId: String) : Route
 
     @Serializable data object Settings : Route
+    @Serializable data object OfflineMessagingSettings : Route
     @Serializable data object AccountCenter : Route
     @Serializable data object AddAccountAuth : Route
 

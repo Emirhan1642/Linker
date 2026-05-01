@@ -34,7 +34,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
@@ -80,26 +83,61 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override fun observeMessages(chatId: String): Flow<List<Message>> {
-        val firestoreFlow = callbackFlow {
-            val listener = messagesRef(chatId)
-                .orderBy("createdAt", Query.Direction.ASCENDING)
-                .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        trySend(emptyList())
-                        return@addSnapshotListener
-                    }
-                    val messages = snapshot?.documents?.mapNotNull { doc ->
-                        doc.data?.let { mapToMessageSync(doc.id, it) }
-                    } ?: emptyList()
-                    trySend(messages)
+        return connectivityMonitor.observeConnectivityState().flatMapLatest { connectivityState ->
+            val isOnline = connectivityState is com.linker.app.data.connectivity.ConnectivityState.Online
+            
+            android.util.Log.d("MessageRepository", "observeMessages: connectivity changed to $connectivityState for chat $chatId")
+            
+            val firestoreFlow = if (isOnline) {
+                //android.util.Log.d("MessageRepository", "Online mode: listening to Firestore for chat $chatId")
+                callbackFlow {
+                    val listener = messagesRef(chatId)
+                        .orderBy("createdAt", Query.Direction.ASCENDING)
+                        .addSnapshotListener { snapshot, error ->
+                            if (error != null) {
+                                //android.util.Log.d("MessageRepository", "Firestore listener error for chat $chatId: ${error.message}")
+                                trySend(emptyList())
+                                return@addSnapshotListener
+                            }
+                            val messages = snapshot?.documents?.mapNotNull { doc ->
+                                doc.data?.let { mapToMessageSync(doc.id, it) }
+                            } ?: emptyList()
+                            
+                            // Save messages to local database for offline access
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                try {
+                                    messages.forEach { message ->
+                                        saveMessageToLocal(message, chatId)
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e("MessageRepository", "Error saving messages to local: ${e.message}")
+                                }
+                            }
+                            
+                            //android.util.Log.d("MessageRepository", "Firestore emitted ${messages.size} messages for chat $chatId")
+                            trySend(messages)
+                        }
+                    awaitClose { listener.remove() }
                 }
-            awaitClose { listener.remove() }
-        }
-        val roomFlow = messageDao.observeMessagesByChat(chatId).map { entities ->
-            entities.map { entity -> messageEntityToDomainSync(entity) }
-        }
-        return combine(firestoreFlow, roomFlow) { remote, local ->
-            mergeMessagesById(local, remote)
+            } else {
+                //android.util.Log.d("MessageRepository", "Offline mode: not listening to Firestore for chat $chatId")
+                flowOf(emptyList())
+            }
+            
+            val roomFlow = messageDao.observeMessagesByChat(chatId).map { entities ->
+                //android.util.Log.d("MessageRepository", "Local DB emitted ${entities.size} messages for chat $chatId")
+                entities.map { entity -> messageEntityToDomainSync(entity) }
+            }
+            
+            combine(firestoreFlow, roomFlow) { remote, local ->
+                //android.util.Log.d("MessageRepository", "Combining: remote=${remote.size}, local=${local.size} for chat $chatId")
+                if (remote.isEmpty() && local.isNotEmpty()) {
+                    //android.util.Log.d("MessageRepository", "Using local messages for chat $chatId (Firestore unavailable)")
+                    local
+                } else {
+                    mergeMessagesById(local, remote)
+                }
+            }
         }
     }
 
@@ -139,6 +177,63 @@ class MessageRepositoryImpl @Inject constructor(
         }.reversed()
     }
 
+    /**
+     * Sync messages from Firestore to local database
+     * Used when opening a chat to ensure all messages are available offline
+     */
+    suspend fun syncMessagesFromFirestore(chatId: String): Result<Unit> = safeCall {
+        //android.util.Log.d("MessageRepository", "Syncing messages from Firestore for chat $chatId")
+        
+        // Get all messages from Firestore (limit to last 500 for performance)
+        val snapshot = messagesRef(chatId)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(500)
+            .get()
+            .await()
+        
+        val messages = snapshot.documents.mapNotNull { doc ->
+            doc.data?.let { mapToMessageSync(doc.id, it) }
+        }
+        
+        //android.util.Log.d("MessageRepository", "Downloaded ${messages.size} messages from Firestore for chat $chatId")
+        
+        // Save to local database
+        messages.forEach { message ->
+            val entity = MessageEntity(
+                messageId = message.messageId,
+                chatId = chatId,
+                senderId = message.sender.userId,
+                content = message.content,
+                messageType = when (message.messageType) {
+                    MessageType.TEXT -> com.linker.app.data.local.entity.MessageType.TEXT
+                    MessageType.IMAGE -> com.linker.app.data.local.entity.MessageType.IMAGE
+                    MessageType.VIDEO -> com.linker.app.data.local.entity.MessageType.VIDEO
+                    MessageType.AUDIO -> com.linker.app.data.local.entity.MessageType.AUDIO
+                    MessageType.FILE -> com.linker.app.data.local.entity.MessageType.FILE
+                    else -> {com.linker.app.data.local.entity.MessageType.TEXT}
+                },
+                createdAt = message.createdAt,
+                updatedAt = message.updatedAt,
+                messageStatus = when (message.messageStatus) {
+                    MessageStatus.SENDING -> EntityMessageStatus.SENDING
+                    MessageStatus.SENT -> EntityMessageStatus.SENT
+                    MessageStatus.DELIVERED -> EntityMessageStatus.DELIVERED
+                    MessageStatus.READ -> EntityMessageStatus.READ
+                    MessageStatus.FAILED -> EntityMessageStatus.FAILED
+                },
+                isDeleted = message.isDeleted,
+                deletedForEveryone = message.deletedForEveryone,
+                replyToMessageId = message.replyToMessage?.messageId,
+                reactions = message.reactions,
+                readAt = message.readAt,
+                deliveryMethod = EntityDeliveryMethod.ONLINE
+            )
+            messageDao.insertMessage(entity)
+        }
+        
+        //android.util.Log.d("MessageRepository", "Saved ${messages.size} messages to local DB for chat $chatId")
+    }
+
     override suspend fun sendMessage(
         chatId: String,
         messageType: MessageType,
@@ -172,6 +267,7 @@ class MessageRepositoryImpl @Inject constructor(
         val connectivityState = connectivityMonitor.observeConnectivityState().first()
         val isConnected = connectivityState is com.linker.app.data.connectivity.ConnectivityState.Online
         val deliveryMethod = if (isConnected) DeliveryMethod.ONLINE else DeliveryMethod.BLE
+        android.util.Log.d("MessageRepository", "sendMessage: connectivityState=$connectivityState, isConnected=$isConnected, deliveryMethod=$deliveryMethod")
 
         return safeCall {
             val messageId = UUID.randomUUID().toString()
@@ -226,8 +322,8 @@ class MessageRepositoryImpl @Inject constructor(
                     messageId = messageId,
                     chatId = chatId,
                     recipientId = recipientId,
-                    content = content ?: "",
-                    messageType = messageType
+                    payload = content ?: "",
+                    deliveryMethod = com.linker.app.data.local.entity.DeliveryMethod.BLE
                 )
             }
 
@@ -343,7 +439,14 @@ class MessageRepositoryImpl @Inject constructor(
                 chatUpdates["unreadCounts.$uid"] = FieldValue.increment(1)
             }
         batch.update(chatsCollection.document(chatId), chatUpdates)
-        batch.commit().await()
+        
+        try {
+            batch.commit().await()
+            android.util.Log.d("MessageRepository", "Message sent successfully: $messageId")
+        } catch (e: Exception) {
+            android.util.Log.e("MessageRepository", "Failed to send message: ${e.message}", e)
+            throw e
+        }
     }
 
     private suspend fun getSender(): User {
@@ -426,6 +529,50 @@ class MessageRepositoryImpl @Inject constructor(
         )
         messageDao.insertMessage(localMessage)
     }
+    
+    /**
+     * Save a message from Firestore to local database
+     * Used for offline access
+     */
+    private suspend fun saveMessageToLocal(message: Message, chatId: String) {
+        try {
+            val entity = MessageEntity(
+                messageId = message.messageId,
+                chatId = chatId,
+                senderId = message.sender.userId,
+                content = message.content,
+                messageType = domainMessageTypeToEntity(message.messageType),
+                createdAt = message.createdAt,
+                updatedAt = message.updatedAt,
+                messageStatus = when (message.messageStatus) {
+                    MessageStatus.SENDING -> EntityMessageStatus.SENDING
+                    MessageStatus.SENT -> EntityMessageStatus.SENT
+                    MessageStatus.DELIVERED -> EntityMessageStatus.DELIVERED
+                    MessageStatus.READ -> EntityMessageStatus.READ
+                    MessageStatus.FAILED -> EntityMessageStatus.FAILED
+                },
+                isDeleted = message.isDeleted,
+                deletedForEveryone = message.deletedForEveryone,
+                replyToMessageId = message.replyToMessage?.messageId,
+                reactions = message.reactions,
+                readAt = message.readAt,
+                deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
+                mediaUrl = null,
+                thumbnailUrl = null,
+                mediaWidth = null,
+                mediaHeight = null,
+                mediaDuration = null,
+                sharedLinkId = null,
+                forwardedFromMessageId = null,
+                isEdited = false,
+                encryptedContent = null,
+                deliveredAt = null
+            )
+            messageDao.insertMessage(entity)
+        } catch (e: Exception) {
+            android.util.Log.e("MessageRepository", "Error saving message ${message.messageId} to local: ${e.message}")
+        }
+    }
 
     private suspend fun updateChatLastMessage(chatId: String, messageId: String, content: String?, now: Long) {
         val displayText = content ?: "[Media]"
@@ -439,19 +586,58 @@ class MessageRepositoryImpl @Inject constructor(
         participantIds: List<String>,
         now: Long
     ) {
-        val updates = mutableMapOf<String, Any>(
-            "lastMessageText" to (content ?: "[Media]"),
-            "lastMessageAt" to now,
-            "lastMessageId" to messageId,
-            "updatedAt" to now,
-            "unreadCounts.$currentUserId" to 0
-        )
-        participantIds
-            .filter { it.isNotBlank() && it != currentUserId }
-            .forEach { uid ->
-                updates["unreadCounts.$uid"] = FieldValue.increment(1)
-            }
-        chatsCollection.document(chatId).update(updates).await()
+        try {
+            val batch = firestore.batch()
+            
+            // Create message document in Firestore
+            val messageData = buildFirestoreMessagePayload(
+                messageId = messageId,
+                chatId = chatId,
+                senderId = currentUserId,
+                messageType = MessageType.TEXT,
+                content = content,
+                mediaUrl = null,
+                thumbnailUrl = null,
+                mediaWidth = null,
+                mediaHeight = null,
+                mediaDuration = null,
+                sharedLinkId = null,
+                replyToMessageId = null,
+                forwardedFromMessageId = null,
+                participantIds = participantIds,
+                deliveryMethod = DeliveryMethod.BLE,
+                messageStatus = MessageStatus.SENDING,
+                createdAt = now,
+                updatedAt = now
+            )
+            
+            val messageWithDelivery = messageData.toMutableMap()
+            messageWithDelivery["deliveredAt"] = now
+            messageWithDelivery["deliveryReceipts"] = mapOf(currentUserId to now)
+            
+            batch.set(messagesRef(chatId).document(messageId), messageWithDelivery)
+            
+            // Update chat document
+            val updates = mutableMapOf<String, Any>(
+                "lastMessageText" to (content ?: "[Media]"),
+                "lastMessageAt" to now,
+                "lastMessageId" to messageId,
+                "updatedAt" to now,
+                "unreadCounts.$currentUserId" to 0
+            )
+            participantIds
+                .filter { it.isNotBlank() && it != currentUserId }
+                .forEach { uid ->
+                    updates["unreadCounts.$uid"] = FieldValue.increment(1)
+                }
+            batch.update(chatsCollection.document(chatId), updates)
+            
+            batch.commit().await()
+            android.util.Log.d("MessageRepository", "Offline message synced to Firestore: $messageId")
+        } catch (e: Exception) {
+            android.util.Log.e("MessageRepository", "Failed to sync offline message to Firestore: ${e.message}", e)
+            // Don't throw — message is already in local database and queue
+        }
     }
 
     private suspend fun sendNotificationsIfNeeded(

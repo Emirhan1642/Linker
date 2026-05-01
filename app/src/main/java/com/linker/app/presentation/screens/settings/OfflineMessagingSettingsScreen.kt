@@ -1,5 +1,7 @@
 package com.linker.app.presentation.screens.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -42,6 +44,17 @@ fun OfflineMessagingSettingsScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        val permanentlyDenied = permissions.any { (_, granted) ->
+            !granted
+        }
+        viewModel.onPermissionResult(allGranted, permanentlyDenied)
+    }
+    
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -54,7 +67,32 @@ fun OfflineMessagingSettingsScreen(
         PermissionRationaleDialog(
             permissionType = uiState.permissionType,
             onDismiss = { viewModel.dismissPermissionRationale() },
-            onConfirm = { viewModel.requestPermissions() }
+            onConfirm = {
+                viewModel.dismissPermissionRationale()
+                // Request permissions based on type
+                val permissions = when (uiState.permissionType) {
+                    "bluetooth" -> arrayOf(
+                        android.Manifest.permission.BLUETOOTH_SCAN,
+                        android.Manifest.permission.BLUETOOTH_CONNECT,
+                        android.Manifest.permission.BLUETOOTH_ADVERTISE,
+                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                    )
+                    "location" -> arrayOf(
+                        android.Manifest.permission.ACCESS_FINE_LOCATION,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                    "nearby" -> arrayOf(
+                        android.Manifest.permission.NEARBY_WIFI_DEVICES
+                    )
+                    else -> arrayOf(
+                        android.Manifest.permission.BLUETOOTH_SCAN,
+                        android.Manifest.permission.BLUETOOTH_CONNECT,
+                        android.Manifest.permission.BLUETOOTH_ADVERTISE,
+                        android.Manifest.permission.ACCESS_FINE_LOCATION
+                    )
+                }
+                permissionLauncher.launch(permissions)
+            }
         )
     }
     
@@ -62,6 +100,13 @@ fun OfflineMessagingSettingsScreen(
         PermissionSettingsDialog(
             onDismiss = { viewModel.dismissPermissionSettings() },
             onOpenSettings = { viewModel.openAppSettings() }
+        )
+    }
+    
+    if (uiState.showBluetoothDialog) {
+        BluetoothDialog(
+            onDismiss = { viewModel.dismissBluetoothDialog() },
+            onEnable = { viewModel.enableBluetooth() }
         )
     }
     
@@ -581,6 +626,34 @@ private fun PermissionSettingsDialog(
         confirmButton = {
             TextButton(onClick = onOpenSettings) {
                 Text("Open Settings", color = AccentGreen)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = TextSecondary)
+            }
+        },
+        containerColor = DarkGray
+    )
+}
+
+@Composable
+private fun BluetoothDialog(
+    onDismiss: () -> Unit,
+    onEnable: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Bluetooth Disabled", color = TextPrimary) },
+        text = {
+            Text(
+                "Offline messaging requires Bluetooth to be enabled. Would you like to enable it now?",
+                color = TextSecondary
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onEnable) {
+                Text("Enable", color = AccentGreen)
             }
         },
         dismissButton = {

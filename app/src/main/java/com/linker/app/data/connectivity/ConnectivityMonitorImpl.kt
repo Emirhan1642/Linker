@@ -34,6 +34,7 @@ class ConnectivityMonitorImpl @Inject constructor(
         
         override fun onAvailable(network: Network) {
             // Network is available, but we need to check capabilities
+            android.util.Log.d("ConnectivityMonitor", "onAvailable: network=$network")
             updateConnectivityState(network)
         }
         
@@ -51,14 +52,18 @@ class ConnectivityMonitorImpl @Inject constructor(
                 NetworkCapabilities.NET_CAPABILITY_NOT_METERED
             )
             
+            android.util.Log.d("ConnectivityMonitor", "onCapabilitiesChanged: hasInternet=$hasInternet, isValidated=$isValidated, isMetered=$isMetered")
+            
             _connectivityState.value = when {
                 hasInternet && isValidated -> ConnectivityState.Online
                 hasInternet && !isValidated -> ConnectivityState.Limited(isMetered)
                 else -> ConnectivityState.Offline
             }
+            android.util.Log.d("ConnectivityMonitor", "State updated to: ${_connectivityState.value}")
         }
         
         override fun onLost(network: Network) {
+            android.util.Log.d("ConnectivityMonitor", "onLost: network=$network")
             _connectivityState.value = ConnectivityState.Offline
         }
     }
@@ -75,6 +80,7 @@ class ConnectivityMonitorImpl @Inject constructor(
         
         // Initialize current state
         updateConnectivityState(connectivityManager.activeNetwork)
+        android.util.Log.d("ConnectivityMonitor", "startMonitoring: initial state = ${_connectivityState.value}")
     }
     
     override fun stopMonitoring() {

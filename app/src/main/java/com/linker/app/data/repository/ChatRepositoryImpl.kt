@@ -1,7 +1,9 @@
 package com.linker.app.data.repository
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import java.util.UUID
 import com.google.firebase.firestore.FirebaseFirestore
@@ -19,6 +21,7 @@ import com.linker.app.data.local.entity.DeliveryMethod as EntityDeliveryMethod
 import com.linker.app.data.local.entity.MessageStatus as EntityMessageStatus
 import com.linker.app.data.local.entity.MessageType as EntityMessageType
 import com.linker.app.data.local.entity.QueueStatus
+import com.linker.app.data.local.entity.UserEntity
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.*
 import com.linker.app.domain.repository.ChatRepository
@@ -27,9 +30,15 @@ import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.repository.ReadReceiptRepository
 import com.linker.app.domain.repository.ChatSettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -66,28 +75,61 @@ class ChatRepositoryImpl @Inject constructor(
 
     // ── Chat list ──────────────────────────────────────────────────────────
 
-    override fun observeChats(): Flow<List<Chat>> = callbackFlow {
+    override fun observeChats(): Flow<List<Chat>> {
         if (currentUserId.isBlank()) {
-            trySend(emptyList())
-            awaitClose { }
-            return@callbackFlow
+            return flowOf(emptyList())
         }
 
-        val listener = chatsCollection
-            .whereArrayContains("participantIds", currentUserId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    trySend(emptyList())
-                    return@addSnapshotListener
+        // Merge Firestore and local database flows
+        val firestoreFlow = callbackFlow {
+            val listener = chatsCollection
+                .whereArrayContains("participantIds", currentUserId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        // Firestore error - don't emit, let local flow handle it
+                        Log.d("ChatRepository", "Firestore error: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    val chats = snapshot?.documents?.mapNotNull { doc ->
+                        val data = doc.data ?: return@mapNotNull null
+                        if (isUserArchivedChat(data)) return@mapNotNull null
+                        mapToChatSync(doc.id, data)
+                    }?.sortedByDescending { it.updatedAt } ?: emptyList()
+                    
+                    // Save chats to local database for offline access
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            chats.forEach { chat ->
+                                saveChatToLocal(chat)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ChatRepository", "Error saving chats to local: ${e.message}")
+                        }
+                    }
+                    
+                    trySend(chats)
                 }
-                val chats = snapshot?.documents?.mapNotNull { doc ->
-                    val data = doc.data ?: return@mapNotNull null
-                    if (isUserArchivedChat(data)) return@mapNotNull null
-                    mapToChatSync(doc.id, data)
-                }?.sortedByDescending { it.updatedAt } ?: emptyList()
-                trySend(chats)
+            awaitClose { listener.remove() }
+        }
+        
+        val localFlow = chatDao.observeActiveChats().map { entities ->
+            entities.mapNotNull { entity ->
+                try {
+                    val participants = entity.participantIds.map { uid ->
+                        userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
+                    }
+                    val lastMessage = entity.lastMessageId?.let { mid ->
+                        messageDao.getMessageById(mid)?.let { messageEntityToDomainSync(it) }
+                    }
+                    entity.toDomain(participants, lastMessage)
+                } catch (e: Exception) {
+                    null
+                }
             }
-        awaitClose { listener.remove() }
+        }
+        
+        // Merge flows: Firestore takes priority, but local DB is fallback
+        return merge(firestoreFlow, localFlow)
     }
 
     override fun observeArchivedChats(): Flow<List<Chat>> = callbackFlow {
@@ -143,9 +185,28 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getChatById(chatId: String): Result<Chat> = safeCall {
-        val doc = chatsCollection.document(chatId).get().await()
-        val data = doc.data ?: throw Exception("Chat not found")
-        mapToChat(doc.id, data)
+        try {
+            val doc = chatsCollection.document(chatId).get().await()
+            val data = doc.data ?: throw Exception("Chat not found")
+            mapToChat(doc.id, data)
+        } catch (e: Exception) {
+            // If Firestore fails (e.g., offline), try local database
+            Log.d("ChatRepository", "Firestore getChatById failed: ${e.message}, trying local DB")
+            val localChat = chatDao.getChatById(chatId)
+            if (localChat != null) {
+                Log.d("ChatRepository", "Found chat in local DB: $chatId")
+                val participants = localChat.participantIds.map { uid ->
+                    userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
+                }
+                val lastMessage = localChat.lastMessageId?.let { mid ->
+                    messageDao.getMessageById(mid)?.let { messageEntityToDomainSync(it) }
+                }
+                localChat.toDomain(participants, lastMessage)
+            } else {
+                Log.e("ChatRepository", "Chat not found in Firestore or local DB: $chatId")
+                throw e
+            }
+        }
     }
 
     override suspend fun createPrivateChat(recipientUserId: String): Result<Chat> = safeCall {
@@ -390,7 +451,7 @@ class ChatRepositoryImpl @Inject constructor(
      * Add in-memory cache (messageId -> chatId) to avoid Firestore queries
      * for frequently accessed messages. Consider using LruCache with 100 entries.
      */
-    private suspend fun resolveMessageRef(messageId: String): com.google.firebase.firestore.DocumentReference {
+    private suspend fun resolveMessageRef(messageId: String): DocumentReference {
         // Fast path: Check local database first
         val local = messageDao.getMessageById(messageId)
         if (local != null) {
@@ -539,9 +600,9 @@ class ChatRepositoryImpl @Inject constructor(
 
         val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
         val chatType = if (chatTypeStr == "GROUP") {
-            com.linker.app.domain.model.ChatType.GROUP
+            ChatType.GROUP
         } else {
-            com.linker.app.domain.model.ChatType.PRIVATE
+            ChatType.PRIVATE
         }
 
         val unreadCounts = data["unreadCounts"] as? Map<*, *>
@@ -584,9 +645,9 @@ class ChatRepositoryImpl @Inject constructor(
 
         val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
         val chatType = if (chatTypeStr == "GROUP") {
-            com.linker.app.domain.model.ChatType.GROUP
+            ChatType.GROUP
         } else {
-            com.linker.app.domain.model.ChatType.PRIVATE
+            ChatType.PRIVATE
         }
 
         val unreadCounts = data["unreadCounts"] as? Map<*, *>
@@ -653,7 +714,7 @@ class ChatRepositoryImpl @Inject constructor(
                 messageId = replyToMessageId,
                 chatId = data["chatId"] as? String ?: "",
                 sender = senderStub,
-                messageType = com.linker.app.domain.model.MessageType.TEXT,
+                messageType = MessageType.TEXT,
                 content = null,
                 mediaUrl = null,
                 thumbnailUrl = null,
@@ -666,8 +727,8 @@ class ChatRepositoryImpl @Inject constructor(
                 isEdited = false,
                 isDeleted = false,
                 deletedForEveryone = false,
-                messageStatus = com.linker.app.domain.model.MessageStatus.SENT,
-                deliveryMethod = com.linker.app.domain.model.DeliveryMethod.ONLINE,
+                messageStatus = MessageStatus.SENT,
+                deliveryMethod = DeliveryMethod.ONLINE,
                 createdAt = 0L,
                 updatedAt = 0L,
                 deliveredAt = null,
@@ -680,9 +741,9 @@ class ChatRepositoryImpl @Inject constructor(
             chatId = data["chatId"] as? String ?: "",
             sender = senderStub,
             messageType = try {
-                com.linker.app.domain.model.MessageType.valueOf(data["messageType"] as? String ?: "TEXT")
+                MessageType.valueOf(data["messageType"] as? String ?: "TEXT")
             } catch (_: Exception) {
-                com.linker.app.domain.model.MessageType.TEXT
+                MessageType.TEXT
             },
             content = data["content"] as? String,
             mediaUrl = data["mediaUrl"] as? String,
@@ -697,14 +758,14 @@ class ChatRepositoryImpl @Inject constructor(
             isDeleted = data["isDeleted"] as? Boolean ?: false,
             deletedForEveryone = data["deletedForEveryone"] as? Boolean ?: false,
             messageStatus = try {
-                com.linker.app.domain.model.MessageStatus.valueOf(data["messageStatus"] as? String ?: "SENT")
+                MessageStatus.valueOf(data["messageStatus"] as? String ?: "SENT")
             } catch (_: Exception) {
-                com.linker.app.domain.model.MessageStatus.SENT
+                MessageStatus.SENT
             },
             deliveryMethod = try {
-                com.linker.app.domain.model.DeliveryMethod.valueOf(data["deliveryMethod"] as? String ?: "ONLINE")
+                DeliveryMethod.valueOf(data["deliveryMethod"] as? String ?: "ONLINE")
             } catch (_: Exception) {
-                com.linker.app.domain.model.DeliveryMethod.ONLINE
+                DeliveryMethod.ONLINE
             },
             createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
@@ -808,6 +869,68 @@ class ChatRepositoryImpl @Inject constructor(
         val allowed = admins.contains(currentUserId) ||
             (admins.isEmpty() && createdBy == currentUserId)
         if (!allowed) throw Exception("Admin only")
+    }
+    
+    /**
+     * Save a chat from Firestore to local database
+     * Used for offline access
+     */
+    private suspend fun saveChatToLocal(chat: Chat) {
+        try {
+            val entity = ChatEntity(
+                chatId = chat.chatId,
+                chatType = if (chat.chatType == ChatType.GROUP) EntityChatType.GROUP else EntityChatType.PRIVATE,
+                chatName = chat.chatName,
+                chatImageUrl = chat.chatImageUrl,
+                participantIds = chat.participants.map { it.userId },
+                lastMessageId = chat.lastMessage?.messageId,
+                lastMessageText = chat.lastMessage?.content,
+                lastMessageAt = chat.lastMessage?.createdAt,
+                unreadCount = chat.unreadCount,
+                isPinned = chat.isPinned,
+                isMuted = chat.isMuted,
+                isArchived = chat.isArchived,
+                isBlocked = chat.isBlocked,
+                isFavorited = chat.isFavorited,
+                createdAt = chat.createdAt,
+                updatedAt = chat.updatedAt
+            )
+            chatDao.insertChat(entity)
+            
+            // Also save participants to user cache
+            chat.participants.forEach { user ->
+                try {
+                    val userEntity = UserEntity(
+                        userId = user.userId,
+                        username = user.username,
+                        displayName = user.displayName,
+                        profileImageUrl = user.profileImageUrl,
+                        bio = user.bio,
+                        email = user.email,
+                        phoneNumber = user.phoneNumber,
+                        coverImageUrl = user.coverImageUrl,
+                        isVerified = user.isVerified,
+                        followersCount = user.followersCount,
+                        followingCount = user.followingCount,
+                        likesCount = user.likesCount,
+                        isFollowing = user.isFollowing,
+                        isFollowedBy = user.isFollowedBy,
+                        isBlocked = user.isBlocked,
+                        isMuted = user.isMuted,
+                        isPrivate = user.isPrivate,
+                        followRequestSent = user.followRequestSent,
+                        hideFollowLists = user.hideFollowLists,
+                        createdAt = user.createdAt,
+                        updatedAt = user.updatedAt
+                    )
+                    userDao.insertUser(userEntity)
+                } catch (e: Exception) {
+                    // Ignore user save errors
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error saving chat ${chat.chatId} to local: ${e.message}")
+        }
     }
 
     // ✅ PAGINATION: Load messages with cursor-based pagination

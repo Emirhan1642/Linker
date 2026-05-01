@@ -39,7 +39,7 @@ interface NearbyConnectionsManager {
         onProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit
     ): Result<File>
     fun observeDiscoveredEndpoints(): Flow<List<NearbyEndpoint>>
-    fun observeTransferProgress(): Flow<TransferProgress>
+    fun observeTransferProgress(): Flow<TransferProgress?>
 }
 
 data class NearbyEndpoint(

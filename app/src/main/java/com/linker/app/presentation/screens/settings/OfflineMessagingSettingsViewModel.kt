@@ -7,6 +7,7 @@ import android.provider.Settings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.linker.app.data.ble.BLEMeshManager
+import com.linker.app.data.bluetooth.BluetoothManager
 import com.linker.app.data.permission.PermissionManager
 import com.linker.app.data.queue.MessageQueueProcessor
 import com.linker.app.data.service.OfflineMessagingServiceManager
@@ -49,7 +50,11 @@ data class OfflineMessagingSettingsUiState(
     // Permission state
     val showPermissionRationale: Boolean = false,
     val showPermissionSettings: Boolean = false,
-    val permissionType: String = ""
+    val permissionType: String = "",
+    
+    // Bluetooth state
+    val isBluetoothEnabled: Boolean = false,
+    val showBluetoothDialog: Boolean = false
 )
 
 @HiltViewModel
@@ -58,7 +63,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     private val serviceManager: OfflineMessagingServiceManager,
     private val bleMeshManager: BLEMeshManager,
     private val messageQueueProcessor: MessageQueueProcessor,
-    private val permissionManager: PermissionManager
+    private val permissionManager: PermissionManager,
+    private val bluetoothManager: BluetoothManager
 ) : AndroidViewModel(application) {
     
     private val _uiState = MutableStateFlow(OfflineMessagingSettingsUiState())
@@ -69,6 +75,35 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
         observeServiceStatus()
         observeMeshStatus()
         observeQueueStatus()
+        checkBluetoothStatus()
+        observeBluetoothStateChanges()
+        bluetoothManager.startListening()
+    }
+    
+    /**
+     * Check Bluetooth status
+     */
+    private fun checkBluetoothStatus() {
+        viewModelScope.launch {
+            val isEnabled = bluetoothManager.isBluetoothEnabled()
+            _uiState.update { it.copy(isBluetoothEnabled = isEnabled) }
+        }
+    }
+    
+    /**
+     * Observe Bluetooth state changes
+     */
+    private fun observeBluetoothStateChanges() {
+        viewModelScope.launch {
+            bluetoothManager.observeBluetoothState().collect { isEnabled ->
+                _uiState.update { it.copy(isBluetoothEnabled = isEnabled) }
+            }
+        }
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        bluetoothManager.stopListening()
     }
     
     /**
@@ -127,11 +162,24 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     
     /**
      * Toggle offline messaging on/off
+     * @param enabled Whether to enable or disable
+     * @param skipPermissionCheck If true, skip permission check (used after permissions are granted)
      */
-    fun toggleOfflineMessaging(enabled: Boolean) {
+    fun toggleOfflineMessaging(enabled: Boolean, skipPermissionCheck: Boolean = false) {
+        android.util.Log.d("OfflineMessagingVM", "toggleOfflineMessaging called: enabled=$enabled, skipPermissionCheck=$skipPermissionCheck")
         viewModelScope.launch {
-            // Check permissions first
-            if (enabled && !permissionManager.hasAllPermissions()) {
+            // Check Bluetooth first
+            if (enabled && !bluetoothManager.isBluetoothEnabled()) {
+                android.util.Log.d("OfflineMessagingVM", "Bluetooth is disabled, showing dialog")
+                _uiState.update { it.copy(
+                    showBluetoothDialog = true
+                )}
+                return@launch
+            }
+            
+            // Check permissions
+            if (enabled && !skipPermissionCheck && !permissionManager.hasAllPermissions()) {
+                android.util.Log.d("OfflineMessagingVM", "Permissions not granted, showing dialog")
                 _uiState.update { it.copy(
                     showPermissionRationale = true,
                     permissionType = "bluetooth"
@@ -139,11 +187,14 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 return@launch
             }
             
+            android.util.Log.d("OfflineMessagingVM", "All checks passed, toggling service")
             _uiState.update { it.copy(isTogglingService = true) }
             
             try {
                 if (enabled) {
+                    android.util.Log.d("OfflineMessagingVM", "Calling serviceManager.startService()")
                     val started = serviceManager.startService()
+                    android.util.Log.d("OfflineMessagingVM", "serviceManager.startService() returned: $started")
                     if (started) {
                         _uiState.update { it.copy(
                             isOfflineMessagingEnabled = true,
@@ -155,7 +206,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                         )}
                     }
                 } else {
+                    android.util.Log.d("OfflineMessagingVM", "Calling serviceManager.stopService()")
                     val stopped = serviceManager.stopService()
+                    android.util.Log.d("OfflineMessagingVM", "serviceManager.stopService() returned: $stopped")
                     if (stopped) {
                         _uiState.update { it.copy(
                             isOfflineMessagingEnabled = false,
@@ -168,6 +221,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
+                android.util.Log.e("OfflineMessagingVM", "Exception in toggleOfflineMessaging: ${e.message}", e)
                 _uiState.update { it.copy(
                     snackbarMessage = "Error: ${e.message}"
                 )}
@@ -314,8 +368,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(
                 snackbarMessage = "Permission granted"
             )}
-            // Try to enable offline messaging again
-            toggleOfflineMessaging(true)
+            // Try to enable offline messaging again, skipping permission check
+            // since we just granted the permissions
+            toggleOfflineMessaging(true, skipPermissionCheck = true)
         } else if (permanentlyDenied) {
             _uiState.update { it.copy(
                 showPermissionSettings = true
@@ -364,5 +419,77 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
      */
     fun dismissSnackbar() {
         _uiState.update { it.copy(snackbarMessage = null) }
+    }
+    
+    /**
+     * Enable Bluetooth
+     */
+    fun enableBluetooth() {
+        viewModelScope.launch {
+            android.util.Log.d("OfflineMessagingVM", "enableBluetooth() called")
+            
+            // Check if BLUETOOTH_CONNECT permission is granted
+            if (!bluetoothManager.hasBluetoothConnectPermission()) {
+                android.util.Log.e("OfflineMessagingVM", "BLUETOOTH_CONNECT permission not granted")
+                _uiState.update { it.copy(
+                    showBluetoothDialog = false,
+                    showPermissionRationale = true,
+                    permissionType = "bluetooth",
+                    snackbarMessage = "Bluetooth permission required"
+                )}
+                return@launch
+            }
+            
+            android.util.Log.d("OfflineMessagingVM", "Permission granted, calling enableBluetooth()")
+            
+            // Send enable request
+            val requestSent = bluetoothManager.enableBluetooth()
+            android.util.Log.d("OfflineMessagingVM", "enableBluetooth() returned: $requestSent")
+            
+            if (requestSent) {
+                _uiState.update { it.copy(
+                    showBluetoothDialog = false,
+                    snackbarMessage = "Enabling Bluetooth..."
+                )}
+                
+                // Wait for Bluetooth to actually enable (up to 5 seconds)
+                var isEnabled = false
+                for (i in 0..10) {
+                    kotlinx.coroutines.delay(500)
+                    isEnabled = bluetoothManager.isBluetoothEnabled()
+                    android.util.Log.d("OfflineMessagingVM", "Check $i: isBluetoothEnabled = $isEnabled")
+                    if (isEnabled) break
+                }
+                
+                if (isEnabled) {
+                    android.util.Log.d("OfflineMessagingVM", "Bluetooth is now enabled")
+                    _uiState.update { it.copy(
+                        isBluetoothEnabled = true,
+                        snackbarMessage = "Bluetooth enabled"
+                    )}
+                    // Try to enable offline messaging again
+                    toggleOfflineMessaging(true, skipPermissionCheck = true)
+                } else {
+                    android.util.Log.e("OfflineMessagingVM", "Bluetooth is still disabled after 5 seconds")
+                    _uiState.update { it.copy(
+                        snackbarMessage = "Opening Bluetooth settings..."
+                    )}
+                    // Open Bluetooth settings for manual enable
+                    bluetoothManager.openBluetoothSettings(application)
+                }
+            } else {
+                android.util.Log.e("OfflineMessagingVM", "enableBluetooth() returned false")
+                _uiState.update { it.copy(
+                    snackbarMessage = "Failed to enable Bluetooth"
+                )}
+            }
+        }
+    }
+    
+    /**
+     * Dismiss Bluetooth dialog
+     */
+    fun dismissBluetoothDialog() {
+        _uiState.update { it.copy(showBluetoothDialog = false) }
     }
 }

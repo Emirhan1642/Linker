@@ -4,7 +4,11 @@ import com.linker.app.data.local.dao.*
 import com.linker.app.data.local.entity.*
 import kotlinx.coroutines.runBlocking
 import org.signal.libsignal.protocol.*
+import org.signal.libsignal.protocol.ecc.ECPublicKey
+import org.signal.libsignal.protocol.groups.state.SenderKeyRecord
+import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import org.signal.libsignal.protocol.state.*
+import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,7 +28,7 @@ class SignalProtocolStoreImpl @Inject constructor(
     private val preKeyDao: SignalPreKeyDao,
     private val signedPreKeyDao: SignalSignedPreKeyDao,
     private val androidKeystoreWrapper: AndroidKeystoreWrapper
-) : IdentityKeyStore, SessionStore, PreKeyStore, SignedPreKeyStore {
+) : SignalProtocolStore {
     
     private var identityKeyPair: IdentityKeyPair? = null
     private var localRegistrationId: Int = 0
@@ -62,7 +66,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         return localRegistrationId
     }
     
-    override fun saveIdentity(address: SignalProtocolAddress, identityKey: IdentityKey): Boolean = runBlocking {
+    override fun saveIdentity(address: SignalProtocolAddress, identityKey: IdentityKey): IdentityKeyStore.IdentityChange = runBlocking {
         val addressString = "${address.name}:${address.deviceId}"
         val now = System.currentTimeMillis()
         
@@ -75,7 +79,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         )
         
         identityDao.insertIdentity(entity)
-        true
+        IdentityKeyStore.IdentityChange.NEW_OR_UNCHANGED
     }
     
     override fun isTrustedIdentity(
@@ -240,5 +244,31 @@ class SignalProtocolStoreImpl @Inject constructor(
     
     override fun removeSignedPreKey(signedPreKeyId: Int) = runBlocking {
         signedPreKeyDao.deleteSignedPreKey(signedPreKeyId)
+    }
+
+    // KyberPreKeyStore implementation (Stubs - Implement properly if using PQXDH)
+    override fun loadKyberPreKey(kyberPreKeyId: Int): KyberPreKeyRecord {
+        throw InvalidKeyIdException("Kyber pre-keys not implemented")
+    }
+
+    override fun loadKyberPreKeys(): MutableList<KyberPreKeyRecord> = mutableListOf()
+
+    override fun storeKyberPreKey(kyberPreKeyId: Int, record: KyberPreKeyRecord) {
+        // No-op for now
+    }
+
+    override fun containsKyberPreKey(kyberPreKeyId: Int): Boolean = false
+
+    override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, baseKey: ECPublicKey) {
+        // No-op for now
+    }
+
+    // SenderKeyStore implementation (Stubs - Implement properly for group messaging)
+    override fun storeSenderKey(sender: SignalProtocolAddress, distributionId: UUID, record: SenderKeyRecord) {
+        // No-op for now
+    }
+
+    override fun loadSenderKey(sender: SignalProtocolAddress, distributionId: UUID): SenderKeyRecord? {
+        return null
     }
 }

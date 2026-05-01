@@ -83,6 +83,17 @@ lint/tmp/
 # macOS
 .DS_Store
 
+#articles
+articles/
+
+#agents
+.agents/
+.claude/
+.cursor/
+.vscode/
+.kiro/
+.windsurf/
+
 google-services.json
 linker-d02d0-f6e467e35636.json
 
