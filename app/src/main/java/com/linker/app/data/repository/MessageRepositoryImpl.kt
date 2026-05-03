@@ -29,6 +29,7 @@ import com.linker.app.domain.repository.MessageReactionRepository
 import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.repository.NotificationRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -65,6 +66,9 @@ class MessageRepositoryImpl @Inject constructor(
 ) : MessageRepository {
 
     private val chatsCollection = firestore.collection("chats")
+    
+    // Global message listener for caching all messages
+    private var globalMessageListener: com.google.firebase.firestore.ListenerRegistration? = null
 
     /** Returns the messages subcollection reference for a given chat */
     private fun messagesRef(chatId: String) =
@@ -72,6 +76,11 @@ class MessageRepositoryImpl @Inject constructor(
 
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
+    
+    init {
+        // Start global message listener to cache all messages
+        startGlobalMessageListener()
+    }
 
     private fun hasValidatedInternet(): Boolean {
         val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -82,6 +91,7 @@ class MessageRepositoryImpl @Inject constructor(
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeMessages(chatId: String): Flow<List<Message>> {
         return connectivityMonitor.observeConnectivityState().flatMapLatest { connectivityState ->
             val isOnline = connectivityState is com.linker.app.data.connectivity.ConnectivityState.Online
@@ -1439,5 +1449,70 @@ class MessageRepositoryImpl @Inject constructor(
             EntityMessageStatus.READ -> MessageStatus.READ
             EntityMessageStatus.FAILED -> MessageStatus.FAILED
         }
+    }
+    
+    /**
+     * Start global message listener to cache all incoming messages
+     * This ensures all messages are available offline, even if chat is not open
+     */
+    private fun startGlobalMessageListener() {
+        // Wait for user to be authenticated
+        if (currentUserId.isBlank()) {
+            android.util.Log.d("MessageRepository", "User not authenticated, skipping global message listener")
+            return
+        }
+        
+        android.util.Log.d("MessageRepository", "Starting global message listener for user $currentUserId")
+        
+        // Listen to all messages across all chats using collectionGroup
+        globalMessageListener = firestore.collectionGroup("messages")
+            .whereArrayContains("participantIds", currentUserId)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(1000) // Limit to last 1000 messages for performance
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("MessageRepository", "Global message listener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                
+                if (snapshot == null || snapshot.isEmpty) {
+                    return@addSnapshotListener
+                }
+                
+                android.util.Log.d("MessageRepository", "Global listener received ${snapshot.documents.size} messages")
+                
+                // Process messages in background
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        snapshot.documents.forEach { doc ->
+                            try {
+                                val data = doc.data ?: return@forEach
+                                val message = mapToMessageSync(doc.id, data) ?: return@forEach
+                                
+                                // Extract chatId from document path (chats/{chatId}/messages/{messageId})
+                                val chatId = doc.reference.parent.parent?.id ?: return@forEach
+                                
+                                // Save to local database
+                                saveMessageToLocal(message, chatId)
+                            } catch (e: Exception) {
+                                android.util.Log.e("MessageRepository", "Error processing message ${doc.id}: ${e.message}")
+                            }
+                        }
+                        android.util.Log.d("MessageRepository", "Global listener processed ${snapshot.documents.size} messages")
+                    } catch (e: Exception) {
+                        android.util.Log.e("MessageRepository", "Error in global message listener: ${e.message}")
+                    }
+                }
+            }
+    }
+    
+    /**
+     * Stop global message listener
+     * Should be called when user logs out
+     */
+    fun stopGlobalMessageListener() {
+        globalMessageListener?.remove()
+        globalMessageListener = null
+        android.util.Log.d("MessageRepository", "Global message listener stopped")
     }
 }

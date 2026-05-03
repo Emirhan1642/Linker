@@ -2,8 +2,15 @@ package com.linker.app.data.ble
 
 import com.linker.app.data.local.dao.BleNodeDao
 import com.linker.app.data.local.entity.BleNodeEntity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,10 +42,103 @@ class BLERoutingTable @Inject constructor(
     private val mutex = Mutex()
     private val routeCache = mutableMapOf<String, RouteInfo>()
     
+    // Use ReadWriteLock for better concurrent read performance
+    private val cacheLock = ReentrantReadWriteLock()
+    
+    // Coroutine scope for background cache warming
+    private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    
     companion object {
         private const val STALE_NODE_THRESHOLD = 60_000L // 60 seconds
         private const val MIN_RSSI = -90 // Minimum acceptable signal strength
         private const val MAX_RSSI = -30 // Maximum signal strength (very close)
+        private const val CACHE_WARM_THRESHOLD = 10 // Warm cache when size drops below this
+    }
+    
+    /**
+     * Warm the cache by loading recent nodes from database
+     * 
+     * This reduces database queries by preloading frequently accessed routes.
+     * Should be called periodically or when cache size drops below threshold.
+     */
+    suspend fun warmCache() {
+        val now = System.currentTimeMillis()
+        val recentNodes = bleNodeDao.getRecentNodes(now - STALE_NODE_THRESHOLD)
+        
+        cacheLock.write {
+            recentNodes.forEach { node ->
+                routeCache[node.nodeId] = RouteInfo(
+                    nodeId = node.nodeId,
+                    deviceAddress = node.deviceAddress,
+                    rssi = node.rssi,
+                    hopCount = node.hopCount,
+                    routeQuality = node.routeQuality,
+                    lastSeen = node.lastSeen
+                )
+            }
+        }
+        
+        android.util.Log.d("BLERoutingTable", "Cache warmed with ${recentNodes.size} routes")
+    }
+    
+    /**
+     * Get routes for multiple recipients in a single batch query
+     * 
+     * More efficient than calling getRoute() multiple times.
+     * 
+     * @param recipientIds List of recipient user IDs
+     * @return Map of recipient ID to RouteInfo (only includes found routes)
+     */
+    suspend fun getRoutesBatch(recipientIds: List<String>): Map<String, RouteInfo> {
+        if (recipientIds.isEmpty()) return emptyMap()
+        
+        val result = mutableMapOf<String, RouteInfo>()
+        val missingIds = mutableListOf<String>()
+        
+        // Check cache first (with read lock)
+        cacheLock.read {
+            recipientIds.forEach { id ->
+                val cachedRoute = routeCache[id]
+                if (cachedRoute != null && !isStale(cachedRoute.lastSeen)) {
+                    result[id] = cachedRoute
+                } else {
+                    missingIds.add(id)
+                }
+            }
+        }
+        
+        // Batch query database for missing routes
+        if (missingIds.isNotEmpty()) {
+            val nodes = bleNodeDao.getNodesByIds(missingIds)
+            val now = System.currentTimeMillis()
+            
+            cacheLock.write {
+                nodes.forEach { node ->
+                    if (!isStale(node.lastSeen)) {
+                        val routeInfo = RouteInfo(
+                            nodeId = node.nodeId,
+                            deviceAddress = node.deviceAddress,
+                            rssi = node.rssi,
+                            hopCount = node.hopCount,
+                            routeQuality = node.routeQuality,
+                            lastSeen = node.lastSeen
+                        )
+                        routeCache[node.nodeId] = routeInfo
+                        result[node.nodeId] = routeInfo
+                    }
+                }
+            }
+        }
+        
+        // Warm cache if it's getting small
+        if (routeCache.size < CACHE_WARM_THRESHOLD) {
+            // Launch cache warming in background (don't block)
+            cacheScope.launch {
+                warmCache()
+            }
+        }
+        
+        return result
     }
     
     /**
@@ -122,23 +222,28 @@ class BLERoutingTable @Inject constructor(
      * @param recipientId User ID of the recipient
      * @return RouteInfo if route exists and is not stale, null otherwise
      */
-    suspend fun getRoute(recipientId: String): RouteInfo? = mutex.withLock {
-        // Check cache first
-        val cachedRoute = routeCache[recipientId]
+    suspend fun getRoute(recipientId: String): RouteInfo? {
+        // Use read lock for cache check (allows concurrent reads)
+        val cachedRoute = cacheLock.read {
+            routeCache[recipientId]
+        }
+        
         if (cachedRoute != null && !isStale(cachedRoute.lastSeen)) {
             return cachedRoute
         }
         
-        // Query database
+        // Query database (outside of lock)
         val node = bleNodeDao.getNodeById(recipientId) ?: return null
         
         // Check if stale
         if (isStale(node.lastSeen)) {
-            routeCache.remove(recipientId)
+            cacheLock.write {
+                routeCache.remove(recipientId)
+            }
             return null
         }
         
-        // Update cache and return
+        // Update cache and return (use write lock)
         val routeInfo = RouteInfo(
             nodeId = node.nodeId,
             deviceAddress = node.deviceAddress,
@@ -147,7 +252,11 @@ class BLERoutingTable @Inject constructor(
             routeQuality = node.routeQuality,
             lastSeen = node.lastSeen
         )
-        routeCache[recipientId] = routeInfo
+        
+        cacheLock.write {
+            routeCache[recipientId] = routeInfo
+        }
+        
         return routeInfo
     }
     

@@ -18,8 +18,8 @@ import com.linker.app.data.local.entity.*
         SignalIdentityEntity::class, SignalSessionEntity::class,
         SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class
     ],
-    version = 10,
-    exportSchema = true
+    version = 11,
+    exportSchema = false
 )
 @TypeConverters(Converters::class)
 abstract class LinkerDatabase : RoomDatabase() {
@@ -169,6 +169,13 @@ abstract class LinkerDatabase : RoomDatabase() {
                         createdAt INTEGER NOT NULL
                     )
                 """)
+            }
+        }
+        
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add messageType field to message_queue table for proper message type handling
+                db.execSQL("ALTER TABLE message_queue ADD COLUMN messageType TEXT NOT NULL DEFAULT 'TEXT'")
             }
         }
     }

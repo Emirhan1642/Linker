@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -80,61 +81,64 @@ class NearbyConnectionsManagerImpl @Inject constructor(
         private const val MAX_RETRIES = 3
     }
     
-    override suspend fun startDiscovery(): Result<Unit> = suspendCoroutine { continuation ->
-        val options = DiscoveryOptions.Builder()
-            .setStrategy(STRATEGY)
-            .build()
-        
-        connectionsClient.startDiscovery(
-            SERVICE_ID,
-            endpointDiscoveryCallback,
-            options
-        ).addOnSuccessListener {
-            continuation.resume(Result.success(Unit))
-        }.addOnFailureListener { exception ->
-            continuation.resume(Result.failure(exception))
+    override suspend fun startDiscovery(): Result<Unit> =
+        suspendCancellableCoroutine { continuation ->
+            val options = DiscoveryOptions.Builder()
+                .setStrategy(STRATEGY)
+                .build()
+
+            connectionsClient.startDiscovery(
+                SERVICE_ID,
+                endpointDiscoveryCallback,
+                options
+            ).addOnSuccessListener {
+                continuation.resume(Result.success(Unit))
+            }.addOnFailureListener { exception ->
+                continuation.resume(Result.failure(exception))
+            }
         }
-    }
     
     override suspend fun stopDiscovery() {
         connectionsClient.stopDiscovery()
     }
     
-    override suspend fun startAdvertising(): Result<Unit> = suspendCoroutine { continuation ->
-        val options = AdvertisingOptions.Builder()
-            .setStrategy(STRATEGY)
-            .build()
-        
-        // Use user ID as endpoint name
-        val endpointName = "linker_user_${System.currentTimeMillis()}" // TODO: Get from session
-        
-        connectionsClient.startAdvertising(
-            endpointName,
-            SERVICE_ID,
-            connectionLifecycleCallback,
-            options
-        ).addOnSuccessListener {
-            continuation.resume(Result.success(Unit))
-        }.addOnFailureListener { exception ->
-            continuation.resume(Result.failure(exception))
+    override suspend fun startAdvertising(): Result<Unit> =
+        suspendCancellableCoroutine { continuation ->
+            val options = AdvertisingOptions.Builder()
+                .setStrategy(STRATEGY)
+                .build()
+
+            // Use user ID as endpoint name
+            val endpointName = "linker_user_${System.currentTimeMillis()}" // TODO: Get from session
+
+            connectionsClient.startAdvertising(
+                endpointName,
+                SERVICE_ID,
+                connectionLifecycleCallback,
+                options
+            ).addOnSuccessListener {
+                continuation.resume(Result.success(Unit))
+            }.addOnFailureListener { exception ->
+                continuation.resume(Result.failure(exception))
+            }
         }
-    }
     
     override suspend fun stopAdvertising() {
         connectionsClient.stopAdvertising()
     }
     
-    override suspend fun connectToEndpoint(endpointId: String): Result<Unit> = suspendCoroutine { continuation ->
-        connectionsClient.requestConnection(
-            "linker_user", // TODO: Get from session
-            endpointId,
-            connectionLifecycleCallback
-        ).addOnSuccessListener {
-            continuation.resume(Result.success(Unit))
-        }.addOnFailureListener { exception ->
-            continuation.resume(Result.failure(exception))
+    override suspend fun connectToEndpoint(endpointId: String): Result<Unit> =
+        suspendCancellableCoroutine { continuation ->
+            connectionsClient.requestConnection(
+                "linker_user", // TODO: Get from session
+                endpointId,
+                connectionLifecycleCallback
+            ).addOnSuccessListener {
+                continuation.resume(Result.success(Unit))
+            }.addOnFailureListener { exception ->
+                continuation.resume(Result.failure(exception))
+            }
         }
-    }
     
     override suspend fun disconnectFromEndpoint(endpointId: String) {
         connectionsClient.disconnectFromEndpoint(endpointId)
@@ -145,10 +149,10 @@ class NearbyConnectionsManagerImpl @Inject constructor(
         endpointId: String,
         file: File,
         onProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit
-    ): Result<Unit> = suspendCoroutine { continuation ->
+    ): Result<Unit> = suspendCancellableCoroutine { continuation ->
         try {
             val payload = Payload.fromFile(file)
-            
+
             connectionsClient.sendPayload(endpointId, payload)
                 .addOnSuccessListener {
                     continuation.resume(Result.success(Unit))

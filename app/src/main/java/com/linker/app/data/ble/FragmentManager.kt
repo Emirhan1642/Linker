@@ -17,6 +17,26 @@ class FragmentManager(
     private val fragmentStore = ConcurrentHashMap<String, FragmentSet>()
     private val packetFragmenter = PacketFragmenter()
     
+    // Periodic cleanup job
+    private var cleanupJob: Job? = null
+    
+    init {
+        // Start periodic cleanup every 60 seconds
+        startPeriodicCleanup()
+    }
+    
+    /**
+     * Start periodic cleanup of stale fragments
+     */
+    private fun startPeriodicCleanup() {
+        cleanupJob = coroutineScope.launch {
+            while (isActive) {
+                delay(60_000L) // Run every 60 seconds
+                cleanupStaleFragments()
+            }
+        }
+    }
+    
     /**
      * Represents a set of fragments for a single message
      */
@@ -142,6 +162,7 @@ class FragmentManager(
      * Clean up resources
      */
     fun shutdown() {
+        cleanupJob?.cancel()
         clearAll()
         coroutineScope.cancel()
     }

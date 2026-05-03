@@ -90,6 +90,7 @@ android {
 
 ksp {
     arg("dagger.hilt.disableModulesHaveInstallInCheck", "true")
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 dependencies {
@@ -161,6 +162,8 @@ dependencies {
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+    implementation("androidx.datastore:datastore-core:1.1.1")
+    implementation("androidx.datastore:datastore-core-android:1.1.1")
 
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)

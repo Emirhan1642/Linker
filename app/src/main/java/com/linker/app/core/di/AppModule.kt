@@ -4,6 +4,8 @@ import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.storage.FirebaseStorage
+import com.linker.app.core.util.SystemTimeProvider
+import com.linker.app.core.util.TimeProvider
 import com.linker.app.data.bluetooth.BluetoothManager
 import com.linker.app.data.bluetooth.BluetoothManagerImpl
 import dagger.Module
@@ -49,6 +51,12 @@ object AppModule {
     @Provides
     @Singleton
     fun provideBluetoothManager(impl: BluetoothManagerImpl): BluetoothManager {
+        return impl
+    }
+    
+    @Provides
+    @Singleton
+    fun provideTimeProvider(impl: SystemTimeProvider): TimeProvider {
         return impl
     }
 }

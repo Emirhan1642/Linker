@@ -32,6 +32,13 @@ interface MessageQueueDao {
     @Update
     suspend fun updateQueueItem(item: MessageQueueEntity)
     
+    /**
+     * Batch update multiple queue items
+     * More efficient than updating one by one
+     */
+    @Update
+    suspend fun updateQueueItems(items: List<MessageQueueEntity>)
+    
     @Delete
     suspend fun deleteQueueItem(item: MessageQueueEntity)
     
@@ -81,4 +88,44 @@ interface MessageQueueDao {
     
     @Query("DELETE FROM message_queue WHERE queueId = :queueId")
     suspend fun deleteQueueItem(queueId: String)
+    
+    /**
+     * Batch delete multiple queue items by IDs
+     * More efficient than deleting one by one
+     */
+    @Query("DELETE FROM message_queue WHERE queueId IN (:queueIds)")
+    suspend fun deleteQueueItems(queueIds: List<String>)
+    
+    /**
+     * Batch update status for multiple queue items
+     * More efficient than updating one by one
+     */
+    @Query("UPDATE message_queue SET queueStatus = :status, lastAttemptAt = :timestamp WHERE queueId IN (:queueIds)")
+    suspend fun batchUpdateStatus(queueIds: List<String>, status: QueueStatus, timestamp: Long)
+    
+    /**
+     * Atomically update queue status and message delivery method.
+     * 
+     * Addresses Issue #56 (P3): Add transaction support for queue updates
+     * 
+     * This ensures queue and message updates are atomic - either both succeed or both fail.
+     * Prevents data inconsistency where queue shows SENT but message still shows BLE delivery.
+     * 
+     * Note: This is a transaction wrapper. The actual transaction is handled by Room
+     * when this method is called from a @Transaction-annotated function.
+     */
+    @Transaction
+    suspend fun updateQueueAndMessageAtomic(
+        queueId: String,
+        messageId: String,
+        queueStatus: QueueStatus,
+        sentAt: Long?,
+        updateMessage: suspend (String) -> Unit
+    ) {
+        // Update queue status
+        updateQueueStatus(queueId, queueStatus, sentAt)
+        
+        // Update message (caller provides the update logic)
+        updateMessage(messageId)
+    }
 }

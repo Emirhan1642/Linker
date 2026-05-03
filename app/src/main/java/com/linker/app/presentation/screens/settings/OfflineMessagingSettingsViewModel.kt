@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.linker.app.data.ble.BLEMeshManager
 import com.linker.app.data.bluetooth.BluetoothManager
 import com.linker.app.data.permission.PermissionManager
+import com.linker.app.data.preferences.OfflineMessagingPreferencesRepository
 import com.linker.app.data.queue.MessageQueueProcessor
 import com.linker.app.data.service.OfflineMessagingServiceManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,7 +26,7 @@ import javax.inject.Inject
  * Implements Requirements 10.6-10.8, 15.1-15.9:
  * - Permission state management
  * - Service control
- * - Settings management
+ * - Settings management with DataStore persistence
  */
 data class OfflineMessagingSettingsUiState(
     // Service status
@@ -57,6 +58,34 @@ data class OfflineMessagingSettingsUiState(
     val showBluetoothDialog: Boolean = false
 )
 
+/**
+ * Preferences keys for offline messaging settings
+ * TODO: Implement DataStore integration for persistent settings storage
+ * 
+ * Recommended approach:
+ * 1. Create OfflineMessagingPreferences data class with @Serializable
+ * 2. Use DataStore<OfflineMessagingPreferences> for type-safe storage
+ * 3. Store settings: maxTtl, isBleEnabled, isWifiDirectEnabled, showNotification
+ * 4. Load settings in init{} and observe changes
+ * 5. Save settings when user changes them
+ * 
+ * Example:
+ * ```kotlin
+ * @Serializable
+ * data class OfflineMessagingPreferences(
+ *     val maxTtl: Int = 5,
+ *     val isBleEnabled: Boolean = true,
+ *     val isWifiDirectEnabled: Boolean = true,
+ *     val showNotification: Boolean = true
+ * )
+ * 
+ * private val Context.offlineMessagingDataStore by dataStore(
+ *     fileName = "offline_messaging_settings.pb",
+ *     serializer = OfflineMessagingPreferencesSerializer
+ * )
+ * ```
+ */
+
 @HiltViewModel
 class OfflineMessagingSettingsViewModel @Inject constructor(
     private val application: Application,
@@ -64,7 +93,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     private val bleMeshManager: BLEMeshManager,
     private val messageQueueProcessor: MessageQueueProcessor,
     private val permissionManager: PermissionManager,
-    private val bluetoothManager: BluetoothManager
+    private val bluetoothManager: BluetoothManager,
+    private val preferencesRepository: OfflineMessagingPreferencesRepository
 ) : AndroidViewModel(application) {
     
     private val _uiState = MutableStateFlow(OfflineMessagingSettingsUiState())
@@ -107,16 +137,19 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     }
     
     /**
-     * Load settings from preferences
+     * Load settings from DataStore preferences
      */
     private fun loadSettings() {
         viewModelScope.launch {
-            // Load from SharedPreferences or DataStore
-            // For now, using default values
-            _uiState.update { it.copy(
-                isOfflineMessagingEnabled = serviceManager.isServiceRunning(),
-                maxTtl = 5 // TODO: Load from preferences
-            )}
+            // Load from DataStore
+            preferencesRepository.observePreferences().collect { prefs ->
+                _uiState.update { it.copy(
+                    maxTtl = prefs.maxTtl,
+                    isBleEnabled = prefs.isBleEnabled,
+                    isWifiDirectEnabled = prefs.isWifiDirectEnabled,
+                    showNotification = prefs.showNotification
+                )}
+            }
         }
     }
     
@@ -237,7 +270,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     fun toggleBle(enabled: Boolean) {
         viewModelScope.launch {
             _uiState.update { it.copy(isBleEnabled = enabled) }
-            // TODO: Save to preferences
+            // Save to DataStore
+            preferencesRepository.setBleEnabled(enabled)
             
             if (enabled) {
                 bleMeshManager.startScanning()
@@ -255,7 +289,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     fun toggleWifiDirect(enabled: Boolean) {
         viewModelScope.launch {
             _uiState.update { it.copy(isWifiDirectEnabled = enabled) }
-            // TODO: Save to preferences
+            // Save to DataStore
+            preferencesRepository.setWifiDirectEnabled(enabled)
         }
     }
     
@@ -265,7 +300,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     fun toggleNotification(enabled: Boolean) {
         viewModelScope.launch {
             _uiState.update { it.copy(showNotification = enabled) }
-            // TODO: Save to preferences and update service notification
+            // Save to DataStore and update service notification
+            preferencesRepository.setShowNotification(enabled)
         }
     }
     
@@ -293,7 +329,8 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 showTtlPicker = false,
                 snackbarMessage = "Maximum hops set to $ttl"
             )}
-            // TODO: Save to preferences
+            // Save to DataStore
+            preferencesRepository.setMaxTtl(ttl)
         }
     }
     

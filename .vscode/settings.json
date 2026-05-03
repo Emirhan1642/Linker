@@ -1,4 +1,5 @@
 {
     "kiroAgent.configureMCP": "Enabled",
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "kiroAgent.enableCodebaseIndexing": true
 }

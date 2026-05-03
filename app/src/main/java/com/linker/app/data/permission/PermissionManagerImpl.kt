@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.content.edit
 
 /**
  * Implementation of PermissionManager with API level-specific permission handling
@@ -115,7 +116,7 @@ class PermissionManagerImpl @Inject constructor(
         // If we haven't asked before, this is the first time, not permanent denial
         if (!hasAskedBefore) {
             // Mark that we've asked
-            prefs.edit().putBoolean("asked_$permission", true).apply()
+            prefs.edit { putBoolean("asked_$permission", true) }
             return false
         }
         

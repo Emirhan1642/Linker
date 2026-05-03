@@ -26,11 +26,15 @@ class MessageIdCache @Inject constructor(
     companion object {
         private const val CACHE_SIZE = 10_000 // Maximum entries in memory cache
         private const val CACHE_RETENTION = 24 * 60 * 60 * 1000L // 24 hours
+        private const val TRIM_INTERVAL = 5 * 60 * 1000L // Trim every 5 minutes
     }
     
     // In-memory LRU cache for fast lookups
     private val memoryCache = LruCache<String, Long>(CACHE_SIZE)
     private val mutex = Mutex()
+    
+    // Track last trim time to avoid excessive database operations
+    private var lastTrimTime = 0L
     
     /**
      * Check if message ID exists in cache
@@ -75,10 +79,13 @@ class MessageIdCache @Inject constructor(
         )
         messageIdCacheDao.insertMessageId(entity)
         
-        // Trim database if needed
-        val cacheSize = messageIdCacheDao.getCacheSize()
-        if (cacheSize > CACHE_SIZE) {
-            messageIdCacheDao.trimToSize(CACHE_SIZE)
+        // Trim database if needed (but not too frequently)
+        if (now - lastTrimTime > TRIM_INTERVAL) {
+            val cacheSize = messageIdCacheDao.getCacheSize()
+            if (cacheSize > CACHE_SIZE) {
+                messageIdCacheDao.trimToSize(CACHE_SIZE)
+                lastTrimTime = now
+            }
         }
     }
     

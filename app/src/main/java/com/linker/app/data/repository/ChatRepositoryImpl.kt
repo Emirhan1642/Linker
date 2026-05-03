@@ -60,6 +60,9 @@ class ChatRepositoryImpl @Inject constructor(
 ) : ChatRepository {
 
     private val chatsCollection = firestore.collection("chats")
+    
+    // Global chat listener for caching all chats
+    private var globalChatListener: com.google.firebase.firestore.ListenerRegistration? = null
 
     /** Returns the messages subcollection reference for a given chat */
     private fun messagesRef(chatId: String) =
@@ -67,6 +70,11 @@ class ChatRepositoryImpl @Inject constructor(
 
     private val currentUserId: String
         get() = auth.currentUser?.uid ?: ""
+    
+    init {
+        // Start global chat listener to cache all chats
+        startGlobalChatListener()
+    }
 
     private fun isUserArchivedChat(data: Map<String, Any?>): Boolean {
         val archivedBy = data["archivedBy"] as? List<*>
@@ -997,4 +1005,64 @@ class ChatRepositoryImpl @Inject constructor(
     // ✅ Observe queued message count
     override fun observeQueuedMessageCount(): Flow<Int> =
         messageQueueDao.observePendingCount()
+    
+    /**
+     * Start global chat listener to cache all chats
+     * This ensures all chats are available offline
+     */
+    private fun startGlobalChatListener() {
+        // Wait for user to be authenticated
+        if (currentUserId.isBlank()) {
+            android.util.Log.d("ChatRepository", "User not authenticated, skipping global chat listener")
+            return
+        }
+        
+        android.util.Log.d("ChatRepository", "Starting global chat listener for user $currentUserId")
+        
+        // Listen to all chats for this user
+        globalChatListener = chatsCollection
+            .whereArrayContains("participantIds", currentUserId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    android.util.Log.e("ChatRepository", "Global chat listener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                
+                if (snapshot == null || snapshot.isEmpty) {
+                    return@addSnapshotListener
+                }
+                
+                android.util.Log.d("ChatRepository", "Global listener received ${snapshot.documents.size} chats")
+                
+                // Process chats in background
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    try {
+                        snapshot.documents.forEach { doc ->
+                            try {
+                                val data = doc.data ?: return@forEach
+                                val chat = mapToChatSync(doc.id, data)
+                                
+                                // Save to local database
+                                saveChatToLocal(chat)
+                            } catch (e: Exception) {
+                                android.util.Log.e("ChatRepository", "Error processing chat ${doc.id}: ${e.message}")
+                            }
+                        }
+                        android.util.Log.d("ChatRepository", "Global listener processed ${snapshot.documents.size} chats")
+                    } catch (e: Exception) {
+                        android.util.Log.e("ChatRepository", "Error in global chat listener: ${e.message}")
+                    }
+                }
+            }
+    }
+    
+    /**
+     * Stop global chat listener
+     * Should be called when user logs out
+     */
+    fun stopGlobalChatListener() {
+        globalChatListener?.remove()
+        globalChatListener = null
+        android.util.Log.d("ChatRepository", "Global chat listener stopped")
+    }
 }

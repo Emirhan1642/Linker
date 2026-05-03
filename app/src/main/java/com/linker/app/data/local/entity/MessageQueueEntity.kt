@@ -24,6 +24,7 @@ data class MessageQueueEntity(
     val chatId: String,
     val recipientId: String,
     val messagePayload: String, // Serialized message data
+    val messageType: MessageType = MessageType.TEXT, // Type of message for proper handling
     val queueStatus: QueueStatus, // PENDING, SENDING, SENT, FAILED
     val deliveryMethod: DeliveryMethod,
     val retryCount: Int = 0,

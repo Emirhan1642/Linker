@@ -63,6 +63,9 @@ class OfflineMessagingService : Service() {
     @Inject
     lateinit var currentUserProvider: CurrentUserProvider
     
+    @Inject
+    lateinit var encryptionManager: com.linker.app.data.encryption.EncryptionManager
+    
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     
     private var isScanning = false
@@ -251,9 +254,18 @@ class OfflineMessagingService : Service() {
             
             Log.d("OfflineMessagingService", "Processing received BLE message: ${packet.messageId} from ${packet.senderId}")
             
-            // Decrypt payload (for now, assume it's plain text)
-            // TODO: Implement proper E2E decryption
-            val decryptedContent = String(packet.encryptedPayload)
+            // Decrypt payload using EncryptionManager
+            val decryptedContent = try {
+                val encryptedMessage = com.linker.app.data.encryption.EncryptedMessage(packet.encryptedPayload)
+                encryptionManager.decryptMessage(packet.senderId, encryptedMessage)
+                    .getOrElse { error ->
+                        Log.e("OfflineMessagingService", "Failed to decrypt message: ${error.message}", error as? Throwable)
+                        return // Don't save unencrypted messages
+                    }
+            } catch (e: Exception) {
+                Log.e("OfflineMessagingService", "Decryption error: ${e.message}", e)
+                return
+            }
             
             // Find or create chat with sender
             val senderId = packet.senderId

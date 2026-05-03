@@ -36,6 +36,9 @@ class AdaptiveScanningStrategy @Inject constructor(
     private var isScreenOn = powerManager.isInteractive
     private var batteryLevel = getCurrentBatteryLevel()
     
+    // Track monitoring state to prevent receiver leaks
+    private var isMonitoring = false
+    
     companion object {
         private const val LOW_BATTERY_THRESHOLD = 15 // 15%
     }
@@ -75,6 +78,11 @@ class AdaptiveScanningStrategy @Inject constructor(
      * Start monitoring battery and screen state.
      */
     fun startMonitoring() {
+        // Prevent double registration
+        if (isMonitoring) {
+            return
+        }
+        
         // Register battery receiver
         val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         context.registerReceiver(batteryReceiver, batteryFilter)
@@ -86,6 +94,8 @@ class AdaptiveScanningStrategy @Inject constructor(
         }
         context.registerReceiver(screenReceiver, screenFilter)
         
+        isMonitoring = true
+        
         // Initial update
         updateScanSettings()
     }
@@ -94,9 +104,14 @@ class AdaptiveScanningStrategy @Inject constructor(
      * Stop monitoring battery and screen state.
      */
     fun stopMonitoring() {
+        if (!isMonitoring) {
+            return
+        }
+        
         try {
             context.unregisterReceiver(batteryReceiver)
             context.unregisterReceiver(screenReceiver)
+            isMonitoring = false
         } catch (e: IllegalArgumentException) {
             // Receiver not registered, ignore
         }

@@ -144,7 +144,13 @@ class GattServerManager @Inject constructor(
         }
         
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
-            Log.d(TAG, "MTU changed for ${device?.address}: $mtu")
+            Log.d(TAG, "MTU changed for ${device?.address}: $mtu bytes")
+            // MTU change is handled automatically by Android BLE stack
+            // The effective payload size is MTU - 3 bytes (ATT header)
+            // Our packet size (512 bytes) is designed to work with standard MTU (517 bytes)
+            if (mtu < 512) {
+                Log.w(TAG, "MTU ($mtu) is smaller than expected (512), fragmentation may be needed")
+            }
         }
     }
     

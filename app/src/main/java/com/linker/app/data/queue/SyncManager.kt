@@ -1,5 +1,6 @@
 package com.linker.app.data.queue
 
+import android.util.Log
 import com.linker.app.data.local.dao.MessageDao
 import com.linker.app.data.local.dao.MessageQueueDao
 import com.linker.app.data.local.entity.DeliveryMethod
@@ -67,12 +68,14 @@ sealed class SyncStatus {
 class SyncManagerImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
     private val messageDao: MessageDao,
-    private val messageRepository: MessageRepository
+    private val messageRepository: MessageRepository,
+    private val messageDeduplicationManager: MessageDeduplicationManager
 ) : SyncManager {
     
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     
     companion object {
+        private const val TAG = "SyncManager"
         private const val RATE_LIMIT_DELAY_MS = 100L // 10 messages per second
         private const val CLEANUP_AGE_MS = 7 * 24 * 60 * 60 * 1000L // 7 days
     }
@@ -95,10 +98,27 @@ class SyncManagerImpl @Inject constructor(
             
             pendingMessages.forEachIndexed { index, queueItem ->
                 try {
+                    // Check for duplicates using MessageDeduplicationManager
+                    if (messageDeduplicationManager.isDuplicate(queueItem.messageId)) {
+                        // Message already processed (possibly via online route)
+                        // Mark as SENT and skip
+                        messageQueueDao.updateQueueStatus(
+                            queueId = queueItem.queueId,
+                            status = QueueStatus.SENT,
+                            sentAt = System.currentTimeMillis()
+                        )
+                        successCount++
+                        _syncStatus.value = SyncStatus.Syncing(index + 1, pendingMessages.size)
+                        return@forEachIndexed
+                    }
+                    
+                    // Mark as being processed
+                    messageDeduplicationManager.markAsProcessed(queueItem.messageId)
+                    
                     // Send message via MessageRepository (which handles Firestore)
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
-                        messageType = com.linker.app.domain.model.MessageType.TEXT, // TODO: Get from queueItem
+                        messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
                         mediaUrl = null,
                         replyToMessageId = null
@@ -106,16 +126,13 @@ class SyncManagerImpl @Inject constructor(
                     
                     when (result) {
                         is com.linker.app.core.util.Result.Success -> {
-                            // Update queue status to SENT
-                            messageQueueDao.updateQueueStatus(
+                            // Atomically update queue status and message delivery method
+                            // Addresses Issue #56 (P3): Add transaction support for queue updates
+                            updateQueueAndMessageAtomic(
                                 queueId = queueItem.queueId,
-                                status = QueueStatus.SENT,
-                                sentAt = System.currentTimeMillis()
-                            )
-                            
-                            // Update message delivery method to ONLINE
-                            messageDao.updateDeliveryMethod(
                                 messageId = queueItem.messageId,
+                                queueStatus = QueueStatus.SENT,
+                                sentAt = System.currentTimeMillis(),
                                 deliveryMethod = DeliveryMethod.ONLINE
                             )
                             
@@ -190,6 +207,19 @@ class SyncManagerImpl @Inject constructor(
             
             failedMessages.forEachIndexed { index, queueItem ->
                 try {
+                    // Check for duplicates using MessageDeduplicationManager
+                    if (messageDeduplicationManager.isDuplicate(queueItem.messageId)) {
+                        // Message already processed
+                        messageQueueDao.updateQueueStatus(
+                            queueId = queueItem.queueId,
+                            status = QueueStatus.SENT,
+                            sentAt = System.currentTimeMillis()
+                        )
+                        successCount++
+                        _syncStatus.value = SyncStatus.Syncing(index + 1, failedMessages.size)
+                        return@forEachIndexed
+                    }
+                    
                     // Calculate retry delay based on retry count
                     val retryDelay = RetryStrategy.calculateDelay(queueItem.retryCount)
                     
@@ -209,7 +239,7 @@ class SyncManagerImpl @Inject constructor(
                     // Attempt to send
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
-                        messageType = com.linker.app.domain.model.MessageType.TEXT,
+                        messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
                         mediaUrl = null,
                         replyToMessageId = null
@@ -217,14 +247,12 @@ class SyncManagerImpl @Inject constructor(
                     
                     when (result) {
                         is com.linker.app.core.util.Result.Success -> {
-                            messageQueueDao.updateQueueStatus(
+                            // Atomically update queue status and message delivery method
+                            updateQueueAndMessageAtomic(
                                 queueId = queueItem.queueId,
-                                status = QueueStatus.SENT,
-                                sentAt = System.currentTimeMillis()
-                            )
-                            
-                            messageDao.updateDeliveryMethod(
                                 messageId = queueItem.messageId,
+                                queueStatus = QueueStatus.SENT,
+                                sentAt = System.currentTimeMillis(),
                                 deliveryMethod = DeliveryMethod.ONLINE
                             )
                             
@@ -289,10 +317,57 @@ class SyncManagerImpl @Inject constructor(
     private suspend fun cleanupOldMessages() {
         try {
             val cutoffTime = System.currentTimeMillis() - CLEANUP_AGE_MS
-            messageQueueDao.deleteOldSentMessages(cutoffTime)
+            val deletedCount = messageQueueDao.deleteOldSentMessages(cutoffTime)
+            Log.d(TAG, "Cleaned up $deletedCount old SENT messages (older than 7 days)")
         } catch (e: Exception) {
-            // Log error but don't fail the sync
-            // TODO: Add proper logging
+            Log.e(TAG, "Error cleaning up old messages", e)
+        }
+    }
+    
+    /**
+     * Atomically update queue status and message delivery method.
+     * 
+     * Addresses Issue #56 (P3): Add transaction support for queue updates
+     * 
+     * This ensures both updates succeed or both fail, preventing data inconsistency.
+     */
+    @androidx.room.Transaction
+    private suspend fun updateQueueAndMessageAtomic(
+        queueId: String,
+        messageId: String,
+        queueStatus: QueueStatus,
+        sentAt: Long?,
+        deliveryMethod: DeliveryMethod
+    ) {
+        // Update queue status
+        messageQueueDao.updateQueueStatus(
+            queueId = queueId,
+            status = queueStatus,
+            sentAt = sentAt
+        )
+        
+        // Update message delivery method
+        messageDao.updateDeliveryMethod(
+            messageId = messageId,
+            deliveryMethod = deliveryMethod
+        )
+    }
+    
+    /**
+     * Map MessageQueueEntity.messageType to domain MessageType
+     */
+    private fun mapQueueMessageTypeToMessageType(queueMessageType: com.linker.app.data.local.entity.MessageType): com.linker.app.domain.model.MessageType {
+        return when (queueMessageType) {
+            com.linker.app.data.local.entity.MessageType.TEXT -> com.linker.app.domain.model.MessageType.TEXT
+            com.linker.app.data.local.entity.MessageType.IMAGE -> com.linker.app.domain.model.MessageType.IMAGE
+            com.linker.app.data.local.entity.MessageType.VIDEO -> com.linker.app.domain.model.MessageType.VIDEO
+            com.linker.app.data.local.entity.MessageType.GIF -> com.linker.app.domain.model.MessageType.GIF
+            com.linker.app.data.local.entity.MessageType.LINK -> com.linker.app.domain.model.MessageType.LINK
+            com.linker.app.data.local.entity.MessageType.AUDIO -> com.linker.app.domain.model.MessageType.AUDIO
+            com.linker.app.data.local.entity.MessageType.FILE -> com.linker.app.domain.model.MessageType.FILE
+            com.linker.app.data.local.entity.MessageType.LOCATION -> com.linker.app.domain.model.MessageType.LOCATION
+            com.linker.app.data.local.entity.MessageType.CONTACT -> com.linker.app.domain.model.MessageType.CONTACT
+            com.linker.app.data.local.entity.MessageType.STICKER -> com.linker.app.domain.model.MessageType.STICKER
         }
     }
 }

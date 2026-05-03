@@ -13,6 +13,8 @@ import com.linker.app.data.local.dao.BleNodeDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,7 +32,7 @@ class BLEMeshManagerImpl @Inject constructor(
     private val routingTable: BLERoutingTable,
     private val messageIdCache: MessageIdCache,
     private val bleNodeDao: BleNodeDao,
-    private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider,
+    private val currentUserProviderLazy: dagger.Lazy<com.linker.app.domain.usecase.user.CurrentUserProvider>,
     private val adaptiveScanningStrategy: AdaptiveScanningStrategy,
     private val fragmentManager: FragmentManager
 ) : BLEMeshManager {
@@ -48,17 +50,24 @@ class BLEMeshManagerImpl @Inject constructor(
     
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     
+    // Mutex for thread-safe routing table updates
+    private val routingTableMutex = kotlinx.coroutines.sync.Mutex()
+    
     private var isScanning = false
     private var isAdvertising = false
     
     // Track connection attempts to avoid duplicate retries
     private val connectionAttempts = mutableMapOf<String, Int>()
     
-    // Map sender user ID to MAC address for routing
-    private val userIdToMacAddress = mutableMapOf<String, String>()
+    // Map sender user ID to MAC address for routing (thread-safe)
+    private val userIdToMacAddress = java.util.concurrent.ConcurrentHashMap<String, String>()
     
     // Track incoming connections (MAC address -> connection time)
     private val incomingConnections = mutableMapOf<String, Long>()
+    
+    // Track recently processed scan results to avoid duplicate processing
+    private val recentlyProcessedDevices = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val SCAN_PROCESS_COOLDOWN = 2000L // 2 seconds cooldown between processing same device
     
     private val _meshStatus = MutableStateFlow<MeshStatus>(MeshStatus.Idle)
     private val _connectedPeers = MutableStateFlow<List<BleNode>>(emptyList())
@@ -131,16 +140,24 @@ class BLEMeshManagerImpl @Inject constructor(
                 // Track incoming connection
                 incomingConnections[deviceAddress] = System.currentTimeMillis()
                 
+                // Try to get actual RSSI from GattClientManager if we have an outgoing connection
+                // Otherwise use default value
+                val actualRssi = gattClientManager.getRssi(deviceAddress) ?: run {
+                    // If no RSSI available, try to read it
+                    gattClientManager.readRemoteRssi(deviceAddress)
+                    -60 // Default RSSI while waiting for read result
+                }
+                
                 // Add temporary route with MAC address
                 // This will be updated when we receive the first packet with sender ID
                 routingTable.addRoute(
                     nodeId = deviceAddress,
                     deviceAddress = deviceAddress,
-                    rssi = -50, // Default RSSI for connected devices
+                    rssi = actualRssi,
                     hopCount = 1,
                     timestamp = System.currentTimeMillis()
                 )
-                Log.d(TAG, "Added temporary route for incoming connection from $deviceAddress")
+                Log.d(TAG, "Added temporary route for incoming connection from $deviceAddress with RSSI $actualRssi")
                 
                 // Store MAC address for later mapping with user ID
                 // We'll update this when we receive a packet from this device
@@ -174,6 +191,32 @@ class BLEMeshManagerImpl @Inject constructor(
         startScanning()
         startAdvertising()
         
+        // Start periodic cleanup of stale routes (every 60 seconds)
+        coroutineScope.launch {
+            while (isActive) {
+                delay(60_000L) // 60 seconds
+                try {
+                    val removedCount = routingTable.removeStaleRoutes()
+                    if (removedCount > 0) {
+                        Log.d(TAG, "Removed $removedCount stale routes from routing table")
+                    }
+                    messageIdCache.cleanup()
+                    
+                    // Clean up old scan result cache entries (older than 5 minutes)
+                    val now = System.currentTimeMillis()
+                    val staleDevices = recentlyProcessedDevices.filter { (_, timestamp) ->
+                        now - timestamp > 300_000L // 5 minutes
+                    }.keys
+                    staleDevices.forEach { recentlyProcessedDevices.remove(it) }
+                    if (staleDevices.isNotEmpty()) {
+                        Log.d(TAG, "Cleaned up ${staleDevices.size} stale scan cache entries")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error during periodic cleanup", e)
+                }
+            }
+        }
+        
         Log.d(TAG, "Mesh network started")
     }
     
@@ -183,6 +226,9 @@ class BLEMeshManagerImpl @Inject constructor(
         stopAdvertising()
         gattServerManager.stopServer()
         gattClientManager.disconnectAll()
+        
+        // Clean up fragment manager to prevent memory leaks
+        fragmentManager.shutdown()
         
         // Cancel all coroutines
         coroutineScope.coroutineContext[Job]?.cancelChildren()
@@ -282,7 +328,11 @@ class BLEMeshManagerImpl @Inject constructor(
             if (device == null) {
                 Result.failure(Exception("Invalid device address"))
             } else {
-                val connected = gattClientManager.connectToDevice(device)
+                // Get RSSI from routing table if available
+                val route = routingTable.getRoute(deviceAddress)
+                val rssi = route?.rssi ?: -60
+                
+                val connected = gattClientManager.connectToDevice(device, rssi)
                 
                 if (connected) {
                     updateConnectedPeers()
@@ -290,17 +340,31 @@ class BLEMeshManagerImpl @Inject constructor(
                     // Send a test packet to establish routing
                     // This allows the other device to learn our user ID
                     try {
-                        val currentUserId = currentUserProvider.getCurrentUserId()
+                        val currentUserId = currentUserProviderLazy.get().getCurrentUserId()
                         if (currentUserId != null) {
                             Log.d(TAG, "Sending test packet to $deviceAddress to establish routing")
                             
+                            // For test packets, we use a simple encrypted payload
+                            // Since we don't know the recipient's user ID yet, we can't use full Signal Protocol encryption
+                            // Instead, we'll use a simple encrypted marker that can be recognized by the receiver
+                            // Real messages will use full Signal Protocol encryption with the recipient's public key
+                            val testPayload = "HELLO".toByteArray()
+                            
+                            // Use a simple XOR encryption for test packets as a placeholder
+                            // This is NOT secure but prevents plaintext transmission
+                            // Real messages use Signal Protocol encryption
+                            val encryptedTestPayload = testPayload.map { byte -> 
+                                (byte.toInt() xor 0x42).toByte() 
+                            }.toByteArray()
+                            
+                            // Use UUID for message ID to prevent collisions
                             val testPacket = BLEPacket.create(
-                                messageId = "test-${System.currentTimeMillis()}",
+                                messageId = "test-${java.util.UUID.randomUUID()}",
                                 senderId = currentUserId,
                                 recipientId = deviceAddress, // Use MAC address as temporary recipient
                                 ttl = 1,
                                 hopCount = 0,
-                                encryptedPayload = "HELLO".toByteArray()
+                                encryptedPayload = encryptedTestPayload
                             )
                             
                             val data = BLEPacket.serialize(testPacket)
@@ -370,12 +434,13 @@ class BLEMeshManagerImpl @Inject constructor(
     }
     
     override suspend fun forwardMessage(packet: BLEPacket): Result<Unit> {
-        // Decrement TTL
+        // Check TTL before decrementing
         if (packet.ttl <= 0) {
-            Log.w(TAG, "TTL exhausted for message ${packet.messageId}")
+            Log.w(TAG, "TTL exhausted for message ${packet.messageId}, cannot forward")
             return Result.failure(Exception("TTL exhausted"))
         }
         
+        // Decrement TTL and increment hop count
         val forwardedPacket = packet.copy(
             ttl = (packet.ttl - 1).toByte(),
             hopCount = (packet.hopCount + 1).toByte()
@@ -420,8 +485,20 @@ class BLEMeshManagerImpl @Inject constructor(
     private fun handleScanResult(result: ScanResult) {
         val device = result.device
         val rssi = result.rssi
+        val deviceAddress = device.address
+        val now = System.currentTimeMillis()
         
-        Log.d(TAG, "Discovered device: ${device.address}, RSSI: $rssi")
+        // Check if we recently processed this device (within cooldown period)
+        val lastProcessed = recentlyProcessedDevices[deviceAddress]
+        if (lastProcessed != null && (now - lastProcessed) < SCAN_PROCESS_COOLDOWN) {
+            // Skip processing, too soon since last scan
+            return
+        }
+        
+        // Update last processed time
+        recentlyProcessedDevices[deviceAddress] = now
+        
+        Log.d(TAG, "Discovered device: $deviceAddress, RSSI: $rssi")
         
         // Extract protocol version from scan record if available
         val scanRecord = result.scanRecord
@@ -437,13 +514,13 @@ class BLEMeshManagerImpl @Inject constructor(
         // Update routing table and attempt connection
         coroutineScope.launch {
             // Store discovered node in database
-            val nodeId = device.address // Temporary until we exchange actual node ID
-            val timestamp = System.currentTimeMillis()
+            val nodeId = deviceAddress // Temporary until we exchange actual node ID
+            val timestamp = now
             
             bleNodeDao.insertNode(
                 com.linker.app.data.local.entity.BleNodeEntity(
                     nodeId = nodeId,
-                    deviceAddress = device.address,
+                    deviceAddress = deviceAddress,
                     deviceName = try { device.name } catch (e: SecurityException) { null },
                     rssi = rssi,
                     lastSeen = timestamp,
@@ -458,46 +535,46 @@ class BLEMeshManagerImpl @Inject constructor(
             // Update routing table with discovered peer
             routingTable.addRoute(
                 nodeId = nodeId,
-                deviceAddress = device.address,
+                deviceAddress = deviceAddress,
                 rssi = rssi,
                 hopCount = 1,
                 timestamp = timestamp
             )
             
             // Attempt connection if not already connected and under connection limit
-            if (!gattClientManager.isConnected(device.address) && 
+            if (!gattClientManager.isConnected(deviceAddress) && 
                 gattClientManager.getConnectionCount() < 7) {
                 
                 // Check if we've already attempted this connection
-                val attemptCount = connectionAttempts.getOrDefault(device.address, 0)
+                val attemptCount = connectionAttempts.getOrDefault(deviceAddress, 0)
                 
                 if (attemptCount < CONNECTION_MAX_RETRIES) {
                     // Calculate delay with exponential backoff
                     val delayMs = CONNECTION_RETRY_DELAY_MS * (1 shl attemptCount) // 2s, 4s, 8s
                     
-                    Log.d(TAG, "Scheduling connection attempt ${attemptCount + 1}/$CONNECTION_MAX_RETRIES to ${device.address} after ${delayMs}ms")
+                    Log.d(TAG, "Scheduling connection attempt ${attemptCount + 1}/$CONNECTION_MAX_RETRIES to $deviceAddress after ${delayMs}ms")
                     
                     delay(delayMs)
                     
-                    val result = connectToPeer(device.address)
+                    val result = connectToPeer(deviceAddress)
                     if (result.isSuccess) {
-                        Log.d(TAG, "Successfully connected to ${device.address}")
-                        connectionAttempts.remove(device.address)
+                        Log.d(TAG, "Successfully connected to $deviceAddress")
+                        connectionAttempts.remove(deviceAddress)
                         // Update node as connected
-                        bleNodeDao.updateConnectionStatusByAddress(device.address, true, System.currentTimeMillis())
+                        bleNodeDao.updateConnectionStatusByAddress(deviceAddress, true, System.currentTimeMillis())
                     } else {
-                        Log.w(TAG, "Failed to connect to ${device.address} (attempt ${attemptCount + 1}): ${result.exceptionOrNull()?.message}")
-                        connectionAttempts[device.address] = attemptCount + 1
+                        Log.w(TAG, "Failed to connect to $deviceAddress (attempt ${attemptCount + 1}): ${result.exceptionOrNull()?.message}")
+                        connectionAttempts[deviceAddress] = attemptCount + 1
                         
                         // Schedule retry if we haven't exceeded max retries
                         if (attemptCount + 1 < CONNECTION_MAX_RETRIES) {
-                            Log.d(TAG, "Will retry connection to ${device.address} on next scan")
+                            Log.d(TAG, "Will retry connection to $deviceAddress on next scan")
                         } else {
-                            Log.e(TAG, "Max connection attempts reached for ${device.address}, giving up")
+                            Log.e(TAG, "Max connection attempts reached for $deviceAddress, giving up")
                         }
                     }
                 } else {
-                    Log.w(TAG, "Already attempted max retries for ${device.address}, skipping")
+                    Log.w(TAG, "Already attempted max retries for $deviceAddress, skipping")
                 }
             }
         }
@@ -509,6 +586,18 @@ class BLEMeshManagerImpl @Inject constructor(
             
             if (isTestPacket) {
                 Log.d(TAG, "Received test packet from ${packet.senderId}, establishing bidirectional connection")
+                
+                // Decrypt test packet payload (simple XOR decryption)
+                // Test packets use simple XOR encryption as a placeholder
+                try {
+                    val decryptedTestPayload = packet.encryptedPayload.map { byte ->
+                        (byte.toInt() xor 0x42).toByte()
+                    }.toByteArray()
+                    val testMessage = String(decryptedTestPayload)
+                    Log.d(TAG, "Test packet decrypted: $testMessage")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to decrypt test packet: ${e.message}")
+                }
             }
             
             // Check for duplicates
@@ -524,19 +613,29 @@ class BLEMeshManagerImpl @Inject constructor(
             // This allows us to send messages back to the sender
             Log.d(TAG, "Updating routing table: sender ${packet.senderId} is reachable via BLE")
             try {
-                // Map sender user ID to MAC address for future routing
-                userIdToMacAddress[packet.senderId] = senderMacAddress
-                Log.d(TAG, "Mapped sender ${packet.senderId} to MAC address $senderMacAddress")
-                
-                // Add route using sender ID as nodeId and MAC address as deviceAddress
-                routingTable.addRoute(
-                    nodeId = packet.senderId,
-                    deviceAddress = senderMacAddress,
-                    rssi = -50, // Default RSSI for received packets
-                    hopCount = packet.hopCount.toInt() + 1,
-                    timestamp = System.currentTimeMillis()
-                )
-                Log.d(TAG, "Route updated for sender ${packet.senderId} via $senderMacAddress")
+                // Use mutex to ensure atomic update of userIdToMacAddress and routing table
+                routingTableMutex.withLock {
+                    // Map sender user ID to MAC address for future routing
+                    userIdToMacAddress[packet.senderId] = senderMacAddress
+                    Log.d(TAG, "Mapped sender ${packet.senderId} to MAC address $senderMacAddress")
+                    
+                    // Try to get actual RSSI from GattClientManager
+                    val actualRssi = gattClientManager.getRssi(senderMacAddress) ?: run {
+                        // If no RSSI available, try to read it
+                        gattClientManager.readRemoteRssi(senderMacAddress)
+                        -60 // Default RSSI while waiting for read result
+                    }
+                    
+                    // Add route using sender ID as nodeId and MAC address as deviceAddress
+                    routingTable.addRoute(
+                        nodeId = packet.senderId,
+                        deviceAddress = senderMacAddress,
+                        rssi = actualRssi,
+                        hopCount = packet.hopCount.toInt() + 1,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    Log.d(TAG, "Route updated for sender ${packet.senderId} via $senderMacAddress with RSSI $actualRssi")
+                }
                 
                 // If this is a test packet, establish an outgoing connection to enable bidirectional communication
                 if (isTestPacket) {
@@ -548,7 +647,11 @@ class BLEMeshManagerImpl @Inject constructor(
                             
                             // Check if not already connected
                             if (!gattClientManager.isConnected(senderMacAddress)) {
-                                val connected = gattClientManager.connectToDevice(device)
+                                // Get RSSI from routing table if available
+                                val route = routingTable.getRoute(packet.senderId)
+                                val rssi = route?.rssi ?: -60
+                                
+                                val connected = gattClientManager.connectToDevice(device, rssi)
                                 if (connected) {
                                     Log.d(TAG, "Successfully established outgoing connection to $senderMacAddress")
                                 } else {
@@ -591,7 +694,7 @@ class BLEMeshManagerImpl @Inject constructor(
             }
             
             // Get current user ID
-            val currentUserId = currentUserProvider.getCurrentUserId()
+            val currentUserId = currentUserProviderLazy.get().getCurrentUserId()
             
             // Check if packet is for us
             val isForUs = currentUserId != null && completePayload.recipientId == currentUserId

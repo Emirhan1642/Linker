@@ -27,7 +27,8 @@ object DatabaseModule {
                 LinkerDatabase.MIGRATION_6_7,
                 LinkerDatabase.MIGRATION_7_8,
                 LinkerDatabase.MIGRATION_8_9,
-                LinkerDatabase.MIGRATION_9_10
+                LinkerDatabase.MIGRATION_9_10,
+                LinkerDatabase.MIGRATION_10_11
             )
             // ✅ REMOVED: fallbackToDestructiveMigration() - Data loss risk
             .build()

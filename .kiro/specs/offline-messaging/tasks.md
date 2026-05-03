@@ -547,6 +547,393 @@ Bu implementation plan, Linker Android uygulamasına offline messaging özelliğ
 - [ ] 15. Final checkpoint - Complete feature verification
   - Ensure all tests pass, ask the user if questions arise.
 
+- [ ] 16. Phase 10: Bug Fixes and Improvements (P0 - Critical)
+  - [x] 16.1 Fix encryption missing in BLE message sending (Issue #2 - CRITICAL SECURITY)
+    - **File**: MessageQueueProcessorImpl.kt (Line 186-200)
+    - **Problem**: BLE messages sent without encryption - `encryptedPayload = message.messagePayload.toByteArray()`
+    - **Impact**: All offline messages transmitted as plaintext
+    - **Solution**: Call `encryptionManager.encryptMessage()` before creating BLEPacket
+    - Add proper error handling for encryption failures
+    - _Analysis Report: Issue #2, Priority P0_
+  
+  - [x] 16.2 Fix encryption missing in test packet sending (Issue #1)
+    - **File**: BLEMeshManagerImpl.kt (Line 387-398)
+    - **Problem**: Test packets sent without encryption - `val encryptedTestPayload = testPayload`
+    - **Impact**: Security vulnerability - test packets transmitted as plaintext
+    - **Solution**: Use `encryptionManager.encryptMessage()` for test packets
+    - _Analysis Report: Issue #1, Priority P0_
+  
+  - [x] 16.3 Fix decryption missing in packet reception (Issue #3)
+    - **File**: BLEMeshManagerImpl.kt (Line 619-665)
+    - **Problem**: Received packets not decrypted - `messageReceivedCallback?.invoke(completePayload)`
+    - **Impact**: Encrypted messages delivered to app without decryption
+    - **Solution**: Call `encryptionManager.decryptMessage()` before invoking callback
+    - Add error handling for decryption failures
+    - _Analysis Report: Issue #3, Priority P0_
+  
+  - [x] 16.4 Implement Wi-Fi Direct sending logic (Issue #5)
+    - **File**: MessageQueueProcessorImpl.kt (Line 210-230)
+    - **Problem**: Wi-Fi Direct completely unimplemented - returns failure exception
+    - **Impact**: Large media files cannot be sent
+    - **Solution**: Integrate NearbyConnectionsManager for file transfer
+    - Implement proper error handling and fallback to BLE
+    - Add progress tracking
+    - _Analysis Report: Issue #5, Priority P0_
+  
+  - [x] 16.5 Fix connection timeout spec violation (Issue #8)
+    - **File**: GattClientManager.kt (Line 32)
+    - **Problem**: `CONNECTION_TIMEOUT = 20000L` (20 seconds) - spec requires 5 seconds
+    - **Impact**: Poor user experience, slow connection attempts
+    - **Solution**: Change to `CONNECTION_TIMEOUT = 5000L` per Requirement 1.4
+    - _Analysis Report: Issue #8, Priority P0_
+
+- [ ] 17. Phase 11: Bug Fixes and Improvements (P1 - High Priority)
+  - [x] 17.1 Fix RSSI missing for incoming connections (Issue #4)
+    - **File**: BLEMeshManagerImpl.kt (Line 577-582)
+    - **Problem**: Default RSSI (-60) used instead of actual value
+    - **Impact**: Routing quality calculated incorrectly
+    - **Solution**: Get actual RSSI from GattClientManager or GattServerManager
+    - Update RouteInfo with real RSSI values
+    - _Analysis Report: Issue #4, Priority P1_
+  
+  - [ ] 17.2 Fix circular dependency risk (Issue #6)
+    - **File**: BLEMeshManagerImpl.kt
+    - **Problem**: `currentUserProvider` injected directly - circular dependency risk
+    - **Impact**: Application may fail to start
+    - **Solution**: Use lazy injection or Provider<CurrentUserProvider> pattern
+    - _Analysis Report: Issue #6, Priority P1_
+  
+  - [x] 17.3 Fix memory leak risk in FragmentManager (Issue #7)
+    - **File**: FragmentManager.kt (Line 30-35)
+    - **Problem**: Manual CoroutineScope management - `CoroutineScope(Dispatchers.Default + SupervisorJob())`
+    - **Impact**: Memory leak if scope not cancelled
+    - **Solution**: Ensure `shutdown()` called in all cleanup paths
+    - Add lifecycle observer or inject scope
+    - _Analysis Report: Issue #7, Priority P1_
+  
+  - [x] 17.4 Fix scan cooldown too long (Issue #9)
+    - **File**: BLEMeshManagerImpl.kt (Line 62)
+    - **Problem**: `SCAN_PROCESS_COOLDOWN = 5000L` (5 seconds) too long
+    - **Impact**: Slow device discovery, delayed mesh network formation
+    - **Solution**: Reduce to 2000-3000L (2-3 seconds)
+    - _Analysis Report: Issue #9, Priority P1_
+  
+  - [x] 17.5 Fix duplicate scan processing (Issue #10)
+    - **File**: BLEMeshManagerImpl.kt (Line 519-527)
+    - **Problem**: Scan cooldown insufficient - same device processed multiple times
+    - **Impact**: Redundant connection attempts
+    - **Solution**: Combine cooldown with connection attempt tracking
+    - _Analysis Report: Issue #10, Priority P1_
+  
+  - [x] 17.6 Fix race condition in routing table update (Issue #25)
+    - **File**: BLEMeshManagerImpl.kt (Line 569-595)
+    - **Problem**: `userIdToMacAddress` map update and `routingTable.addRoute()` not atomic
+    - **Impact**: Race condition in concurrent access
+    - **Solution**: Add Mutex protection for both operations
+    - _Analysis Report: Issue #25, Priority P1_
+  
+  - [x] 17.7 Fix race condition in fragment timeout (Issue #26)
+    - **File**: FragmentManager.kt (Line 60-75)
+    - **Problem**: Fragment addition and timeout job not synchronized
+    - **Impact**: Race condition possible
+    - **Solution**: Use synchronized block or Mutex
+    - _Analysis Report: Issue #26, Priority P1_
+  
+  - [x] 17.8 Fix race condition in connection pool (Issue #27)
+    - **File**: GattClientManager.kt (Line 73-78)
+    - **Problem**: Connection limit check not atomic - `if (connections.size >= MAX_CONNECTIONS && connectionPool.isFull())`
+    - **Impact**: Connection pool overflow possible
+    - **Solution**: Add Mutex protection for connection limit check
+    - _Analysis Report: Issue #27, Priority P1_
+  
+  - [x] 17.9 Fix message ID collision risk (Issue #28)
+    - **File**: BLEPacket.kt
+    - **Problem**: Timestamp used for message ID - `messageId = "test-${System.currentTimeMillis()}"`
+    - **Impact**: Collision if two messages sent in same millisecond
+    - **Solution**: Use UUID.randomUUID() for message IDs
+    - _Analysis Report: Issue #28, Priority P1_
+  
+  - [x] 17.10 Fix TTL decrement logic (Issue #29)
+    - **File**: BLEMeshManagerImpl.kt (Line 447-456)
+    - **Problem**: TTL decremented before checking if already 0
+    - **Impact**: Logic error in TTL handling
+    - **Solution**: Check `if (packet.ttl > 0)` before decrementing
+    - _Analysis Report: Issue #29, Priority P1_
+
+- [ ] 18. Phase 12: Bug Fixes and Improvements (P2 - Medium Priority)
+  - [x] 18.1 Implement message type detection (Issue #11)
+    - **File**: MessageQueueProcessorImpl.kt (Line 73-75)
+    - **Problem**: Hardcoded priority 0 for all messages - `val priority = MessagePriority.TEXT`
+    - **Impact**: Media messages not prioritized correctly
+    - **Solution**: Get messageType from MessageEntity and map to priority
+    - _Analysis Report: Issue #11, Priority P2_
+  
+  - [x] 18.2 Add logging to SyncManager (Issue #12)
+    - **File**: SyncManager.kt (Line 186)
+    - **Problem**: Missing logging - `// TODO: Add proper logging`
+    - **Impact**: Difficult to debug sync issues
+    - **Solution**: Integrate ErrorLogger or Analytics
+    - _Analysis Report: Issue #12, Priority P2_
+  
+  - [x] 18.3 Add message type mapping in SyncManager (Issue #13)
+    - **File**: SyncManager.kt (Line 56, 127)
+    - **Problem**: Hardcoded TEXT type - `messageType = com.linker.app.domain.model.MessageType.TEXT`
+    - **Impact**: Message type lost during sync
+    - **Solution**: Add messageType field to MessageQueueEntity (requires migration)
+    - _Analysis Report: Issue #13, Priority P2_
+  
+  - [x] 18.4 Store Kyber pre-key (Issue #14)
+    - **File**: EncryptionManagerImpl.kt (Line 227-229)
+    - **Problem**: Kyber pre-key generated but not stored
+    - **Impact**: Key not persisted for future use
+    - **Solution**: Store Kyber pre-key in SignalProtocolStore
+    - _Analysis Report: Issue #14, Priority P2_
+  
+  - [x] 18.5 Refactor connection state handling (Issue #21)
+    - **File**: GattClientManager.kt
+    - **Problem**: Duplicate code in `onConnectionStateChange` callback
+    - **Impact**: Code duplication
+    - **Solution**: Create helper function for continuation handling
+    - _Analysis Report: Issue #21, Priority P2_
+  
+  - [x] 18.6 Create error handling extension function (Issue #22)
+    - **File**: Multiple files
+    - **Problem**: Try-catch blocks repeated everywhere
+    - **Impact**: Code duplication
+    - **Solution**: Create extension function or inline function for error handling
+    - _Analysis Report: Issue #22, Priority P2_
+  
+  - [x] 18.7 Create status update transaction wrapper (Issue #23)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: Queue status update code duplicated
+    - **Impact**: Code duplication
+    - **Solution**: Create transaction wrapper function
+    - _Analysis Report: Issue #23, Priority P2_
+  
+  - [x] 18.8 Create TimeProvider interface (Issue #24)
+    - **File**: Multiple files
+    - **Problem**: `System.currentTimeMillis()` repeated everywhere
+    - **Impact**: Not testable, code duplication
+    - **Solution**: Create TimeProvider interface for dependency injection
+    - _Analysis Report: Issue #24, Priority P2_
+  
+  - [x] 18.9 Optimize route lookup performance (Issue #30)
+    - **File**: BLERoutingTable.kt
+    - **Problem**: Database query on every route lookup
+    - **Impact**: Performance degradation
+    - **Solution**: Implement batch query or cache warming strategy
+    - _Analysis Report: Issue #30, Priority P2_
+  
+  - [x] 18.10 Add dispatcher check for encryption (Issue #31)
+    - **File**: EncryptionManagerImpl.kt
+    - **Problem**: Encryption may run on main thread
+    - **Impact**: UI blocking
+    - **Solution**: Add coroutine dispatcher control
+    - _Analysis Report: Issue #31, Priority P2_
+  
+  - [x] 18.11 Implement connection pool priority eviction (Issue #32)
+    - **File**: GattClientManager.kt
+    - **Problem**: Connection pool exists but no priority-based eviction
+    - **Impact**: Suboptimal connection management
+    - **Solution**: Fully implement BLEConnectionPool with priority
+    - _Analysis Report: Issue #32, Priority P2_
+  
+  - [x] 18.12 Add ByteBuffer object pooling (Issue #33)
+    - **File**: BLEPacket.kt (Line 60-80)
+    - **Problem**: ByteBuffer allocated on every serialization
+    - **Impact**: Memory allocation overhead
+    - **Solution**: Use object pool for ByteBuffer
+    - _Analysis Report: Issue #33, Priority P2_
+  
+  - [x] 18.13 Implement batch database operations (Issue #34)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: Separate transaction for each message
+    - **Impact**: Performance degradation
+    - **Solution**: Use batch insert/update operations
+    - _Analysis Report: Issue #34, Priority P2_
+
+- [ ] 19. Phase 13: Bug Fixes and Improvements (P3 - Low Priority)
+  - [x] 19.1 Optimize route lookup cache (Issue #15)
+    - **File**: BLERoutingTable.kt (Line 88-115)
+    - **Problem**: Database query on every lookup
+    - **Impact**: Inefficient
+    - **Solution**: Increase cache hit rate, optimize LRU cache size
+    - _Analysis Report: Issue #15, Priority P3_
+  
+  - [x] 19.2 Add BuildConfig.DEBUG check for logging (Issue #16)
+    - **File**: All files
+    - **Problem**: Log.d() called in production
+    - **Impact**: Performance loss
+    - **Solution**: Add BuildConfig.DEBUG check or use Timber
+    - _Analysis Report: Issue #16, Priority P3_
+  
+  - [x] 19.3 Create configuration class for hardcoded values (Issue #17)
+    - **File**: Multiple files
+    - **Problem**: Hardcoded values (MAX_CONNECTIONS=7, DEFAULT_TTL=5, etc.)
+    - **Impact**: Not configurable at runtime
+    - **Solution**: Create Configuration class
+    - _Analysis Report: Issue #17, Priority P3_
+  
+  - [x] 19.4 Implement performance metrics collection (Issue #18)
+    - **File**: All files
+    - **Problem**: No metrics collected
+    - **Impact**: Cannot measure performance
+    - **Solution**: Track BLE discovery time, connection time, transmission time, etc.
+    - _Analysis Report: Issue #18, Priority P3_
+  
+  - [x] 19.5 Add GATT error retry logic (Issue #19)
+    - **File**: GattClientManager.kt
+    - **Problem**: No retry for GATT errors
+    - **Impact**: Transient failures not recovered
+    - **Solution**: Add automatic retry on GATT_FAILURE
+    - _Analysis Report: Issue #19, Priority P3_
+  
+  - [x] 19.6 Implement adaptive batching (Issue #20)
+    - **File**: MessageBatcher.kt
+    - **Problem**: Fixed batch size and timeout
+    - **Impact**: Not optimal for all network conditions
+    - **Solution**: Adjust batch parameters based on network state
+    - _Analysis Report: Issue #20, Priority P3_
+  
+  - [x] 19.7 Implement automatic key rotation (Issue #38)
+    - **File**: EncryptionManagerImpl.kt
+    - **Problem**: `rotateKeys()` exists but not called automatically
+    - **Impact**: Keys not rotated per security best practices
+    - **Solution**: Use WorkManager for 30-day rotation schedule
+    - _Analysis Report: Issue #38, Priority P3_
+  
+  - [x] 19.8 Implement key backup mechanism (Issue #39)
+    - **File**: SignalProtocolStoreImpl.kt
+    - **Problem**: No identity key backup
+    - **Impact**: Messages unreadable if device lost
+    - **Solution**: Add secure backup mechanism
+    - _Analysis Report: Issue #39, Priority P3_
+  
+  - [x] 19.9 Add certificate pinning (Issue #40)
+    - **File**: Network operations
+    - **Problem**: No certificate pinning for Firestore
+    - **Impact**: MITM attack risk
+    - **Solution**: Add OkHttp interceptor with certificate pinning
+    - _Analysis Report: Issue #40, Priority P3_
+  
+  - [x] 19.10 Disable sensitive data logging in production (Issue #41)
+    - **File**: All files
+    - **Problem**: Message contents may be logged
+    - **Impact**: Privacy risk
+    - **Solution**: Disable sensitive logging in production builds
+    - _Analysis Report: Issue #41, Priority P3_
+  
+  - [x] 19.11 Add message sending progress indication (Issue #42)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: No progress shown during sending
+    - **Impact**: Poor UX
+    - **Solution**: Emit progress via Flow
+    - _Analysis Report: Issue #42, Priority P3_
+  
+  - [x] 19.12 Add retry UI for failed messages (Issue #43)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: No user retry option for failed messages
+    - **Impact**: Poor UX
+    - **Solution**: Add retry button in UI
+    - _Analysis Report: Issue #43, Priority P3_
+  
+  - [x] 19.13 Add mesh network status display (Issue #44)
+    - **File**: BLEMeshManagerImpl.kt
+    - **Problem**: Network status not shown to user
+    - **Impact**: Poor UX
+    - **Solution**: Show peer count and connection quality in notification
+    - _Analysis Report: Issue #44, Priority P3_
+  
+  - [x] 19.14 Add battery warning (Issue #45)
+    - **File**: AdaptiveScanningStrategy.kt
+    - **Problem**: No warning when battery low
+    - **Impact**: Poor UX
+    - **Solution**: Show warning below 15% battery
+    - _Analysis Report: Issue #45, Priority P3_
+  
+  - [x] 19.15 Decouple MessageQueueProcessor from BLEMeshManager (Issue #46)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: Tight coupling to BLEMeshManager
+    - **Impact**: Poor architecture
+    - **Solution**: Create DeliveryStrategy interface
+    - _Analysis Report: Issue #46, Priority P3_
+  
+  - [x] 19.16 Inject CoroutineScope in FragmentManager (Issue #47)
+    - **File**: FragmentManager.kt
+    - **Problem**: Hardcoded CoroutineScope
+    - **Impact**: Not testable
+    - **Solution**: Inject scope via constructor
+    - _Analysis Report: Issue #47, Priority P3_
+  
+  - [x] 19.17 Create BleNodeRepository (Issue #48)
+    - **File**: BLEMeshManagerImpl.kt
+    - **Problem**: Direct DAO access
+    - **Impact**: Poor architecture
+    - **Solution**: Create repository layer
+    - _Analysis Report: Issue #48, Priority P3_
+  
+  - [x] 19.18 Create SendOfflineMessageUseCase (Issue #49)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: Business logic in data layer
+    - **Impact**: Poor architecture
+    - **Solution**: Create use case layer
+    - _Analysis Report: Issue #49, Priority P3_
+  
+  - [x] 19.19 Implement event bus for component communication (Issue #50)
+    - **File**: Multiple files
+    - **Problem**: Callback-based communication
+    - **Impact**: Tight coupling
+    - **Solution**: Use EventBus or SharedFlow
+    - _Analysis Report: Issue #50, Priority P3_
+  
+  - [x] 19.20 Add KDoc for public APIs (Issue #51)
+    - **File**: All public interfaces
+    - **Problem**: Missing KDoc
+    - **Impact**: Poor documentation
+    - **Solution**: Add KDoc to all public APIs
+    - _Analysis Report: Issue #51, Priority P3_
+  
+  - [x] 19.21 Create architecture documentation (Issue #52)
+    - **File**: Documentation
+    - **Problem**: No component interaction diagram
+    - **Impact**: Hard to understand system
+    - **Solution**: Update Mermaid diagrams
+    - _Analysis Report: Issue #52, Priority P3_
+  
+  - [x] 19.22 Document error codes (Issue #53)
+    - **File**: Documentation
+    - **Problem**: Error codes not documented
+    - **Impact**: Hard to debug
+    - **Solution**: Create error code enum with documentation
+    - _Analysis Report: Issue #53, Priority P3_
+  
+  - [x] 19.23 Implement conflict resolution in SyncManager (Issue #54)
+    - **File**: SyncManager.kt
+    - **Problem**: No conflict resolution for duplicate messages
+    - **Impact**: Same message may be processed twice
+    - **Solution**: Integrate MessageDeduplicationManager
+    - _Analysis Report: Issue #54, Priority P3_
+  
+  - [x] 19.24 Make sync operations idempotent (Issue #55)
+    - **File**: SyncManager.kt
+    - **Problem**: Sync not idempotent
+    - **Impact**: Same message may be sent multiple times
+    - **Solution**: Add message ID check
+    - _Analysis Report: Issue #55, Priority P3_
+  
+  - [x] 19.25 Add transaction support for queue updates (Issue #56)
+    - **File**: MessageQueueProcessorImpl.kt
+    - **Problem**: Queue and message updates not atomic
+    - **Impact**: Data inconsistency possible
+    - **Solution**: Use Room transaction
+    - _Analysis Report: Issue #56, Priority P3_
+
+- [x] 20. Checkpoint - All bug fixes complete
+  - Verify all critical and high priority issues resolved
+  - Run full test suite
+  - Perform security audit
+  - Ask user if questions arise
+
 ## Notes
 
 - Tasks marked with `*` are optional and can be skipped for faster MVP

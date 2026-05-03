@@ -25,6 +25,13 @@ interface BleNodeDao {
     @Query("SELECT * FROM ble_nodes WHERE nodeId = :nodeId")
     suspend fun getNodeById(nodeId: String): BleNodeEntity?
     
+    /**
+     * Get multiple nodes by their IDs in a single batch query
+     * More efficient than multiple getNodeById() calls
+     */
+    @Query("SELECT * FROM ble_nodes WHERE nodeId IN (:nodeIds)")
+    suspend fun getNodesByIds(nodeIds: List<String>): List<BleNodeEntity>
+    
     @Query("SELECT * FROM ble_nodes WHERE deviceAddress = :deviceAddress")
     suspend fun getNodeByAddress(deviceAddress: String): BleNodeEntity?
     

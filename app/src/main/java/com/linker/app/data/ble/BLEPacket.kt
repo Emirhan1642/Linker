@@ -44,33 +44,76 @@ data class BLEPacket(
         const val MAX_PAYLOAD_SIZE = 512 - HEADER_SIZE // 391 bytes
         const val MTU_SIZE = 512
         
+        // ByteBuffer object pool for reducing allocation overhead
+        private const val POOL_SIZE = 10
+        private val bufferPool = ArrayDeque<ByteBuffer>(POOL_SIZE)
+        
+        /**
+         * Get a ByteBuffer from the pool or create a new one
+         * 
+         * @param capacity Required capacity
+         * @return ByteBuffer with at least the requested capacity
+         */
+        private fun getBuffer(capacity: Int): ByteBuffer {
+            synchronized(bufferPool) {
+                val buffer = bufferPool.removeFirstOrNull()
+                return if (buffer != null && buffer.capacity() >= capacity) {
+                    buffer.clear()
+                    buffer
+                } else {
+                    ByteBuffer.allocate(capacity)
+                }
+            }
+        }
+        
+        /**
+         * Return a ByteBuffer to the pool for reuse
+         * 
+         * @param buffer ByteBuffer to return
+         */
+        private fun returnBuffer(buffer: ByteBuffer) {
+            synchronized(bufferPool) {
+                if (bufferPool.size < POOL_SIZE) {
+                    buffer.clear()
+                    bufferPool.addLast(buffer)
+                }
+            }
+        }
+        
         /**
          * Serialize packet to byte array for BLE transmission
+         * 
+         * Uses object pooling to reduce ByteBuffer allocation overhead.
          * 
          * @param packet The packet to serialize
          * @return Byte array representation of the packet
          */
         fun serialize(packet: BLEPacket): ByteArray {
-            val buffer = ByteBuffer.allocate(HEADER_SIZE + packet.payloadLength.toInt())
+            val capacity = HEADER_SIZE + packet.payloadLength.toInt()
+            val buffer = getBuffer(capacity)
             
-            // Write header
-            buffer.put(packet.version)
-            buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.ttl)
-            buffer.put(packet.hopCount)
-            buffer.putShort(packet.fragmentIndex)
-            buffer.putShort(packet.totalFragments)
-            buffer.putShort(packet.payloadLength)
-            
-            // Write payload
-            buffer.put(packet.encryptedPayload)
-            
-            // Write checksum
-            buffer.putInt(packet.checksum)
-            
-            return buffer.array()
+            try {
+                // Write header
+                buffer.put(packet.version)
+                buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.ttl)
+                buffer.put(packet.hopCount)
+                buffer.putShort(packet.fragmentIndex)
+                buffer.putShort(packet.totalFragments)
+                buffer.putShort(packet.payloadLength)
+                
+                // Write payload
+                buffer.put(packet.encryptedPayload)
+                
+                // Write checksum
+                buffer.putInt(packet.checksum)
+                
+                return buffer.array().copyOf(capacity)
+            } finally {
+                returnBuffer(buffer)
+            }
         }
         
         /**
@@ -78,7 +121,7 @@ data class BLEPacket(
          * 
          * @param data Byte array to deserialize
          * @return Deserialized BLEPacket
-         * @throws IllegalArgumentException if data is invalid
+         * @throws IllegalArgumentException if data is invalid or checksum fails
          */
         fun deserialize(data: ByteArray): BLEPacket {
             if (data.size < HEADER_SIZE) {
@@ -119,7 +162,7 @@ data class BLEPacket(
             // Read checksum
             val checksum = buffer.getInt()
             
-            return BLEPacket(
+            val packet = BLEPacket(
                 version = version,
                 messageId = messageId,
                 senderId = senderId,
@@ -132,6 +175,13 @@ data class BLEPacket(
                 encryptedPayload = payload,
                 checksum = checksum
             )
+            
+            // Validate checksum
+            if (!validateChecksum(packet)) {
+                throw IllegalArgumentException("Invalid checksum for packet $messageId")
+            }
+            
+            return packet
         }
         
         /**
@@ -149,30 +199,39 @@ data class BLEPacket(
         /**
          * Validate packet checksum
          * 
+         * Uses object pooling to reduce ByteBuffer allocation overhead.
+         * 
          * @param packet Packet to validate
          * @return true if checksum is valid, false otherwise
          */
         fun validateChecksum(packet: BLEPacket): Boolean {
-            // Serialize packet without checksum
-            val buffer = ByteBuffer.allocate(HEADER_SIZE - 4 + packet.payloadLength.toInt())
+            val capacity = HEADER_SIZE - 4 + packet.payloadLength.toInt()
+            val buffer = getBuffer(capacity)
             
-            buffer.put(packet.version)
-            buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(packet.ttl)
-            buffer.put(packet.hopCount)
-            buffer.putShort(packet.fragmentIndex)
-            buffer.putShort(packet.totalFragments)
-            buffer.putShort(packet.payloadLength)
-            buffer.put(packet.encryptedPayload)
-            
-            val calculatedChecksum = calculateChecksum(buffer.array())
-            return calculatedChecksum == packet.checksum
+            try {
+                buffer.put(packet.version)
+                buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.ttl)
+                buffer.put(packet.hopCount)
+                buffer.putShort(packet.fragmentIndex)
+                buffer.putShort(packet.totalFragments)
+                buffer.putShort(packet.payloadLength)
+                buffer.put(packet.encryptedPayload)
+                
+                val data = buffer.array().copyOf(capacity)
+                val calculatedChecksum = calculateChecksum(data)
+                return calculatedChecksum == packet.checksum
+            } finally {
+                returnBuffer(buffer)
+            }
         }
         
         /**
          * Create a new packet with calculated checksum
+         * 
+         * Uses object pooling to reduce ByteBuffer allocation overhead.
          * 
          * @param version Protocol version
          * @param messageId Message UUID
@@ -197,35 +256,41 @@ data class BLEPacket(
             encryptedPayload: ByteArray
         ): BLEPacket {
             val payloadLength = encryptedPayload.size.toShort()
+            val capacity = HEADER_SIZE - 4 + payloadLength.toInt()
+            val buffer = getBuffer(capacity)
             
-            // Create packet without checksum
-            val buffer = ByteBuffer.allocate(HEADER_SIZE - 4 + payloadLength.toInt())
-            buffer.put(version)
-            buffer.put(messageId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(senderId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(recipientId.padEnd(36).toByteArray().copyOf(36))
-            buffer.put(ttl)
-            buffer.put(hopCount)
-            buffer.putShort(fragmentIndex)
-            buffer.putShort(totalFragments)
-            buffer.putShort(payloadLength)
-            buffer.put(encryptedPayload)
-            
-            val checksum = calculateChecksum(buffer.array())
-            
-            return BLEPacket(
-                version = version,
-                messageId = messageId,
-                senderId = senderId,
-                recipientId = recipientId,
-                ttl = ttl,
-                hopCount = hopCount,
-                fragmentIndex = fragmentIndex,
-                totalFragments = totalFragments,
-                payloadLength = payloadLength,
-                encryptedPayload = encryptedPayload,
-                checksum = checksum
-            )
+            try {
+                // Create packet without checksum
+                buffer.put(version)
+                buffer.put(messageId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(senderId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(ttl)
+                buffer.put(hopCount)
+                buffer.putShort(fragmentIndex)
+                buffer.putShort(totalFragments)
+                buffer.putShort(payloadLength)
+                buffer.put(encryptedPayload)
+                
+                val data = buffer.array().copyOf(capacity)
+                val checksum = calculateChecksum(data)
+                
+                return BLEPacket(
+                    version = version,
+                    messageId = messageId,
+                    senderId = senderId,
+                    recipientId = recipientId,
+                    ttl = ttl,
+                    hopCount = hopCount,
+                    fragmentIndex = fragmentIndex,
+                    totalFragments = totalFragments,
+                    payloadLength = payloadLength,
+                    encryptedPayload = encryptedPayload,
+                    checksum = checksum
+                )
+            } finally {
+                returnBuffer(buffer)
+            }
         }
     }
     

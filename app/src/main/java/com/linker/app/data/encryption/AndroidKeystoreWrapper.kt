@@ -14,6 +14,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.content.edit
 
 /**
  * Wrapper for Android Keystore operations
@@ -126,7 +127,7 @@ class AndroidKeystoreWrapper @Inject constructor(
      * Store registration ID
      */
     fun storeRegistrationId(key: String, registrationId: Int) {
-        prefs.edit().putInt(key, registrationId).apply()
+        prefs.edit { putInt(key, registrationId) }
     }
     
     /**
