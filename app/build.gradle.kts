@@ -46,9 +46,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("boolean", "ENABLE_SENSITIVE_LOGS", "false")
         }
         debug {
             isMinifyEnabled = false
+            buildConfigField("boolean", "ENABLE_SENSITIVE_LOGS", "true")
         }
     }
 

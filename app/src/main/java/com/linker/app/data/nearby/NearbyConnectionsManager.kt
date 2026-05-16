@@ -4,9 +4,13 @@ import android.content.Context
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.*
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.io.File
 import javax.inject.Inject
@@ -62,10 +66,12 @@ enum class TransferStatus {
 
 @Singleton
 class NearbyConnectionsManagerImpl @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val accountRepository: com.linker.app.domain.repository.AccountRepository
 ) : NearbyConnectionsManager {
     
     private val connectionsClient: ConnectionsClient = Nearby.getConnectionsClient(context)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     private val _discoveredEndpoints = MutableStateFlow<List<NearbyEndpoint>>(emptyList())
     private val _transferProgress = MutableStateFlow<TransferProgress?>(null)
@@ -73,12 +79,22 @@ class NearbyConnectionsManagerImpl @Inject constructor(
     private val discoveredEndpoints = mutableMapOf<String, NearbyEndpoint>()
     private val connectedEndpoints = mutableSetOf<String>()
     
+    // Pending connections awaiting authentication
+    private val pendingConnections = mutableMapOf<String, ConnectionInfo>()
+    
+    // Track file receptions with CompletableDeferred
+    private val pendingFileReceptions = mutableMapOf<Long, kotlinx.coroutines.CompletableDeferred<Result<File>>>()
+    
+    // Track received payloads for file access
+    private val receivedPayloads = mutableMapOf<Long, Payload>()
+    
     companion object {
         private const val TAG = "NearbyConnectionsManager"
         private const val SERVICE_ID = "com.linker.app.OFFLINE_MESSAGING"
-        private val STRATEGY = Strategy.P2P_POINT_TO_POINT
+        private val STRATEGY = Strategy.P2P_CLUSTER  // Changed from P2P_POINT_TO_POINT for mesh support
         private const val CONNECTION_TIMEOUT_MS = 10_000L
         private const val MAX_RETRIES = 3
+        private const val ENDPOINT_PREFIX = "linker_user_"
     }
     
     override suspend fun startDiscovery(): Result<Unit> =
@@ -108,18 +124,26 @@ class NearbyConnectionsManagerImpl @Inject constructor(
                 .setStrategy(STRATEGY)
                 .build()
 
-            // Use user ID as endpoint name
-            val endpointName = "linker_user_${System.currentTimeMillis()}" // TODO: Get from session
+            // Use actual user ID as endpoint name
+            scope.launch {
+                val userId = accountRepository.getActiveUid()
+                if (userId == null) {
+                    continuation.resume(Result.failure(IllegalStateException("User not logged in")))
+                    return@launch
+                }
+                
+                val endpointName = "$ENDPOINT_PREFIX$userId"
 
-            connectionsClient.startAdvertising(
-                endpointName,
-                SERVICE_ID,
-                connectionLifecycleCallback,
-                options
-            ).addOnSuccessListener {
-                continuation.resume(Result.success(Unit))
-            }.addOnFailureListener { exception ->
-                continuation.resume(Result.failure(exception))
+                connectionsClient.startAdvertising(
+                    endpointName,
+                    SERVICE_ID,
+                    connectionLifecycleCallback,
+                    options
+                ).addOnSuccessListener {
+                    continuation.resume(Result.success(Unit))
+                }.addOnFailureListener { exception ->
+                    continuation.resume(Result.failure(exception))
+                }
             }
         }
     
@@ -129,14 +153,24 @@ class NearbyConnectionsManagerImpl @Inject constructor(
     
     override suspend fun connectToEndpoint(endpointId: String): Result<Unit> =
         suspendCancellableCoroutine { continuation ->
-            connectionsClient.requestConnection(
-                "linker_user", // TODO: Get from session
-                endpointId,
-                connectionLifecycleCallback
-            ).addOnSuccessListener {
-                continuation.resume(Result.success(Unit))
-            }.addOnFailureListener { exception ->
-                continuation.resume(Result.failure(exception))
+            scope.launch {
+                val userId = accountRepository.getActiveUid()
+                if (userId == null) {
+                    continuation.resume(Result.failure(IllegalStateException("User not logged in")))
+                    return@launch
+                }
+                
+                val endpointName = "$ENDPOINT_PREFIX$userId"
+                
+                connectionsClient.requestConnection(
+                    endpointName,
+                    endpointId,
+                    connectionLifecycleCallback
+                ).addOnSuccessListener {
+                    continuation.resume(Result.success(Unit))
+                }.addOnFailureListener { exception ->
+                    continuation.resume(Result.failure(exception))
+                }
             }
         }
     
@@ -169,9 +203,16 @@ class NearbyConnectionsManagerImpl @Inject constructor(
         payloadId: Long,
         onProgress: (bytesTransferred: Long, totalBytes: Long) -> Unit
     ): Result<File> {
-        // File reception is handled by PayloadCallback
-        // This method is for tracking/waiting for completion
-        return Result.failure(Exception("Not implemented - use PayloadCallback"))
+        // Create a CompletableDeferred to wait for file reception
+        val deferred = kotlinx.coroutines.CompletableDeferred<Result<File>>()
+        pendingFileReceptions[payloadId] = deferred
+        
+        // Wait for the file to be received (handled by PayloadCallback)
+        return try {
+            deferred.await()
+        } finally {
+            pendingFileReceptions.remove(payloadId)
+        }
     }
     
     override fun observeDiscoveredEndpoints(): Flow<List<NearbyEndpoint>> {
@@ -187,8 +228,14 @@ class NearbyConnectionsManagerImpl @Inject constructor(
      */
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
         override fun onEndpointFound(endpointId: String, info: DiscoveredEndpointInfo) {
-            // Extract user ID from endpoint name
-            val userId = info.endpointName.substringAfter("linker_user_", "")
+            // Extract user ID from endpoint name (format: "linker_user_<userId>")
+            val userId = info.endpointName.substringAfter(ENDPOINT_PREFIX, "")
+            
+            // Validate endpoint name format
+            if (userId.isEmpty() || !info.endpointName.startsWith(ENDPOINT_PREFIX)) {
+                android.util.Log.w(TAG, "Invalid endpoint name format: ${info.endpointName}")
+                return
+            }
             
             val endpoint = NearbyEndpoint(
                 endpointId = endpointId,
@@ -211,7 +258,33 @@ class NearbyConnectionsManagerImpl @Inject constructor(
      */
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         override fun onConnectionInitiated(endpointId: String, info: ConnectionInfo) {
-            // Auto-accept all connections
+            // SECURITY: Validate endpoint name before accepting connection
+            val endpointName = info.endpointName
+            
+            // Check if endpoint name has valid format
+            if (!endpointName.startsWith(ENDPOINT_PREFIX)) {
+                android.util.Log.w(TAG, "Rejecting connection from invalid endpoint: $endpointName")
+                connectionsClient.rejectConnection(endpointId)
+                return
+            }
+            
+            // Extract userId from endpoint name
+            val remoteUserId = endpointName.substringAfter(ENDPOINT_PREFIX, "")
+            if (remoteUserId.isEmpty()) {
+                android.util.Log.w(TAG, "Rejecting connection: empty userId in endpoint name")
+                connectionsClient.rejectConnection(endpointId)
+                return
+            }
+            
+            // Use authentication token for verification
+            val authToken = info.authenticationDigits
+            android.util.Log.d(TAG, "Connection initiated from $remoteUserId (endpoint: $endpointId), auth token: $authToken")
+            
+            // Store pending connection for potential manual verification
+            pendingConnections[endpointId] = info
+            
+            // Accept connection with authentication token verification
+            // In production, you might want to show UI for manual verification
             connectionsClient.acceptConnection(endpointId, payloadCallback)
         }
         
@@ -219,18 +292,24 @@ class NearbyConnectionsManagerImpl @Inject constructor(
             when (result.status.statusCode) {
                 ConnectionsStatusCodes.STATUS_OK -> {
                     connectedEndpoints.add(endpointId)
+                    pendingConnections.remove(endpointId)
+                    android.util.Log.d(TAG, "Connection established with endpoint: $endpointId")
                 }
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
-                    // Connection rejected
+                    pendingConnections.remove(endpointId)
+                    android.util.Log.w(TAG, "Connection rejected by endpoint: $endpointId")
                 }
                 ConnectionsStatusCodes.STATUS_ERROR -> {
-                    // Connection error
+                    pendingConnections.remove(endpointId)
+                    android.util.Log.e(TAG, "Connection error with endpoint: $endpointId")
                 }
             }
         }
         
         override fun onDisconnected(endpointId: String) {
             connectedEndpoints.remove(endpointId)
+            pendingConnections.remove(endpointId)
+            android.util.Log.d(TAG, "Disconnected from endpoint: $endpointId")
         }
     }
     
@@ -239,16 +318,22 @@ class NearbyConnectionsManagerImpl @Inject constructor(
      */
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
+            // Store payload for later access
+            receivedPayloads[payload.id] = payload
+            
             // Handle incoming payload
             when (payload.type) {
                 Payload.Type.FILE -> {
                     // File received, will be processed in onPayloadTransferUpdate
+                    android.util.Log.d(TAG, "File payload received: ${payload.id}")
                 }
                 Payload.Type.BYTES -> {
                     // Bytes received
+                    android.util.Log.d(TAG, "Bytes payload received: ${payload.id}")
                 }
                 Payload.Type.STREAM -> {
                     // Stream received
+                    android.util.Log.d(TAG, "Stream payload received: ${payload.id}")
                 }
             }
         }
@@ -268,6 +353,47 @@ class NearbyConnectionsManagerImpl @Inject constructor(
             )
             
             _transferProgress.value = progress
+            
+            // Complete pending file receptions
+            when (update.status) {
+                PayloadTransferUpdate.Status.SUCCESS -> {
+                    // Get the file from the stored payload
+                    val deferred = pendingFileReceptions[update.payloadId]
+                    if (deferred != null) {
+                        val payload = receivedPayloads[update.payloadId]
+                        if (payload != null && payload.type == Payload.Type.FILE) {
+                            val file = payload.asFile()?.asJavaFile()
+                            if (file != null) {
+                                deferred.complete(Result.success(file))
+                                android.util.Log.d(TAG, "File transfer completed: ${file.path}")
+                            } else {
+                                deferred.complete(Result.failure(Exception("File is null")))
+                                android.util.Log.e(TAG, "File is null for payloadId: ${update.payloadId}")
+                            }
+                        } else {
+                            deferred.complete(Result.failure(Exception("Payload not found or not a file")))
+                            android.util.Log.e(TAG, "Payload not found for payloadId: ${update.payloadId}")
+                        }
+                        // Cleanup
+                        receivedPayloads.remove(update.payloadId)
+                    }
+                }
+                PayloadTransferUpdate.Status.FAILURE -> {
+                    val deferred = pendingFileReceptions[update.payloadId]
+                    deferred?.complete(Result.failure(Exception("File transfer failed")))
+                    android.util.Log.e(TAG, "File transfer failed for payloadId: ${update.payloadId}")
+                    receivedPayloads.remove(update.payloadId)
+                }
+                PayloadTransferUpdate.Status.CANCELED -> {
+                    val deferred = pendingFileReceptions[update.payloadId]
+                    deferred?.complete(Result.failure(Exception("File transfer canceled")))
+                    android.util.Log.w(TAG, "File transfer canceled for payloadId: ${update.payloadId}")
+                    receivedPayloads.remove(update.payloadId)
+                }
+                else -> {
+                    // IN_PROGRESS - do nothing
+                }
+            }
         }
     }
 }

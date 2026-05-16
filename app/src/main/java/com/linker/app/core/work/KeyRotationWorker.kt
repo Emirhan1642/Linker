@@ -48,8 +48,8 @@ class KeyRotationWorker @AssistedInject constructor(
                 .build()
             
             val rotationRequest = PeriodicWorkRequestBuilder<KeyRotationWorker>(
-                repeatInterval = OfflineMessagingConfig.KEY_ROTATION_INTERVAL_DAYS.toLong(),
-                repeatIntervalTimeUnit = TimeUnit.DAYS
+                repeatInterval = OfflineMessagingConfig.KEY_ROTATION_INTERVAL_MS,
+                repeatIntervalTimeUnit = TimeUnit.MILLISECONDS
             )
                 .setConstraints(constraints)
                 .setBackoffCriteria(
@@ -66,7 +66,7 @@ class KeyRotationWorker @AssistedInject constructor(
                 rotationRequest
             )
             
-            Log.d(TAG, "Key rotation scheduled (every ${OfflineMessagingConfig.KEY_ROTATION_INTERVAL_DAYS} days)")
+            Log.d(TAG, "Key rotation scheduled (every ${OfflineMessagingConfig.KEY_ROTATION_INTERVAL_MS / (24 * 60 * 60 * 1000)} days)")
         }
         
         /**

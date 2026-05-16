@@ -108,8 +108,8 @@ class AndroidKeystoreWrapper @Inject constructor(
         val serialized = identityKeyPair.serialize()
         val encrypted = encrypt(alias, serialized)
         val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-        
-        prefs.edit().putString(alias, encoded).apply()
+
+        prefs.edit { putString(alias, encoded) }
     }
     
     /**
@@ -143,8 +143,8 @@ class AndroidKeystoreWrapper @Inject constructor(
     fun storeEncryptedString(alias: String, key: String, value: String) {
         val encrypted = encrypt(alias, value.toByteArray())
         val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-        
-        prefs.edit().putString(key, encoded).apply()
+
+        prefs.edit { putString(key, encoded) }
     }
     
     /**
@@ -169,20 +169,28 @@ class AndroidKeystoreWrapper @Inject constructor(
      * Remove key
      */
     fun removeKey(key: String) {
-        prefs.edit().remove(key).apply()
+        prefs.edit { remove(key) }
     }
     
     /**
      * Clear all stored data
      */
     fun clearAll() {
-        prefs.edit().clear().apply()
-        
-        // Delete all keys from keystore
-        val aliases = keyStore.aliases()
-        while (aliases.hasMoreElements()) {
-            val alias = aliases.nextElement()
-            keyStore.deleteEntry(alias)
+        // Snapshot the alias list before deletion to prevent ConcurrentModificationException
+        // during iteration. Both operations are performed under synchronized to maintain
+        // atomicity and prevent race conditions between SharedPreferences and Keystore clearing.
+        synchronized(this) {
+            prefs.edit { clear() }
+
+            val aliases = keyStore.aliases().toList()
+            aliases.forEach { alias ->
+                try {
+                    keyStore.deleteEntry(alias)
+                } catch (e: Exception) {
+                    // Log but continue – we want to delete as many entries as possible
+                    android.util.Log.w("AndroidKeystoreWrapper", "Failed to delete keystore entry: $alias", e)
+                }
+            }
         }
     }
 }

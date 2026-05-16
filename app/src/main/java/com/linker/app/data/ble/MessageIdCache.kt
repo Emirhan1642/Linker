@@ -34,6 +34,7 @@ class MessageIdCache @Inject constructor(
     private val mutex = Mutex()
     
     // Track last trim time to avoid excessive database operations
+    @Volatile
     private var lastTrimTime = 0L
     
     /**
@@ -45,18 +46,18 @@ class MessageIdCache @Inject constructor(
     suspend fun contains(messageId: String): Boolean = mutex.withLock {
         // Check memory cache first
         if (memoryCache.get(messageId) != null) {
-            return true
+            return@withLock true
         }
-        
+
         // Check database
         val exists = messageIdCacheDao.exists(messageId)
-        
+
         // Update memory cache if found
         if (exists) {
             memoryCache.put(messageId, System.currentTimeMillis())
         }
-        
-        return exists
+
+        exists
     }
     
     /**

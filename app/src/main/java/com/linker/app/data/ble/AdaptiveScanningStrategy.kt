@@ -33,10 +33,14 @@ class AdaptiveScanningStrategy @Inject constructor(
     
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     
+    @Volatile
     private var isScreenOn = powerManager.isInteractive
+    @Volatile
     private var batteryLevel = getCurrentBatteryLevel()
-    
-    // Track monitoring state to prevent receiver leaks
+
+    // Track monitoring state to prevent receiver leaks. @Volatile ensures visibility
+    // across threads; the actual registration/unregistration is synchronized below.
+    @Volatile
     private var isMonitoring = false
     
     companion object {
@@ -78,25 +82,25 @@ class AdaptiveScanningStrategy @Inject constructor(
      * Start monitoring battery and screen state.
      */
     fun startMonitoring() {
-        // Prevent double registration
-        if (isMonitoring) {
-            return
+        // Prevent double registration (synchronized for thread safety)
+        synchronized(this) {
+            if (isMonitoring) return
+
+            // Register battery receiver
+            val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            context.registerReceiver(batteryReceiver, batteryFilter)
+
+            // Register screen receiver
+            val screenFilter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+            context.registerReceiver(screenReceiver, screenFilter)
+
+            isMonitoring = true
         }
-        
-        // Register battery receiver
-        val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        context.registerReceiver(batteryReceiver, batteryFilter)
-        
-        // Register screen receiver
-        val screenFilter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_SCREEN_OFF)
-        }
-        context.registerReceiver(screenReceiver, screenFilter)
-        
-        isMonitoring = true
-        
-        // Initial update
+
+        // Initial update (outside synchronized – StateFlow emission doesn't need locking)
         updateScanSettings()
     }
     
@@ -104,16 +108,17 @@ class AdaptiveScanningStrategy @Inject constructor(
      * Stop monitoring battery and screen state.
      */
     fun stopMonitoring() {
-        if (!isMonitoring) {
-            return
-        }
-        
-        try {
-            context.unregisterReceiver(batteryReceiver)
-            context.unregisterReceiver(screenReceiver)
-            isMonitoring = false
-        } catch (e: IllegalArgumentException) {
-            // Receiver not registered, ignore
+        synchronized(this) {
+            if (!isMonitoring) return
+
+            try {
+                context.unregisterReceiver(batteryReceiver)
+                context.unregisterReceiver(screenReceiver)
+            } catch (e: IllegalArgumentException) {
+                // Receiver not registered, ignore
+            } finally {
+                isMonitoring = false
+            }
         }
     }
     

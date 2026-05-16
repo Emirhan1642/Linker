@@ -79,6 +79,9 @@ class GattServerManager @Inject constructor(
             offset: Int,
             value: ByteArray?
         ) {
+            // Capture gattServer reference to avoid NPE during concurrent stopServer() call
+            val server = gattServer
+            
             if (characteristic?.uuid == CHARACTERISTIC_UUID && value != null) {
                 try {
                     // Deserialize packet
@@ -91,9 +94,9 @@ class GattServerManager @Inject constructor(
                         
                         Log.d(TAG, "Received valid packet from ${device?.address}: messageId=${packet.messageId}")
                         
-                        // Send success response
-                        if (responseNeeded) {
-                            gattServer?.sendResponse(
+                        // Send success response (use captured reference)
+                        if (responseNeeded && server != null) {
+                            server.sendResponse(
                                 device,
                                 requestId,
                                 BluetoothGatt.GATT_SUCCESS,
@@ -104,9 +107,9 @@ class GattServerManager @Inject constructor(
                     } else {
                         Log.w(TAG, "Invalid checksum for packet from ${device?.address}")
                         
-                        // Send failure response
-                        if (responseNeeded) {
-                            gattServer?.sendResponse(
+                        // Send failure response (use captured reference)
+                        if (responseNeeded && server != null) {
+                            server.sendResponse(
                                 device,
                                 requestId,
                                 BluetoothGatt.GATT_FAILURE,
@@ -118,9 +121,9 @@ class GattServerManager @Inject constructor(
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing packet from ${device?.address}", e)
                     
-                    // Send failure response
-                    if (responseNeeded) {
-                        gattServer?.sendResponse(
+                    // Send failure response (use captured reference)
+                    if (responseNeeded && server != null) {
+                        server.sendResponse(
                             device,
                             requestId,
                             BluetoothGatt.GATT_FAILURE,
@@ -131,8 +134,8 @@ class GattServerManager @Inject constructor(
                 }
             } else {
                 // Unknown characteristic or null value
-                if (responseNeeded) {
-                    gattServer?.sendResponse(
+                if (responseNeeded && server != null) {
+                    server.sendResponse(
                         device,
                         requestId,
                         BluetoothGatt.GATT_FAILURE,

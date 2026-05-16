@@ -43,6 +43,12 @@ class MessageQueueProcessorImpl @Inject constructor(
         private const val DEFAULT_TTL: Byte = 5
         private const val MAX_QUEUE_SIZE = 1000
     }
+
+    // Class-level scope tied to this singleton's lifecycle.
+    // Using SupervisorJob so individual child failures don't cancel the whole scope.
+    private val processorScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob()
+    )
     
     private val _queueStatus = MutableStateFlow(
         QueueStatus(0, 0, 0)
@@ -67,8 +73,8 @@ class MessageQueueProcessorImpl @Inject constructor(
     init {
         // Setup message batcher callback
         messageBatcher.setOnBatchReady { batch ->
-            // Batch is ready, send all messages
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            // Batch is ready, send all messages using the class-level scope
+            processorScope.launch {
                 batch.forEach { packet ->
                     try {
                         bleMeshManager.sendMessage(packet)
@@ -376,14 +382,13 @@ class MessageQueueProcessorImpl @Inject constructor(
             val discoveryTimeout = 10_000L // 10 seconds
             val startTime = System.currentTimeMillis()
             
-            // Collect discovered endpoints
-            val discoveryJob = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            // Collect discovered endpoints using the class-level scope
+            val discoveryJob = processorScope.launch {
                 nearbyConnectionsManager.observeDiscoveredEndpoints().collect { endpoints ->
                     val recipientEndpoint = endpoints.find { it.userId == message.recipientId }
                     if (recipientEndpoint != null) {
                         recipientEndpointId = recipientEndpoint.endpointId
                         Log.d(TAG, "Found recipient ${message.recipientId} at endpoint ${recipientEndpoint.endpointId}")
-                        // Stop collecting once found - cancel will be called outside
                     }
                 }
             }

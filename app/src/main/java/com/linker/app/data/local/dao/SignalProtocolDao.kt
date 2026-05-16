@@ -90,3 +90,53 @@ interface SignalSignedPreKeyDao {
     @Query("DELETE FROM signal_signed_prekeys")
     suspend fun clearAll()
 }
+
+/**
+ * DAO for Signal Protocol Kyber pre-keys (PQXDH)
+ */
+@Dao
+interface SignalKyberPreKeyDao {
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertKyberPreKey(kyberPreKey: SignalKyberPreKeyEntity)
+    
+    @Query("SELECT * FROM signal_kyber_prekeys WHERE kyberPreKeyId = :kyberPreKeyId")
+    suspend fun getKyberPreKey(kyberPreKeyId: Int): SignalKyberPreKeyEntity?
+    
+    @Query("SELECT * FROM signal_kyber_prekeys")
+    suspend fun getAllKyberPreKeys(): List<SignalKyberPreKeyEntity>
+    
+    @Query("SELECT * FROM signal_kyber_prekeys WHERE isUsed = 0")
+    suspend fun getUnusedKyberPreKeys(): List<SignalKyberPreKeyEntity>
+    
+    @Query("UPDATE signal_kyber_prekeys SET isUsed = 1 WHERE kyberPreKeyId = :kyberPreKeyId")
+    suspend fun markKyberPreKeyUsed(kyberPreKeyId: Int)
+    
+    @Query("DELETE FROM signal_kyber_prekeys WHERE kyberPreKeyId = :kyberPreKeyId")
+    suspend fun deleteKyberPreKey(kyberPreKeyId: Int)
+    
+    @Query("DELETE FROM signal_kyber_prekeys")
+    suspend fun clearAll()
+}
+
+/**
+ * DAO for Signal Protocol sender keys (group messaging)
+ */
+@Dao
+interface SignalSenderKeyDao {
+    
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSenderKey(senderKey: SignalSenderKeyEntity)
+    
+    @Query("SELECT * FROM signal_sender_keys WHERE senderAddress = :senderAddress AND distributionId = :distributionId")
+    suspend fun getSenderKey(senderAddress: String, distributionId: String): SignalSenderKeyEntity?
+    
+    @Query("SELECT * FROM signal_sender_keys")
+    suspend fun getAllSenderKeys(): List<SignalSenderKeyEntity>
+    
+    @Query("DELETE FROM signal_sender_keys WHERE senderAddress = :senderAddress AND distributionId = :distributionId")
+    suspend fun deleteSenderKey(senderAddress: String, distributionId: String)
+    
+    @Query("DELETE FROM signal_sender_keys")
+    suspend fun clearAll()
+}

@@ -111,21 +111,7 @@ interface MessageQueueDao {
      * This ensures queue and message updates are atomic - either both succeed or both fail.
      * Prevents data inconsistency where queue shows SENT but message still shows BLE delivery.
      * 
-     * Note: This is a transaction wrapper. The actual transaction is handled by Room
-     * when this method is called from a @Transaction-annotated function.
+     * NOTE: This method is not directly usable since DAOs cannot inject other DAOs.
+     * The actual transaction is implemented in LinkerDatabase.updateQueueAndMessageAtomic()
      */
-    @Transaction
-    suspend fun updateQueueAndMessageAtomic(
-        queueId: String,
-        messageId: String,
-        queueStatus: QueueStatus,
-        sentAt: Long?,
-        updateMessage: suspend (String) -> Unit
-    ) {
-        // Update queue status
-        updateQueueStatus(queueId, queueStatus, sentAt)
-        
-        // Update message (caller provides the update logic)
-        updateMessage(messageId)
-    }
 }

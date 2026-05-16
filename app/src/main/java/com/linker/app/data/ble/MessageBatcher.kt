@@ -7,6 +7,7 @@ import com.linker.app.data.connectivity.ConnectivityState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -36,7 +37,7 @@ class MessageBatcher @Inject constructor(
     private val messageQueue = ConcurrentLinkedQueue<BLEPacket>()
     private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
     private var flushJob: Job? = null
-    
+
     private var onBatchReady: ((List<BLEPacket>) -> Unit)? = null
     
     // Adaptive batch parameters
@@ -146,19 +147,22 @@ class MessageBatcher @Inject constructor(
         // Cancel any pending timeout flush
         flushJob?.cancel()
         flushJob = null
-        
+
         if (messageQueue.isEmpty()) {
             return
         }
-        
+
         // Collect all messages from queue
         val batch = mutableListOf<BLEPacket>()
         while (messageQueue.isNotEmpty()) {
             messageQueue.poll()?.let { batch.add(it) }
         }
-        
+
         if (batch.isNotEmpty()) {
             Log.d(TAG, "Flushing batch of ${batch.size} messages")
+            if (onBatchReady == null) {
+                Log.w(TAG, "onBatchReady callback is null – ${batch.size} messages will be dropped!")
+            }
             onBatchReady?.invoke(batch)
         }
     }
@@ -193,12 +197,15 @@ class MessageBatcher @Inject constructor(
     }
     
     /**
-     * Clear all pending messages.
+     * Clear all pending messages and cancel the internal coroutine scope.
+     * 
+     * Call this when the batcher is no longer needed to prevent coroutine leaks.
      */
     fun clear() {
         flushJob?.cancel()
         flushJob = null
         messageQueue.clear()
-        Log.d(TAG, "Cleared message batch")
+        coroutineScope.cancel()
+        Log.d(TAG, "Cleared message batch and cancelled coroutine scope")
     }
 }

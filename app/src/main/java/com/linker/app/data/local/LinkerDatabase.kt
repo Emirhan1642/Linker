@@ -4,6 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
+import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.linker.app.data.local.dao.*
 import com.linker.app.data.local.entity.*
@@ -16,9 +17,10 @@ import com.linker.app.data.local.entity.*
         MediaCacheEntity::class, NotificationEntity::class,
         BleNodeEntity::class, MessageIdCacheEntity::class,
         SignalIdentityEntity::class, SignalSessionEntity::class,
-        SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class
+        SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class,
+        SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -40,6 +42,30 @@ abstract class LinkerDatabase : RoomDatabase() {
     abstract fun signalSessionDao(): SignalSessionDao
     abstract fun signalPreKeyDao(): SignalPreKeyDao
     abstract fun signalSignedPreKeyDao(): SignalSignedPreKeyDao
+    abstract fun signalKyberPreKeyDao(): SignalKyberPreKeyDao
+    abstract fun signalSenderKeyDao(): SignalSenderKeyDao
+    
+    /**
+     * Atomically update queue status and message delivery method.
+     * 
+     * This transaction ensures both updates succeed or both fail,
+     * preventing data inconsistency.
+     * 
+     * NOTE: Room doesn't support @Transaction on RoomDatabase methods directly.
+     * This is a workaround using runInTransaction.
+     */
+    suspend fun updateQueueAndMessageAtomic(
+        queueId: String,
+        queueStatus: QueueStatus,
+        sentAt: Long?,
+        messageId: String,
+        deliveryMethod: DeliveryMethod
+    ) {
+        withTransaction {
+            messageQueueDao().updateQueueStatus(queueId, queueStatus, sentAt)
+            messageDao().updateDeliveryMethod(messageId, deliveryMethod)
+        }
+    }
 
     companion object {
         const val DATABASE_NAME = "linker_database"
@@ -176,6 +202,36 @@ abstract class LinkerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add messageType field to message_queue table for proper message type handling
                 db.execSQL("ALTER TABLE message_queue ADD COLUMN messageType TEXT NOT NULL DEFAULT 'TEXT'")
+            }
+        }
+        
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add Kyber pre-keys table for PQXDH support
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_kyber_prekeys (
+                        kyberPreKeyId INTEGER PRIMARY KEY NOT NULL,
+                        kyberPreKeyRecord BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        isUsed INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                
+                // Add sender keys table for group messaging support
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS signal_sender_keys (
+                        senderAddress TEXT NOT NULL,
+                        distributionId TEXT NOT NULL,
+                        senderKeyRecord BLOB NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        PRIMARY KEY (senderAddress, distributionId)
+                    )
+                """)
+                
+                // Create indices for better query performance
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_kyber_prekeys_isUsed ON signal_kyber_prekeys(isUsed)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_sender_keys_senderAddress ON signal_sender_keys(senderAddress)")
             }
         }
     }

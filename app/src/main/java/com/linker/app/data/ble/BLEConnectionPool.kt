@@ -2,7 +2,13 @@ package com.linker.app.data.ble
 
 import android.bluetooth.BluetoothGatt
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +24,7 @@ import javax.inject.Singleton
 class BLEConnectionPool @Inject constructor() {
     
     private val connections = ConcurrentHashMap<String, ConnectionInfo>()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     
     companion object {
         private const val TAG = "BLEConnectionPool"
@@ -31,14 +38,15 @@ class BLEConnectionPool @Inject constructor() {
     
     /**
      * Connection information with priority metrics.
+     * Uses AtomicLong and AtomicInteger for thread-safe mutable fields.
      */
     data class ConnectionInfo(
         val deviceAddress: String,
         val gatt: BluetoothGatt,
         val rssi: Int,
         val connectedAt: Long,
-        var lastUsedAt: Long,
-        var pendingMessageCount: Int = 0
+        val lastUsedAt: AtomicLong = AtomicLong(System.currentTimeMillis()),
+        val pendingMessageCount: AtomicInteger = AtomicInteger(0)
     )
     
     /**
@@ -80,7 +88,7 @@ class BLEConnectionPool @Inject constructor() {
             gatt = gatt,
             rssi = rssi,
             connectedAt = System.currentTimeMillis(),
-            lastUsedAt = System.currentTimeMillis()
+            lastUsedAt = AtomicLong(System.currentTimeMillis())
         )
         
         connections[deviceAddress] = connectionInfo
@@ -121,8 +129,8 @@ class BLEConnectionPool @Inject constructor() {
     fun getConnection(deviceAddress: String): ConnectionInfo? {
         val connectionInfo = connections[deviceAddress]
         
-        // Update last used timestamp
-        connectionInfo?.lastUsedAt = System.currentTimeMillis()
+        // Update last used timestamp (thread-safe)
+        connectionInfo?.lastUsedAt?.set(System.currentTimeMillis())
         
         return connectionInfo
     }
@@ -134,7 +142,7 @@ class BLEConnectionPool @Inject constructor() {
      * @param count Number of pending messages
      */
     fun updatePendingMessageCount(deviceAddress: String, count: Int) {
-        connections[deviceAddress]?.pendingMessageCount = count
+        connections[deviceAddress]?.pendingMessageCount?.set(count)
     }
     
     /**
@@ -188,13 +196,13 @@ class BLEConnectionPool @Inject constructor() {
         val now = System.currentTimeMillis()
         
         // Normalize pending messages (0-10 range)
-        val normalizedMessages = (connectionInfo.pendingMessageCount.coerceIn(0, 10) / 10f)
+        val normalizedMessages = (connectionInfo.pendingMessageCount.get().coerceIn(0, 10) / 10f)
         
         // Normalize RSSI (-100 to -30 dBm range)
-        val normalizedRssi = ((connectionInfo.rssi + 100).coerceIn(0, 70) / 70f)
+        val normalizedRssi = ((connectionInfo.rssi.coerceIn(-100, -30) + 100) / 70f)
         
         // Normalize recency (0-60 seconds range)
-        val ageSeconds = ((now - connectionInfo.lastUsedAt) / 1000).coerceIn(0, 60)
+        val ageSeconds = ((now - connectionInfo.lastUsedAt.get()) / 1000).coerceIn(0, 60)
         val normalizedRecency = 1f - (ageSeconds / 60f)
         
         return (normalizedMessages * WEIGHT_PENDING_MESSAGES) +
@@ -216,6 +224,31 @@ class BLEConnectionPool @Inject constructor() {
         val lowestPriority = connections.values.minByOrNull { calculatePriority(it) }
             ?: return null
         
-        return removeConnection(lowestPriority.deviceAddress)
+        // Offload GATT close to background thread to avoid blocking
+        val evictedInfo = removeConnectionWithoutClose(lowestPriority.deviceAddress)
+        if (evictedInfo != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    evictedInfo.gatt.close()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error closing evicted GATT connection: ${e.message}")
+                }
+            }
+        }
+        
+        return evictedInfo
+    }
+    
+    /**
+     * Remove connection without closing GATT (for eviction).
+     */
+    private fun removeConnectionWithoutClose(deviceAddress: String): ConnectionInfo? {
+        val connectionInfo = connections.remove(deviceAddress)
+        
+        if (connectionInfo != null) {
+            Log.d(TAG, "Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
+        }
+        
+        return connectionInfo
     }
 }

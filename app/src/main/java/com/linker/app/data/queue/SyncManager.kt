@@ -69,7 +69,8 @@ class SyncManagerImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
     private val messageDao: MessageDao,
     private val messageRepository: MessageRepository,
-    private val messageDeduplicationManager: MessageDeduplicationManager
+    private val messageDeduplicationManager: MessageDeduplicationManager,
+    private val database: com.linker.app.data.local.LinkerDatabase
 ) : SyncManager {
     
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
@@ -82,6 +83,9 @@ class SyncManagerImpl @Inject constructor(
     
     override suspend fun syncPendingMessages(): Result<SyncResult> {
         return try {
+            // Cleanup old deduplication entries periodically
+            messageDeduplicationManager.cleanupOldEntries()
+            
             // Get all pending messages ordered by createdAt (chronological)
             val pendingMessages = messageQueueDao.getPendingMessages()
             
@@ -111,10 +115,10 @@ class SyncManagerImpl @Inject constructor(
                         _syncStatus.value = SyncStatus.Syncing(index + 1, pendingMessages.size)
                         return@forEachIndexed
                     }
-                    
+
                     // Mark as being processed
                     messageDeduplicationManager.markAsProcessed(queueItem.messageId)
-                    
+
                     // Send message via MessageRepository (which handles Firestore)
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
@@ -123,7 +127,7 @@ class SyncManagerImpl @Inject constructor(
                         mediaUrl = null,
                         replyToMessageId = null
                     )
-                    
+
                     when (result) {
                         is com.linker.app.core.util.Result.Success -> {
                             // Atomically update queue status and message delivery method
@@ -135,19 +139,19 @@ class SyncManagerImpl @Inject constructor(
                                 sentAt = System.currentTimeMillis(),
                                 deliveryMethod = DeliveryMethod.ONLINE
                             )
-                            
+
                             successCount++
                         }
                         is com.linker.app.core.util.Result.Error -> {
                             // Increment retry count
                             messageQueueDao.incrementRetryCount(queueItem.queueId)
-                            
+
                             // Update error message
                             messageQueueDao.updateErrorMessage(
                                 queueId = queueItem.queueId,
                                 errorMessage = result.message
                             )
-                            
+
                             failedCount++
                             errors.add("Message ${queueItem.messageId}: ${result.message}")
                         }
@@ -155,23 +159,24 @@ class SyncManagerImpl @Inject constructor(
                             // Should not happen, ignore
                         }
                     }
-                    
+
                     // Update progress
                     _syncStatus.value = SyncStatus.Syncing(index + 1, pendingMessages.size)
-                    
-                    // Rate limiting: 10 messages per second
-                    delay(RATE_LIMIT_DELAY_MS)
-                    
+
                 } catch (e: Exception) {
                     failedCount++
                     errors.add("Message ${queueItem.messageId}: ${e.message}")
-                    
+
                     // Increment retry count
                     messageQueueDao.incrementRetryCount(queueItem.queueId)
                     messageQueueDao.updateErrorMessage(
                         queueId = queueItem.queueId,
                         errorMessage = e.message ?: "Unknown error"
                     )
+                } finally {
+                    // Rate limiting: 10 messages per second, applied on every path
+                    // (including duplicate-skip and error paths) to prevent burst writes.
+                    delay(RATE_LIMIT_DELAY_MS)
                 }
             }
             
@@ -326,12 +331,13 @@ class SyncManagerImpl @Inject constructor(
     
     /**
      * Atomically update queue status and message delivery method.
+     *
+     * Uses Room @Transaction to ensure both updates succeed or both fail.
+     * This prevents data inconsistency where queue shows SENT but message
+     * still shows BLE delivery method.
      * 
      * Addresses Issue #56 (P3): Add transaction support for queue updates
-     * 
-     * This ensures both updates succeed or both fail, preventing data inconsistency.
      */
-    @androidx.room.Transaction
     private suspend fun updateQueueAndMessageAtomic(
         queueId: String,
         messageId: String,
@@ -339,15 +345,11 @@ class SyncManagerImpl @Inject constructor(
         sentAt: Long?,
         deliveryMethod: DeliveryMethod
     ) {
-        // Update queue status
-        messageQueueDao.updateQueueStatus(
+        // Use database transaction method for atomicity
+        database.updateQueueAndMessageAtomic(
             queueId = queueId,
-            status = queueStatus,
-            sentAt = sentAt
-        )
-        
-        // Update message delivery method
-        messageDao.updateDeliveryMethod(
+            queueStatus = queueStatus,
+            sentAt = sentAt,
             messageId = messageId,
             deliveryMethod = deliveryMethod
         )

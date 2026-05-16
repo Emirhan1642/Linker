@@ -1,6 +1,6 @@
 package com.linker.app.data.encryption
 
-import android.util.Log
+import com.linker.app.core.util.Logger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.signal.libsignal.protocol.*
@@ -30,15 +30,20 @@ class EncryptionManagerImpl @Inject constructor(
     companion object {
         private const val TAG = "EncryptionManager"
         private const val DEVICE_ID = 1 // Single device for now
-        private const val PRE_KEY_START_ID = 1
         private const val PRE_KEY_COUNT = 100
     }
     
+    @Volatile
     private var isInitialized = false
     
     override suspend fun initialize() = withContext(Dispatchers.IO) {
         if (isInitialized) return@withContext
-        
+
+        // Double-checked locking: prevent redundant initialization under concurrency
+        synchronized(this@EncryptionManagerImpl) {
+            if (isInitialized) return@synchronized
+        }
+
         try {
             // Check if identity key pair exists
             val hasIdentity = try {
@@ -47,24 +52,24 @@ class EncryptionManagerImpl @Inject constructor(
             } catch (e: Exception) {
                 false
             }
-            
+
             if (!hasIdentity) {
                 // Generate new identity key pair
                 val identityKeyPair = IdentityKeyPair.generate()
                 val registrationId = KeyHelper.generateRegistrationId(false)
-                
+
                 protocolStore.initialize(identityKeyPair, registrationId)
-                
+
                 // Generate pre-keys
                 generatePreKeys()
-                
-                Log.d(TAG, "Generated new identity and pre-keys")
+
+                Logger.d(TAG, "Generated new identity and pre-keys")
             }
-            
+
             isInitialized = true
-            Log.d(TAG, "Encryption manager initialized")
+            Logger.d(TAG, "Encryption manager initialized")
         } catch (e: Exception) {
-            Log.e(TAG, "Error initializing encryption manager", e)
+            Logger.e(TAG, "Error initializing encryption manager", e)
             throw e
         }
     }
@@ -74,30 +79,30 @@ class EncryptionManagerImpl @Inject constructor(
             if (!isInitialized) {
                 initialize()
             }
-            
+
             val recipientAddress = SignalProtocolAddress(recipientId, DEVICE_ID)
-            
+
             // Check if session exists
             if (!protocolStore.containsSession(recipientAddress)) {
                 // Need to establish session first
                 // In a real app, this would fetch the recipient's pre-key bundle from server
-                Log.w(TAG, "No session for $recipientId, cannot encrypt")
+                Logger.w(TAG, "No session for $recipientId, cannot encrypt")
                 return@withContext Result.failure(Exception("No encryption keys for recipient"))
             }
-            
+
             // Create session cipher
             val sessionCipher = SessionCipher(protocolStore, recipientAddress)
-            
+
             // Encrypt message
             val ciphertext = sessionCipher.encrypt(plaintext.toByteArray())
-            
+
             // Serialize the ciphertext
             val serialized = ciphertext.serialize()
-            
-            Log.d(TAG, "Message encrypted for $recipientId")
+
+            Logger.d(TAG, "Message encrypted for $recipientId")
             Result.success(EncryptedMessage(serialized))
         } catch (e: Exception) {
-            Log.e(TAG, "Error encrypting message for $recipientId", e)
+            Logger.e(TAG, "Error encrypting message for $recipientId", e)
             Result.failure(e)
         }
     }
@@ -107,26 +112,42 @@ class EncryptionManagerImpl @Inject constructor(
             if (!isInitialized) {
                 initialize()
             }
-            
+
             val senderAddress = SignalProtocolAddress(senderId, DEVICE_ID)
             val sessionCipher = SessionCipher(protocolStore, senderAddress)
-            
-            // Determine message type and decrypt
-            val plaintext = try {
-                // Try as PreKeySignalMessage first
-                val preKeyMessage = PreKeySignalMessage(encrypted.signalMessage)
-                sessionCipher.decrypt(preKeyMessage)
-            } catch (e: Exception) {
-                // Try as regular SignalMessage
-                val signalMessage = SignalMessage(encrypted.signalMessage)
-                sessionCipher.decrypt(signalMessage)
+
+            // Determine message type and decrypt using explicit type checks
+            // Catching a broad Exception to distinguish parse failures is unsafe:
+            // we explicitly check the version byte to avoid masking real errors.
+            val messageVersion = encrypted.signalMessage.firstOrNull()?.toInt()?.and(0xFF) ?: 0
+            val plaintext = if (messageVersion >= 3) {
+                // Version 3+ indicates PreKeySignalMessage
+                try {
+                    val preKeyMessage = PreKeySignalMessage(encrypted.signalMessage)
+                    sessionCipher.decrypt(preKeyMessage)
+                } catch (e: InvalidVersionException) {
+                    // Not a PreKeySignalMessage after all, fall back to regular
+                    val signalMessage = SignalMessage(encrypted.signalMessage)
+                    sessionCipher.decrypt(signalMessage)
+                } catch (e: InvalidMessageException) {
+                    Logger.e(TAG, "Invalid pre-key signal message from $senderId", e)
+                    throw e
+                }
+            } else {
+                try {
+                    val signalMessage = SignalMessage(encrypted.signalMessage)
+                    sessionCipher.decrypt(signalMessage)
+                } catch (e: InvalidMessageException) {
+                    Logger.e(TAG, "Invalid signal message from $senderId", e)
+                    throw e
+                }
             }
-            
+
             val decrypted = String(plaintext)
-            Log.d(TAG, "Message decrypted from $senderId")
+            Logger.d(TAG, "Message decrypted from $senderId")
             Result.success(decrypted)
         } catch (e: Exception) {
-            Log.e(TAG, "Error decrypting message from $senderId", e)
+            Logger.e(TAG, "Error decrypting message from $senderId", e)
             Result.failure(e)
         }
     }
@@ -141,19 +162,19 @@ class EncryptionManagerImpl @Inject constructor(
             // Generate new signed pre-key
             val identityKeyPair = protocolStore.getIdentityKeyPair()
             val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
-            
+
             val signedPreKeyPair = ECKeyPair.generate()
             val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
             val signedPreKeyRecord = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
-            
+
             protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKeyRecord)
-            
-            // Generate new batch of pre-keys
+
+            // Generate new batch of pre-keys (continuing from current max ID)
             generatePreKeys()
-            
-            Log.d(TAG, "Keys rotated successfully")
+
+            Logger.d(TAG, "Keys rotated successfully")
         } catch (e: Exception) {
-            Log.e(TAG, "Error rotating keys", e)
+            Logger.e(TAG, "Error rotating keys", e)
             throw e
         }
     }
@@ -169,11 +190,11 @@ class EncryptionManagerImpl @Inject constructor(
     override fun getIdentityKeyFingerprint(): String {
         val identityKey = protocolStore.getIdentityKeyPair().publicKey
         val publicKey = identityKey.serialize()
-        
+
         // Generate SHA-256 fingerprint
         val digest = MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(publicKey)
-        
+
         // Convert to hex string
         return hash.joinToString("") { "%02x".format(it) }
     }
@@ -183,38 +204,37 @@ class EncryptionManagerImpl @Inject constructor(
      */
     private fun generatePreKeys() {
         val identityKeyPair = protocolStore.getIdentityKeyPair()
-        
-        // Generate one-time pre-keys
+
+        // Determine starting ID by finding the current maximum stored pre-key ID.
+        // This prevents overwriting existing pre-keys on every rotation call.
+        val existingPreKeys = try {
+            protocolStore.loadAllPreKeys()
+        } catch (e: Exception) {
+            emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
+        }
+        val startId = (existingPreKeys.maxOfOrNull { record -> record.id } ?: 0) + 1
+
+        // Generate one-time pre-keys starting from the next available ID
         for (i in 0 until PRE_KEY_COUNT) {
-            val id = PRE_KEY_START_ID + i
+            val id = startId + i
             val keyPair = ECKeyPair.generate()
             val preKeyRecord = PreKeyRecord(id, keyPair)
             protocolStore.storePreKey(id, preKeyRecord)
         }
-        
-        // Generate signed pre-key
+
+        // Generate signed pre-key with timestamp-based ID
         val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
         val signedPreKeyPair = ECKeyPair.generate()
         val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
         val signedPreKey = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
-        
+
         protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKey)
+
+        // NOTE: Kyber pre-key generation is disabled for libsignal 0.86.5
+        // The KyberPreKeyRecord constructor and PreKeyBundle don't support Kyber parameters yet.
+        // Kyber support will be added when libsignal library is updated to support PQXDH.
         
-        // Generate and store Kyber pre-key (required by libsignal 0.86.5+)
-        try {
-            val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
-            // NOTE: libsignal doesn't have built-in Kyber pre-key storage yet (as of 0.86.5)
-            // The Kyber key is generated on-demand in getLocalPreKeyBundle() for session establishment
-            // In a production app, you would either:
-            // 1. Store this in a custom table (requires additional migration)
-            // 2. Wait for libsignal to add native Kyber pre-key storage support
-            // For now, we generate it fresh each time which is acceptable for the MVP
-            Log.d(TAG, "Generated Kyber pre-key (generated on-demand, not persisted due to libsignal limitation)")
-        } catch (e: Exception) {
-            Log.w(TAG, "Kyber pre-key generation not supported in this libsignal version", e)
-        }
-        
-        Log.d(TAG, "Generated $PRE_KEY_COUNT pre-keys, 1 signed pre-key, and 1 Kyber pre-key")
+        Logger.d(TAG, "Generated $PRE_KEY_COUNT pre-keys (starting at ID $startId) and 1 signed pre-key")
     }
     
     /**
@@ -226,16 +246,16 @@ class EncryptionManagerImpl @Inject constructor(
     suspend fun processPreKeyBundle(
         recipientId: String,
         preKeyBundle: PreKeyBundle
-    ) = withContext(Dispatchers.IO) {
+    ): Unit = withContext(Dispatchers.IO) {
         try {
             val recipientAddress = SignalProtocolAddress(recipientId, DEVICE_ID)
             val sessionBuilder = SessionBuilder(protocolStore, recipientAddress)
-            
+
             sessionBuilder.process(preKeyBundle)
-            
-            Log.d(TAG, "Session established with $recipientId")
+
+            Logger.d(TAG, "Session established with $recipientId")
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing pre-key bundle for $recipientId", e)
+            Logger.e(TAG, "Error processing pre-key bundle for $recipientId", e)
             throw e
         }
     }
@@ -245,24 +265,31 @@ class EncryptionManagerImpl @Inject constructor(
      * 
      * This bundle should be uploaded to the server or shared via an out-of-band channel
      * so others can establish sessions with us.
+     * 
+     * NOTE: libsignal 0.86.5 requires Kyber parameters in PreKeyBundle constructor.
+     * We generate a temporary Kyber pre-key for each bundle (not persisted).
      */
     suspend fun getLocalPreKeyBundle(): PreKeyBundle = withContext(Dispatchers.IO) {
         val identityKeyPair = protocolStore.getIdentityKeyPair()
         val registrationId = protocolStore.getLocalRegistrationId()
-        
-        // Get a pre-key
-        val preKeyRecord = protocolStore.loadPreKey(PRE_KEY_START_ID)
-        
+
+        // Get the oldest unused pre-key (lowest ID) to hand out
+        val preKeys = protocolStore.loadAllPreKeys()
+        val preKeyRecord = preKeys.minByOrNull { record -> record.id }
+            ?: throw IllegalStateException("No pre-keys available; call generatePreKeys() first")
+
         // Get the current signed pre-key
         val signedPreKeys = protocolStore.loadSignedPreKeys()
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }
             ?: throw IllegalStateException("No signed pre-key available")
-        
-        // Generate a Kyber pre-key (required by libsignal 0.86.5+)
+
+        // Generate a temporary Kyber pre-key for this bundle
+        // libsignal 0.86.5 requires Kyber parameters in PreKeyBundle
+        val kyberPreKeyId = (System.currentTimeMillis() / 1000).toInt()
         val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
-        val kyberPreKeyPublic = kyberKeyPair.publicKey
-        val kyberPreKeySignature = identityKeyPair.privateKey.calculateSignature(kyberPreKeyPublic.serialize())
-        
+        val kyberSignature = identityKeyPair.privateKey.calculateSignature(kyberKeyPair.publicKey.serialize())
+
+        // Create PQXDH PreKeyBundle with Kyber support
         PreKeyBundle(
             registrationId,
             DEVICE_ID,
@@ -272,9 +299,9 @@ class EncryptionManagerImpl @Inject constructor(
             signedPreKey.keyPair.publicKey,
             signedPreKey.signature,
             identityKeyPair.publicKey,
-            0, // kyberPreKeyId
-            kyberPreKeyPublic,
-            kyberPreKeySignature
+            kyberPreKeyId,
+            kyberKeyPair.publicKey,
+            kyberSignature
         )
     }
 }

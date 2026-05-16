@@ -28,7 +28,8 @@ object DatabaseModule {
                 LinkerDatabase.MIGRATION_7_8,
                 LinkerDatabase.MIGRATION_8_9,
                 LinkerDatabase.MIGRATION_9_10,
-                LinkerDatabase.MIGRATION_10_11
+                LinkerDatabase.MIGRATION_10_11,
+                LinkerDatabase.MIGRATION_11_12
             )
             // ✅ REMOVED: fallbackToDestructiveMigration() - Data loss risk
             .build()
@@ -51,4 +52,6 @@ object DatabaseModule {
     @Provides @Singleton fun provideSignalSessionDao(db: LinkerDatabase) = db.signalSessionDao()
     @Provides @Singleton fun provideSignalPreKeyDao(db: LinkerDatabase) = db.signalPreKeyDao()
     @Provides @Singleton fun provideSignalSignedPreKeyDao(db: LinkerDatabase) = db.signalSignedPreKeyDao()
+    @Provides @Singleton fun provideSignalKyberPreKeyDao(db: LinkerDatabase) = db.signalKyberPreKeyDao()
+    @Provides @Singleton fun provideSignalSenderKeyDao(db: LinkerDatabase) = db.signalSenderKeyDao()
 }

@@ -116,6 +116,7 @@ firebase-auth = { group = "com.google.firebase", name = "firebase-auth-ktx" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore-ktx" }
 firebase-storage = { group = "com.google.firebase", name = "firebase-storage-ktx" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
+firebase-config = { group = "com.google.firebase", name = "firebase-config-ktx" }
 
 # Google Play Services
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version = "21.2.0" }
