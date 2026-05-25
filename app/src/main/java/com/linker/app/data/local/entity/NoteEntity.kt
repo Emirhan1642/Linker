@@ -21,7 +21,7 @@ import androidx.room.PrimaryKey
         )
     ],
     indices = [
-        Index(value = ["authorId"]),
+        Index(value = ["authorId", "expiresAt"], name = "idx_active_notes"),
         Index(value = ["expiresAt"])
     ]
 )
@@ -42,7 +42,17 @@ data class NoteEntity(
     val createdAt: Long,
     val expiresAt: Long, // createdAt + 24 hours
     val lastSyncedAt: Long = System.currentTimeMillis()
-)
+) {
+    init {
+        require(noteId.isNotBlank()) { "Note ID cannot be blank" }
+        require(authorId.isNotBlank()) { "Author ID cannot be blank" }
+        require(content.length <= MAX_CONTENT_LENGTH) { "Content too long" }
+        require(expiresAt > createdAt) { "Expiration must be after creation" }
+    }
+    companion object {
+        const val MAX_CONTENT_LENGTH = 100
+    }
+}
 
 enum class NoteType {
     TEXT,

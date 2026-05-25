@@ -48,8 +48,8 @@ interface MessageRepository {
     /** Mark all messages in a chat as read */
     suspend fun markChatAsRead(chatId: String): Result<Unit>
 
-    /** Retry failed messages */
-    suspend fun retryFailedMessages(): Result<Unit>
+    /** Retry failed messages in batches */
+    suspend fun retryFailedMessages(batchSize: Int = 50): Result<Int>
 
     /** Forward message to another chat */
     suspend fun forwardMessage(

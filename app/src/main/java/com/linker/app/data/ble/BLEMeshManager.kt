@@ -14,6 +14,8 @@ interface BLEMeshManager {
     fun initialize()
     fun startMeshNetwork()
     fun stopMeshNetwork()
+    /** Completely stops operations and releases coroutine scopes */
+    fun shutdown()
     
     // Peer Management
     fun startScanning()

@@ -1,47 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Network Security Configuration
+    
+    Defines security settings for network connections.
+    
+    SECURITY FEATURES:
+    - Cleartext traffic disabled (HTTPS only)
+    - Certificate pinning for production domains
+    - Debug overrides for local development
+    
+    CERTIFICATE PINNING:
+    Pins are SHA-256 hashes of the public key.
+    To get pins: openssl s_client -connect domain.com:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+    
+    IMPORTANT: Update pins before production release!
+-->
 <network-security-config>
-    <!-- Production configuration -->
+    <!-- Base configuration for all connections -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
-            <!-- Trust system certificates -->
+            <!-- Trust system certificate authorities -->
             <certificates src="system" />
-            <!-- Trust user-added certificates (for debugging) -->
-            <certificates src="user" />
         </trust-anchors>
     </base-config>
-
-    <!-- Debug configuration (optional) -->
+    
+    <!-- Supabase domain configuration -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">supabase.co</domain>
+        <pin-set expiration="2026-12-31">
+            <!-- TODO: Replace with actual certificate pins -->
+            <!-- Primary certificate pin -->
+            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
+            <!-- Backup certificate pin -->
+            <pin digest="SHA-256">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=</pin>
+        </pin-set>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Cloudinary domain configuration -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">cloudinary.com</domain>
+        <pin-set expiration="2026-12-31">
+            <!-- TODO: Replace with actual certificate pins -->
+            <!-- Primary certificate pin -->
+            <pin digest="SHA-256">CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=</pin>
+            <!-- Backup certificate pin -->
+            <pin digest="SHA-256">DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=</pin>
+        </pin-set>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Firebase domains (no pinning, trust system CAs) -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">firebaseapp.com</domain>
+        <domain includeSubdomains="true">googleapis.com</domain>
+        <domain includeSubdomains="true">google.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+    
+    <!-- Debug configuration (localhost and emulator) -->
     <debug-overrides>
         <trust-anchors>
-            <!-- Trust user certificates for debugging with proxy tools -->
+            <!-- Trust user-installed certificates for debugging -->
             <certificates src="user" />
             <certificates src="system" />
         </trust-anchors>
     </debug-overrides>
-
-    <!-- Domain-specific configurations -->
-    <domain-config cleartextTrafficPermitted="false">
-        <!-- Firebase -->
-        <domain includeSubdomains="true">firebaseapp.com</domain>
-        <domain includeSubdomains="true">googleapis.com</domain>
-        <domain includeSubdomains="true">google.com</domain>
-        
-        <!-- Supabase -->
-        <domain includeSubdomains="true">supabase.co</domain>
-        
-        <!-- Cloudinary -->
-        <domain includeSubdomains="true">cloudinary.com</domain>
-        
-        <trust-anchors>
-            <certificates src="system" />
-        </trust-anchors>
-        
-        <!-- Certificate Pinning (Optional - Uncomment for production) -->
-        <!--
-        <pin-set expiration="2027-01-01">
-            <pin digest="SHA-256">base64-encoded-pin-here</pin>
-            <pin digest="SHA-256">backup-pin-here</pin>
-        </pin-set>
-        -->
-    </domain-config>
 </network-security-config>

@@ -13,6 +13,57 @@ object ErrorCodes {
     const val TIMEOUT = "TIMEOUT"
     const val CANCELLED = "CANCELLED"
     const val PERMISSION = "PERMISSION_DENIED"
+    
+    /**
+     * ✅ Get error category from code
+     */
+    fun getCategoryFromCode(code: String): ErrorCategory {
+        return when (code) {
+            NETWORK, TIMEOUT -> ErrorCategory.NETWORK
+            AUTH, PERMISSION -> ErrorCategory.AUTH
+            VALIDATION -> ErrorCategory.VALIDATION
+            DATABASE -> ErrorCategory.DATABASE
+            CANCELLED -> ErrorCategory.SYSTEM
+            else -> ErrorCategory.UNKNOWN
+        }
+    }
+    
+    /**
+     * ✅ Get error severity from code
+     */
+    fun getSeverityFromCode(code: String): ErrorSeverity {
+        return when (code) {
+            AUTH, PERMISSION -> ErrorSeverity.CRITICAL
+            DATABASE, NETWORK -> ErrorSeverity.HIGH
+            VALIDATION, NOT_FOUND -> ErrorSeverity.MEDIUM
+            CANCELLED -> ErrorSeverity.LOW
+            else -> ErrorSeverity.MEDIUM
+        }
+    }
+}
+
+/**
+ * ✅ Error severity levels
+ */
+enum class ErrorSeverity {
+    LOW,      // Informational, can be ignored
+    MEDIUM,   // Warning, should be addressed
+    HIGH,     // Error, needs attention
+    CRITICAL  // Critical error, immediate action required
+}
+
+/**
+ * ✅ Error categories
+ */
+enum class ErrorCategory {
+    NETWORK,      // Network-related errors
+    AUTH,         // Authentication/authorization errors
+    VALIDATION,   // Input validation errors
+    DATABASE,     // Database errors
+    PERMISSION,   // Permission errors
+    BUSINESS,     // Business logic errors
+    SYSTEM,       // System errors
+    UNKNOWN       // Unknown errors
 }
 
 /**
@@ -34,8 +85,67 @@ sealed class Result<out T> {
         val message: String,
         val code: String = ErrorCodes.UNKNOWN,
         val cause: Throwable? = null,
-        val isRetryable: Boolean = true
-    ) : Result<Nothing>()
+        val isRetryable: Boolean = true,
+        val retryCount: Int = 0,  // ✅ Track retry attempts
+        val timestamp: Long = System.currentTimeMillis(),  // ✅ Track when error occurred
+        val originalError: Error? = null,  // ✅ Track original error before retries
+        val userMessage: String? = null  // ✅ User-facing message
+    ) : Result<Nothing>() {
+        
+        /**
+         * ✅ Get error category
+         */
+        val category: ErrorCategory
+            get() = ErrorCodes.getCategoryFromCode(code)
+        
+        /**
+         * ✅ Get error severity
+         */
+        val severity: ErrorSeverity
+            get() = ErrorCodes.getSeverityFromCode(code)
+        
+        /**
+         * ✅ Create a new error with incremented retry count
+         */
+        fun withRetry(): Error {
+            return copy(
+                retryCount = retryCount + 1,
+                timestamp = System.currentTimeMillis(),
+                originalError = originalError ?: this
+            )
+        }
+        
+        /**
+         * ✅ Check if max retries exceeded
+         */
+        fun hasExceededMaxRetries(maxRetries: Int): Boolean {
+            return retryCount >= maxRetries
+        }
+        
+        /**
+         * ✅ Get time since first error
+         */
+        fun getTimeSinceFirstError(): Long {
+            val firstError = originalError ?: this
+            return System.currentTimeMillis() - firstError.timestamp
+        }
+        
+        /**
+         * ✅ Get user-friendly message
+         */
+        fun getUserFriendlyMessage(): String {
+            return userMessage ?: when (category) {
+                ErrorCategory.NETWORK -> "Network error. Please check your connection."
+                ErrorCategory.AUTH -> "Authentication error. Please sign in again."
+                ErrorCategory.VALIDATION -> "Invalid input. Please check your data."
+                ErrorCategory.DATABASE -> "Database error. Please try again."
+                ErrorCategory.PERMISSION -> "Permission denied. Please grant required permissions."
+                ErrorCategory.BUSINESS -> message
+                ErrorCategory.SYSTEM -> "System error. Please try again."
+                ErrorCategory.UNKNOWN -> "An error occurred. Please try again."
+            }
+        }
+    }
 
     /** Represents an in-progress operation with optional progress value. */
     data class Loading(val progress: Float? = null) : Result<Nothing>()
@@ -123,25 +233,30 @@ sealed class Result<out T> {
 suspend fun <T> safeCall(block: suspend () -> T): Result<T> = try {
     Result.Success(block())
 } catch (e: Exception) {
-    val (code, isRetryable) = when (e) {
-        is java.net.UnknownHostException,
-        is java.net.SocketTimeoutException -> ErrorCodes.NETWORK to true
-        is java.util.concurrent.CancellationException -> ErrorCodes.CANCELLED to false
-        is kotlinx.coroutines.CancellationException -> ErrorCodes.CANCELLED to false
+    val (code, isRetryable, userMessage) = when (e) {
+        is java.net.UnknownHostException -> 
+            Triple(ErrorCodes.NETWORK, true, "No internet connection")
+        is java.net.SocketTimeoutException -> 
+            Triple(ErrorCodes.TIMEOUT, true, "Connection timeout")
+        is java.util.concurrent.CancellationException,
+        is kotlinx.coroutines.CancellationException -> 
+            Triple(ErrorCodes.CANCELLED, false, null)
         is retrofit2.HttpException -> when (e.code()) {
-            401, 403 -> ErrorCodes.AUTH to false
-            404 -> ErrorCodes.NOT_FOUND to false
-            408, 504 -> ErrorCodes.TIMEOUT to true
-            in 500..599 -> ErrorCodes.NETWORK to true
-            else -> ErrorCodes.UNKNOWN to true
+            401, 403 -> Triple(ErrorCodes.AUTH, false, "Authentication failed")
+            404 -> Triple(ErrorCodes.NOT_FOUND, false, "Resource not found")
+            408, 504 -> Triple(ErrorCodes.TIMEOUT, true, "Request timeout")
+            in 500..599 -> Triple(ErrorCodes.NETWORK, true, "Server error")
+            else -> Triple(ErrorCodes.UNKNOWN, true, null)
         }
-        else -> ErrorCodes.UNKNOWN to true
+        else -> Triple(ErrorCodes.UNKNOWN, true, null)
     }
+    
     Result.Error(
         message = e.message ?: "Unknown error",
         code = code,
         cause = e,
-        isRetryable = isRetryable
+        isRetryable = isRetryable,
+        userMessage = userMessage
     )
 }
 

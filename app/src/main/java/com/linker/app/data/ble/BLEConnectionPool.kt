@@ -1,7 +1,7 @@
 package com.linker.app.data.ble
 
 import android.bluetooth.BluetoothGatt
-import android.util.Log
+import com.linker.app.core.util.SecureLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +25,8 @@ class BLEConnectionPool @Inject constructor() {
     
     private val connections = ConcurrentHashMap<String, ConnectionInfo>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val logger = SecureLogger("BLEConnectionPool")
+    private val poolLock = Any()
     
     companion object {
         private const val TAG = "BLEConnectionPool"
@@ -64,37 +66,39 @@ class BLEConnectionPool @Inject constructor() {
         gatt: BluetoothGatt,
         rssi: Int
     ): Boolean {
-        // Check if already connected
-        if (connections.containsKey(deviceAddress)) {
-            Log.d(TAG, "Device $deviceAddress already connected")
-            return true
-        }
-        
-        // Check if pool is full
-        if (connections.size >= MAX_CONNECTIONS) {
-            // Evict lowest priority connection
-            val evicted = evictLowestPriority()
-            if (evicted == null) {
-                Log.w(TAG, "Failed to evict connection, pool full")
-                return false
+        synchronized(poolLock) {
+            // Check if already connected
+            if (connections.containsKey(deviceAddress)) {
+                logger.d("Device $deviceAddress already connected")
+                return true
             }
             
-            Log.d(TAG, "Evicted connection to ${evicted.deviceAddress} (priority: ${calculatePriority(evicted)})")
+            // Check if pool is full
+            if (connections.size >= MAX_CONNECTIONS) {
+                // Evict lowest priority connection
+                val evicted = evictLowestPriority()
+                if (evicted == null) {
+                    logger.w("Failed to evict connection, pool full")
+                    return false
+                }
+                
+                logger.d("Evicted connection to ${evicted.deviceAddress} (priority: ${calculatePriority(evicted)})")
+            }
+            
+            // Add new connection
+            val connectionInfo = ConnectionInfo(
+                deviceAddress = deviceAddress,
+                gatt = gatt,
+                rssi = rssi,
+                connectedAt = System.currentTimeMillis(),
+                lastUsedAt = AtomicLong(System.currentTimeMillis())
+            )
+            
+            connections[deviceAddress] = connectionInfo
+            
+            logger.d("Added connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
+            return true
         }
-        
-        // Add new connection
-        val connectionInfo = ConnectionInfo(
-            deviceAddress = deviceAddress,
-            gatt = gatt,
-            rssi = rssi,
-            connectedAt = System.currentTimeMillis(),
-            lastUsedAt = AtomicLong(System.currentTimeMillis())
-        )
-        
-        connections[deviceAddress] = connectionInfo
-        
-        Log.d(TAG, "Added connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
-        return true
     }
     
     /**
@@ -104,17 +108,19 @@ class BLEConnectionPool @Inject constructor() {
      * @return ConnectionInfo if removed, null if not found
      */
     fun removeConnection(deviceAddress: String): ConnectionInfo? {
-        val connectionInfo = connections.remove(deviceAddress)
+        val connectionInfo = synchronized(poolLock) {
+            connections.remove(deviceAddress)
+        }
         
         if (connectionInfo != null) {
             // Close GATT connection
             try {
                 connectionInfo.gatt.close()
             } catch (e: Exception) {
-                Log.e(TAG, "Error closing GATT connection: ${e.message}")
+                logger.e("Error closing GATT connection", e)
             }
             
-            Log.d(TAG, "Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
+            logger.d("Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
         }
         
         return connectionInfo
@@ -127,7 +133,9 @@ class BLEConnectionPool @Inject constructor() {
      * @return ConnectionInfo if found, null otherwise
      */
     fun getConnection(deviceAddress: String): ConnectionInfo? {
-        val connectionInfo = connections[deviceAddress]
+        val connectionInfo = synchronized(poolLock) {
+            connections[deviceAddress]
+        }
         
         // Update last used timestamp (thread-safe)
         connectionInfo?.lastUsedAt?.set(System.currentTimeMillis())
@@ -142,44 +150,57 @@ class BLEConnectionPool @Inject constructor() {
      * @param count Number of pending messages
      */
     fun updatePendingMessageCount(deviceAddress: String, count: Int) {
-        connections[deviceAddress]?.pendingMessageCount?.set(count)
+        synchronized(poolLock) {
+            connections[deviceAddress]?.pendingMessageCount?.set(count)
+        }
     }
     
     /**
      * Get all active connections.
      */
     fun getAllConnections(): List<ConnectionInfo> {
-        return connections.values.toList()
+        return synchronized(poolLock) {
+            connections.values.toList()
+        }
     }
     
     /**
      * Get connection count.
      */
     fun getConnectionCount(): Int {
-        return connections.size
+        return synchronized(poolLock) {
+            connections.size
+        }
     }
     
     /**
      * Check if pool is full.
      */
     fun isFull(): Boolean {
-        return connections.size >= MAX_CONNECTIONS
+        return synchronized(poolLock) {
+            connections.size >= MAX_CONNECTIONS
+        }
     }
     
     /**
      * Clear all connections.
      */
     fun clear() {
-        connections.values.forEach { connectionInfo ->
+        val connsToClose = synchronized(poolLock) {
+            val list = connections.values.toList()
+            connections.clear()
+            list
+        }
+        
+        connsToClose.forEach { connectionInfo ->
             try {
                 connectionInfo.gatt.close()
             } catch (e: Exception) {
-                Log.e(TAG, "Error closing GATT connection: ${e.message}")
+                logger.e("Error closing GATT connection", e)
             }
         }
         
-        connections.clear()
-        Log.d(TAG, "Cleared all connections")
+        logger.d("Cleared all connections")
     }
     
     /**
@@ -216,22 +237,26 @@ class BLEConnectionPool @Inject constructor() {
      * @return Evicted ConnectionInfo, or null if pool is empty
      */
     private fun evictLowestPriority(): ConnectionInfo? {
-        if (connections.isEmpty()) {
-            return null
+        val evictedInfo = synchronized(poolLock) {
+            if (connections.isEmpty()) {
+                return null
+            }
+            
+            // Find connection with lowest priority
+            val lowestPriority = connections.values.minByOrNull { calculatePriority(it) }
+                ?: return null
+            
+            // Remove connection without closing GATT
+            removeConnectionWithoutClose(lowestPriority.deviceAddress)
         }
         
-        // Find connection with lowest priority
-        val lowestPriority = connections.values.minByOrNull { calculatePriority(it) }
-            ?: return null
-        
         // Offload GATT close to background thread to avoid blocking
-        val evictedInfo = removeConnectionWithoutClose(lowestPriority.deviceAddress)
         if (evictedInfo != null) {
             scope.launch(Dispatchers.IO) {
                 try {
                     evictedInfo.gatt.close()
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error closing evicted GATT connection: ${e.message}")
+                    logger.e("Error closing evicted GATT connection", e)
                 }
             }
         }
@@ -246,7 +271,7 @@ class BLEConnectionPool @Inject constructor() {
         val connectionInfo = connections.remove(deviceAddress)
         
         if (connectionInfo != null) {
-            Log.d(TAG, "Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
+            logger.d("Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")
         }
         
         return connectionInfo

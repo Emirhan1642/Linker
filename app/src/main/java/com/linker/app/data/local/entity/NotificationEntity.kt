@@ -12,9 +12,9 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "notifications",
     indices = [
-        Index(value = ["isRead"]),
-        Index(value = ["createdAt"]),
-        Index(value = ["notificationType"])
+        Index(value = ["isRead", "createdAt"], name = "idx_unread_notifications"),
+        Index(value = ["notificationType", "createdAt"], name = "idx_notification_type"),
+        Index(value = ["targetEntityId", "targetEntityType"], name = "idx_notification_target")
     ]
 )
 data class NotificationEntity(
@@ -29,7 +29,9 @@ data class NotificationEntity(
     val imageUrl: String? = null,
     val actionUrl: String? = null, // Deep link
     val isRead: Boolean = false,
+    val readAt: Long? = null,
     val createdAt: Long,
+    val updatedAt: Long = System.currentTimeMillis(),
     val lastSyncedAt: Long = System.currentTimeMillis()
 )
 

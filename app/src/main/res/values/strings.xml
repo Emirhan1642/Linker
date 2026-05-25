@@ -29,4 +29,9 @@
     <!-- Content -->
     <string name="story_expires_in">Expires in %1$s</string>
     <string name="note_expires_in">%1$s left</string>
+    
+    <!-- Notifications -->
+    <string name="reaction_notification_message">reacted to your message with %1$s</string>
+    <string name="notification_key_rotation_failed_title">Security Warning</string>
+    <string name="notification_key_rotation_failed_desc">Encryption key rotation failed. Messaging security might be degraded.</string>
 </resources>

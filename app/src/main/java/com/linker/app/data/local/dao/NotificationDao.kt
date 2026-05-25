@@ -41,15 +41,24 @@ interface NotificationDao {
     @Query("DELETE FROM notifications WHERE notificationId = :notificationId")
     suspend fun deleteNotificationById(notificationId: String)
     
-    @Query("UPDATE notifications SET isRead = 1 WHERE notificationId = :notificationId")
-    suspend fun markAsRead(notificationId: String)
+    @Query("UPDATE notifications SET isRead = 1, readAt = :timestamp, updatedAt = :timestamp WHERE notificationId = :notificationId")
+    suspend fun markAsRead(notificationId: String, timestamp: Long = System.currentTimeMillis())
     
-    @Query("UPDATE notifications SET isRead = 1")
-    suspend fun markAllAsRead()
+    @Query("UPDATE notifications SET isRead = 1, readAt = :timestamp, updatedAt = :timestamp WHERE isRead = 0")
+    suspend fun markAllAsRead(timestamp: Long = System.currentTimeMillis())
     
     @Query("DELETE FROM notifications")
     suspend fun deleteAllNotifications()
     
+    @Transaction
     @Query("DELETE FROM notifications WHERE createdAt < :timestamp")
-    suspend fun deleteOldNotifications(timestamp: Long)
+    suspend fun deleteOldNotifications(timestamp: Long): Int
+
+    @Transaction
+    @Query("UPDATE notifications SET isRead = 1, readAt = :timestamp, updatedAt = :timestamp WHERE notificationId IN (:notificationIds)")
+    suspend fun batchMarkAsRead(notificationIds: List<String>, timestamp: Long = System.currentTimeMillis())
+
+    @Transaction
+    @Query("DELETE FROM notifications WHERE notificationId IN (:notificationIds)")
+    suspend fun batchDeleteNotifications(notificationIds: List<String>)
 }

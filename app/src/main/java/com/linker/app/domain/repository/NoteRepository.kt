@@ -33,4 +33,12 @@ interface NoteRepository {
      * @return Result with Unit on success or Error
      */
     suspend fun deleteNote(noteId: String): Result<Unit>
+
+    /**
+     * Purge all expired notes from the database.
+     * Scheduled via WorkManager.
+     *
+     * @return Result with Unit on success or Error
+     */
+    suspend fun purgeExpiredNotes(): Result<Unit>
 }

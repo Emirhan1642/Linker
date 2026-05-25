@@ -8,6 +8,8 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.linker.app.data.local.dao.*
 import com.linker.app.data.local.entity.*
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 @Database(
     entities = [
@@ -21,7 +23,7 @@ import com.linker.app.data.local.entity.*
         SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
     version = 12,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class LinkerDatabase : RoomDatabase() {
@@ -53,25 +55,58 @@ abstract class LinkerDatabase : RoomDatabase() {
      * 
      * NOTE: Room doesn't support @Transaction on RoomDatabase methods directly.
      * This is a workaround using runInTransaction.
+     * 
+     * @param timeout Transaction timeout in milliseconds (default: 5000ms)
+     * @return Result indicating success or failure with error details
+     * @throws IllegalArgumentException if queueId or messageId is blank
      */
     suspend fun updateQueueAndMessageAtomic(
         queueId: String,
         queueStatus: QueueStatus,
         sentAt: Long?,
         messageId: String,
-        deliveryMethod: DeliveryMethod
-    ) {
-        withTransaction {
-            messageQueueDao().updateQueueStatus(queueId, queueStatus, sentAt)
-            messageDao().updateDeliveryMethod(messageId, deliveryMethod)
+        deliveryMethod: DeliveryMethod,
+        timeout: Long = 5000L
+    ): Result<Unit> {
+        require(queueId.isNotBlank()) { "queueId cannot be blank" }
+        require(messageId.isNotBlank()) { "messageId cannot be blank" }
+        
+        return try {
+            withTimeout(timeout) {
+                withTransaction {
+                    val queueUpdated = messageQueueDao().updateQueueStatus(queueId, queueStatus, sentAt)
+                    if (queueUpdated == 0) {
+                        android.util.Log.w("LinkerDatabase", "Queue not found: $queueId")
+                    }
+                    
+                    val messageUpdated = messageDao().updateDeliveryMethod(messageId, deliveryMethod)
+                    if (messageUpdated == 0) {
+                        android.util.Log.w("LinkerDatabase", "Message not found: $messageId")
+                    }
+                    
+                    android.util.Log.d("LinkerDatabase", "Atomic update successful - Queue: $queueId, Message: $messageId")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            android.util.Log.e("LinkerDatabase", "Transaction timeout: $queueId", e)
+            Result.failure(e)
+        } catch (e: Exception) {
+            android.util.Log.e("LinkerDatabase", "Transaction failed - Queue: $queueId, Message: $messageId", e)
+            Result.failure(e)
         }
     }
 
     companion object {
         const val DATABASE_NAME = "linker_database"
 
-        // Migration 1 to 2: Initial schema (implicit, no migration needed)
-        // Database version 1 was the initial schema with all base tables
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Version 1 to 2: No schema changes
+                // This migration exists to maintain complete migration path
+                // All base tables were already present in version 1
+            }
+        }
 
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -95,6 +130,10 @@ abstract class LinkerDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE messages ADD COLUMN reactions TEXT")
                 db.execSQL("ALTER TABLE messages ADD COLUMN messageStatus TEXT NOT NULL DEFAULT 'SENT'")
                 db.execSQL("ALTER TABLE messages ADD COLUMN readReceipts TEXT")
+                
+                // Add indices for new columns
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_replyToMessageId ON messages(replyToMessageId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_messageStatus ON messages(messageStatus)")
             }
         }
 
@@ -107,9 +146,41 @@ abstract class LinkerDatabase : RoomDatabase() {
 
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Removed deletedMessage field - now generated dynamically in UI
-                // SQLite doesn't support DROP COLUMN directly, so we'll leave it
-                // The field will be ignored by the entity
+                // 1. Create new table without deletedMessage
+                db.execSQL("""
+                    CREATE TABLE messages_new (
+                        id TEXT PRIMARY KEY NOT NULL,
+                        chatId TEXT NOT NULL,
+                        senderId TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        messageType TEXT NOT NULL,
+                        deliveryMethod TEXT NOT NULL,
+                        replyToMessageId TEXT,
+                        reactions TEXT,
+                        messageStatus TEXT NOT NULL DEFAULT 'SENT',
+                        readReceipts TEXT,
+                        FOREIGN KEY(chatId) REFERENCES chats(id) ON DELETE CASCADE
+                    )
+                """)
+                
+                // 2. Copy data from old table (excluding deletedMessage)
+                db.execSQL("""
+                    INSERT INTO messages_new 
+                    SELECT id, chatId, senderId, content, timestamp, messageType, 
+                           deliveryMethod, replyToMessageId, reactions, messageStatus, readReceipts
+                    FROM messages
+                """)
+                
+                // 3. Drop old table
+                db.execSQL("DROP TABLE messages")
+                
+                // 4. Rename new table
+                db.execSQL("ALTER TABLE messages_new RENAME TO messages")
+                
+                // 5. Recreate indices
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId ON messages(chatId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_timestamp ON messages(timestamp)")
             }
         }
 
@@ -155,6 +226,9 @@ abstract class LinkerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add pendingKeyExchange field to message_queue table
                 db.execSQL("ALTER TABLE message_queue ADD COLUMN pendingKeyExchange INTEGER NOT NULL DEFAULT 0")
+                
+                // Add index for filtering pending key exchanges
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_queue_pendingKeyExchange ON message_queue(pendingKeyExchange)")
             }
         }
 
@@ -195,6 +269,12 @@ abstract class LinkerDatabase : RoomDatabase() {
                         createdAt INTEGER NOT NULL
                     )
                 """)
+                
+                // Add indices for timestamp-based queries (key rotation, cleanup)
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_identities_updatedAt ON signal_identities(updatedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_sessions_updatedAt ON signal_sessions(updatedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_prekeys_createdAt ON signal_prekeys(createdAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_signed_prekeys_createdAt ON signal_signed_prekeys(createdAt)")
             }
         }
         
@@ -202,6 +282,9 @@ abstract class LinkerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add messageType field to message_queue table for proper message type handling
                 db.execSQL("ALTER TABLE message_queue ADD COLUMN messageType TEXT NOT NULL DEFAULT 'TEXT'")
+                
+                // Add index for filtering by message type
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_queue_messageType ON message_queue(messageType)")
             }
         }
         

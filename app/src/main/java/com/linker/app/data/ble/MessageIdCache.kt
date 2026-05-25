@@ -1,10 +1,9 @@
 package com.linker.app.data.ble
 
-import android.util.LruCache
+import com.linker.app.core.util.SecureLogger
 import com.linker.app.data.local.dao.MessageIdCacheDao
 import com.linker.app.data.local.entity.MessageIdCacheEntity
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,9 +28,10 @@ class MessageIdCache @Inject constructor(
         private const val TRIM_INTERVAL = 5 * 60 * 1000L // Trim every 5 minutes
     }
     
-    // In-memory LRU cache for fast lookups
-    private val memoryCache = LruCache<String, Long>(CACHE_SIZE)
-    private val mutex = Mutex()
+    private val logger = SecureLogger("MessageIdCache")
+    
+    // In-memory cache for fast lookups (thread-safe)
+    private val memoryCache = ConcurrentHashMap<String, Long>(CACHE_SIZE)
     
     // Track last trim time to avoid excessive database operations
     @Volatile
@@ -43,10 +43,10 @@ class MessageIdCache @Inject constructor(
      * @param messageId BLE packet message ID to check
      * @return true if message ID exists in cache, false otherwise
      */
-    suspend fun contains(messageId: String): Boolean = mutex.withLock {
+    suspend fun contains(messageId: String): Boolean {
         // Check memory cache first
-        if (memoryCache.get(messageId) != null) {
-            return@withLock true
+        if (memoryCache.containsKey(messageId)) {
+            return true
         }
 
         // Check database
@@ -54,10 +54,10 @@ class MessageIdCache @Inject constructor(
 
         // Update memory cache if found
         if (exists) {
-            memoryCache.put(messageId, System.currentTimeMillis())
+            memoryCache[messageId] = System.currentTimeMillis()
         }
 
-        exists
+        return exists
     }
     
     /**
@@ -66,11 +66,11 @@ class MessageIdCache @Inject constructor(
      * @param messageId BLE packet message ID to add
      * @param sourceNodeId Node that sent the packet
      */
-    suspend fun add(messageId: String, sourceNodeId: String) = mutex.withLock {
+    suspend fun add(messageId: String, sourceNodeId: String) {
         val now = System.currentTimeMillis()
         
         // Add to memory cache
-        memoryCache.put(messageId, now)
+        memoryCache[messageId] = now
         
         // Add to database
         val entity = MessageIdCacheEntity(
@@ -79,13 +79,29 @@ class MessageIdCache @Inject constructor(
             sourceNodeId = sourceNodeId
         )
         messageIdCacheDao.insertMessageId(entity)
+        logger.d("Added message $messageId to cache")
         
-        // Trim database if needed (but not too frequently)
+        // Trim database and memory cache if needed (but not too frequently)
         if (now - lastTrimTime > TRIM_INTERVAL) {
+            lastTrimTime = now
             val cacheSize = messageIdCacheDao.getCacheSize()
             if (cacheSize > CACHE_SIZE) {
                 messageIdCacheDao.trimToSize(CACHE_SIZE)
-                lastTrimTime = now
+                trimMemoryCache()
+                logger.d("Trimmed message ID cache")
+            }
+        }
+    }
+    
+    private fun trimMemoryCache() {
+        if (memoryCache.size > CACHE_SIZE) {
+            // Remove oldest entries
+            val entriesToRemove = memoryCache.size - CACHE_SIZE
+            val sortedEntries = memoryCache.entries.sortedBy { it.value }
+            for (i in 0 until entriesToRemove) {
+                if (i < sortedEntries.size) {
+                    memoryCache.remove(sortedEntries[i].key)
+                }
             }
         }
     }
@@ -95,18 +111,17 @@ class MessageIdCache @Inject constructor(
      * 
      * Removes entries older than 24 hours to prevent unbounded growth
      */
-    suspend fun cleanup() = mutex.withLock {
+    suspend fun cleanup() {
         val cutoffTime = System.currentTimeMillis() - CACHE_RETENTION
         
-        // Clean up database
+        // Clean up database without holding a lock
         val removedCount = messageIdCacheDao.deleteOldMessageIds(cutoffTime)
         
-        // Clean up memory cache
-        val snapshot = memoryCache.snapshot()
-        snapshot.forEach { (messageId, timestamp) ->
-            if (timestamp < cutoffTime) {
-                memoryCache.remove(messageId)
-            }
+        // Clean up memory cache concurrently
+        memoryCache.entries.removeIf { it.value < cutoffTime }
+        
+        if (removedCount > 0) {
+            logger.d("Cleaned up $removedCount old entries from message ID cache")
         }
     }
     
@@ -122,9 +137,10 @@ class MessageIdCache @Inject constructor(
     /**
      * Clear all entries from cache
      */
-    suspend fun clearAll() = mutex.withLock {
-        memoryCache.evictAll()
+    suspend fun clearAll() {
+        memoryCache.clear()
         messageIdCacheDao.clearAll()
+        logger.d("Cleared all message ID cache entries")
     }
     
     /**
@@ -132,13 +148,14 @@ class MessageIdCache @Inject constructor(
      * 
      * Called on initialization to warm up the cache
      */
-    suspend fun warmUpCache() = mutex.withLock {
+    suspend fun warmUpCache() {
         val recentEntries = messageIdCacheDao.getRecentMessageIds(
             System.currentTimeMillis() - CACHE_RETENTION
         )
         
         recentEntries.forEach { entity ->
-            memoryCache.put(entity.messageId, entity.receivedAt)
+            memoryCache[entity.messageId] = entity.receivedAt
         }
+        logger.d("Warmed up message ID cache with ${recentEntries.size} entries")
     }
 }

@@ -17,8 +17,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -34,7 +37,8 @@ import javax.inject.Singleton
 class AccountRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firebaseAuth: FirebaseAuth,
-    private val pushTokenRegistrar: com.linker.app.core.notification.PushTokenRegistrar
+    private val pushTokenRegistrar: com.linker.app.core.notification.PushTokenRegistrar,
+    private val credentialEncoder: CredentialEncoder
 ) : AccountRepository {
 
     private companion object {
@@ -66,7 +70,23 @@ class AccountRepositoryImpl @Inject constructor(
     private val encryptedPrefs = try {
         buildEncryptedPrefs()
     } catch (e: Exception) {
-        Log.e(TAG, "EncryptedSharedPreferences init failed, resetting: ${e.message}")
+        Log.e(TAG, "EncryptedSharedPreferences init failed: ${e.message}", e)
+        
+        try {
+            val backup = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+                .getString(KEY_JSON, null)
+            if (backup != null) {
+                context.getSharedPreferences("${PREFS_FILE}_backup", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("backup_data", backup)
+                    .putLong("backup_timestamp", System.currentTimeMillis())
+                    .apply()
+                Log.w(TAG, "Account data backed up before reset")
+            }
+        } catch (backupError: Exception) {
+            Log.e(TAG, "Failed to backup account data: ${backupError.message}")
+        }
+        
         context.deleteSharedPreferences(PREFS_FILE)
         buildEncryptedPrefs()
     }
@@ -100,44 +120,48 @@ class AccountRepositoryImpl @Inject constructor(
 
     // ── Ekle / Güncelle ───────────────────────────────────────────────────
 
+    private val addSessionMutex = Mutex()
+
     override suspend fun addSession(session: AccountSession): Result<Unit> = safeCall {
         withContext(Dispatchers.Default) {
-            Log.d(TAG, "addSession: uid=${session.uid}, username=${session.username}")
+            addSessionMutex.withLock {
+                Log.d(TAG, "addSession: uid=${session.uid}, username=${session.username}")
 
-            val current = loadSessionsFromDisk().toMutableList()
-            
-            // Check if we're adding a new account (not updating existing)
-            val isNewAccount = current.none { it.uid == session.uid }
-            if (isNewAccount && current.size >= MAX_PASSIVE_SESSIONS) {
-                Log.w(TAG, "addSession: Maximum account limit ($MAX_PASSIVE_SESSIONS) reached")
-                throw IllegalStateException("Maximum account limit reached. You can add up to $MAX_PASSIVE_SESSIONS accounts.")
+                val current = loadSessionsFromDisk().toMutableList()
+                
+                // Check if we're adding a new account (not updating existing)
+                val isNewAccount = current.none { it.uid == session.uid }
+                if (isNewAccount && current.size >= MAX_PASSIVE_SESSIONS) {
+                    Log.w(TAG, "addSession: Maximum account limit ($MAX_PASSIVE_SESSIONS) reached")
+                    throw IllegalStateException("Maximum account limit reached. You can add up to $MAX_PASSIVE_SESSIONS accounts.")
+                }
+
+                val plainBytes = session.encryptedToken.toByteArray(Charsets.UTF_8)
+                val ciphertext: String
+                try {
+                    ciphertext = encryptWithKeystore(plainBytes)
+                } finally {
+                    plainBytes.fill(0)
+                }
+
+                val dto = SessionDto(
+                    uid                  = session.uid,
+                    displayName          = session.displayName,
+                    username             = session.username,
+                    avatarUrl            = session.avatarUrl,
+                    encryptedToken       = ciphertext,
+                    addedAt              = session.addedAt,
+                    lastUsedAt           = session.lastUsedAt,
+                    requiresAuthOnSwitch = session.requiresAuthOnSwitch
+                )
+
+                current.removeAll { it.uid == dto.uid }
+                current.add(dto)
+                persistSessions(current)
+
+                Log.d(TAG, "addSession: toplam ${current.size} session kaydedildi")
+                _sessionsFlow.value = current.map { it.toSafeSession() }
             }
-
-            val plainBytes = session.encryptedToken.toByteArray(Charsets.UTF_8)
-            val ciphertext: String
-            try {
-                ciphertext = encryptWithKeystore(plainBytes)
-            } finally {
-                plainBytes.fill(0)
-            }
-
-            val dto = SessionDto(
-                uid                  = session.uid,
-                displayName          = session.displayName,
-                username             = session.username,
-                avatarUrl            = session.avatarUrl,
-                encryptedToken       = ciphertext,
-                addedAt              = session.addedAt,
-                lastUsedAt           = session.lastUsedAt,
-                requiresAuthOnSwitch = session.requiresAuthOnSwitch
-            )
-
-            current.removeAll { it.uid == dto.uid }
-            current.add(dto)
-            persistSessions(current)
-
-            Log.d(TAG, "addSession: toplam ${current.size} session kaydedildi")
-            _sessionsFlow.value = current.map { it.toSafeSession() }
         }
     }
 
@@ -164,18 +188,27 @@ class AccountRepositoryImpl @Inject constructor(
                 ?: throw IllegalStateException("Session bulunamadı: uid=$uid")
 
             val plainBytes = decryptWithKeystore(dto.encryptedToken)
+            var emailBytes: ByteArray? = null
+            var passwordBytes: ByteArray? = null
+
             try {
                 // ✅ SECURITY: Use CredentialEncoder for delimiter-free decoding
                 val credential = String(plainBytes, Charsets.UTF_8)
-                val (email, password) = CredentialEncoder.decode(credential)
+                val (emailStr, passwordStr) = credentialEncoder.decodeToString(credential)
+                
+                emailBytes = emailStr.toByteArray(Charsets.UTF_8)
+                passwordBytes = passwordStr.toByteArray(Charsets.UTF_8)
 
-                firebaseAuth.signInWithEmailAndPassword(email, password).await()
+                firebaseAuth.signInWithEmailAndPassword(emailStr, passwordStr).await()
                 Log.d(TAG, "switchToAccount: giriş başarılı uid=$uid")
                 
                 // ✅ Register FCM token for the new account
                 pushTokenRegistrar.registerCurrentToken()
             } finally {
                 plainBytes.fill(0)
+                emailBytes?.fill(0)
+                passwordBytes?.fill(0)
+                System.gc()
             }
 
             val updated = sessions.toMutableList()
@@ -215,7 +248,21 @@ class AccountRepositoryImpl @Inject constructor(
      * 
      * @return Pair of (email, password) or null if session not found
      */
+    private val authorizedCallers = setOf(
+        "com.linker.app.core.session.HybridAccountManager",
+        "com.linker.app.data.repository.AccountRepositoryImpl"
+    )
+
     override suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
+        val caller = Thread.currentThread().stackTrace
+            .firstOrNull { it.className in authorizedCallers }
+        
+        if (caller == null) {
+            val actualCaller = Thread.currentThread().stackTrace.getOrNull(3)?.className ?: "Unknown"
+            Log.e(TAG, "Unauthorized access to getDecryptedCredentials from: $actualCaller")
+            throw SecurityException("Unauthorized access to credentials")
+        }
+
         try {
             val sessions = loadSessionsFromDisk()
             val dto = sessions.firstOrNull { it.uid == uid }
@@ -224,7 +271,7 @@ class AccountRepositoryImpl @Inject constructor(
             val plainBytes = decryptWithKeystore(dto.encryptedToken)
             try {
                 val credential = String(plainBytes, Charsets.UTF_8)
-                val (email, password) = CredentialEncoder.decode(credential)
+                val (email, password) = credentialEncoder.decodeToString(credential)
                 return@withContext Pair(email, password)
             } finally {
                 plainBytes.fill(0)
@@ -273,6 +320,13 @@ class AccountRepositoryImpl @Inject constructor(
                 .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .setRandomizedEncryptionRequired(true)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationParameters(
+                    30,
+                    android.security.keystore.KeyProperties.AUTH_BIOMETRIC_STRONG or
+                    android.security.keystore.KeyProperties.AUTH_DEVICE_CREDENTIAL
+                )
+                .setInvalidatedByBiometricEnrollment(true)
                 .build()
         )
         return kg.generateKey()
@@ -288,23 +342,56 @@ class AccountRepositoryImpl @Inject constructor(
                 return emptyList()
             }
             val list = jsonSerializer.decodeFromString<List<SessionDto>>(raw)
-            Log.d(TAG, "loadSessionsFromDisk: ${list.size} session okundu")
-            list
+            
+            // Validate loaded data
+            val validSessions = list.filter { session ->
+                session.uid.isNotBlank() && 
+                session.username.isNotBlank() &&
+                session.encryptedToken.isNotBlank()
+            }
+            
+            if (validSessions.size != list.size) {
+                Log.w(TAG, "loadSessionsFromDisk: ${list.size - validSessions.size} invalid sessions filtered")
+            }
+            
+            validSessions
         } catch (e: Exception) {
             Log.e(TAG, "loadSessionsFromDisk hatası: ${e.message}", e)
-            emptyList()
+            tryRecoverFromBackup() ?: emptyList()
         }
     }
 
-    private fun persistSessions(sessions: List<SessionDto>) {
+    private fun tryRecoverFromBackup(): List<SessionDto>? {
+        return try {
+            val backup = context.getSharedPreferences("${PREFS_FILE}_backup", Context.MODE_PRIVATE)
+                .getString("backup_data", null)
+            
+            if (backup != null) {
+                Log.i(TAG, "Attempting to recover from backup")
+                jsonSerializer.decodeFromString<List<SessionDto>>(backup)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Backup recovery failed: ${e.message}")
+            null
+        }
+    }
+
+    private suspend fun persistSessions(sessions: List<SessionDto>) = withContext(Dispatchers.IO) {
         try {
             val json = jsonSerializer.encodeToString(sessions)
-            encryptedPrefs.edit()
+            val success = encryptedPrefs.edit()
                 .putString(KEY_JSON, json)
-                .commit()   // commit() → synchronous, uygulama kapanmadan önce diske yazar
+                .commit()
+            
+            if (!success) {
+                throw IOException("Failed to persist sessions to disk")
+            }
             Log.d(TAG, "persistSessions: ${sessions.size} session yazıldı")
         } catch (e: Exception) {
             Log.e(TAG, "persistSessions hatası: ${e.message}", e)
+            throw e
         }
     }
 

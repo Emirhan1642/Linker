@@ -1,6 +1,7 @@
 package com.linker.app.core.config
 
 import com.linker.app.BuildConfig
+import com.linker.app.core.security.SecurityLogger
 
 /**
  * Centralized configuration for offline messaging feature.
@@ -244,6 +245,26 @@ object OfflineMessagingConfig {
      */
     const val WIFI_DIRECT_MEDIA_THRESHOLD_BYTES = 5 * 1024 * 1024 // 5MB
     
+    // ========== Network Configuration ==========
+    
+    /**
+     * Network connect timeout in milliseconds
+     * How long to wait for TCP connection establishment
+     */
+    const val NETWORK_CONNECT_TIMEOUT_MS = 30_000L // 30 seconds
+    
+    /**
+     * Network read timeout in milliseconds
+     * How long to wait for data from server
+     */
+    const val NETWORK_READ_TIMEOUT_MS = 30_000L // 30 seconds
+    
+    /**
+     * Network write timeout in milliseconds
+     * How long to wait for data to be sent to server
+     */
+    const val NETWORK_WRITE_TIMEOUT_MS = 30_000L // 30 seconds
+    
     // ========== Encryption Configuration ==========
     
     /**
@@ -326,8 +347,17 @@ object OfflineMessagingConfig {
      * Enable sensitive data logging
      * MUST be false in production builds - enforced at compile time
      * Per Issue #41 (P3): Disable sensitive data logging in production
+     * 
+     * Addresses SECURITY RECOMMENDATION #2: Audit Logging for Configuration Access
      */
-    val ENABLE_SENSITIVE_LOGGING = BuildConfig.DEBUG && BuildConfig.ENABLE_SENSITIVE_LOGS
+    val ENABLE_SENSITIVE_LOGGING: Boolean
+        get() {
+            val value = BuildConfig.DEBUG && BuildConfig.ENABLE_SENSITIVE_LOGS
+            if (value) {
+                SecurityLogger.logConfigAccess("ENABLE_SENSITIVE_LOGGING", value)
+            }
+            return value
+        }
     
     /**
      * Enable verbose BLE logging

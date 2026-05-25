@@ -9,6 +9,12 @@ import org.signal.libsignal.protocol.ecc.ECPublicKey
 import org.signal.libsignal.protocol.groups.state.SenderKeyRecord
 import org.signal.libsignal.protocol.groups.state.SenderKeyStore
 import org.signal.libsignal.protocol.state.*
+import java.util.concurrent.Executors
+import java.util.concurrent.Callable
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import com.linker.app.core.util.Logger
 import java.util.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -41,6 +47,18 @@ class SignalProtocolStoreImpl @Inject constructor(
     
     private var identityKeyPair: IdentityKeyPair? = null
     private var localRegistrationId: Int = 0
+
+    private val dbExecutor = Executors.newFixedThreadPool(4)
+    
+    private val _identityChanges = MutableSharedFlow<IdentityChangeEvent>(extraBufferCapacity = 10)
+    val identityChanges: SharedFlow<IdentityChangeEvent> = _identityChanges.asSharedFlow()
+
+    private fun <T> runOnDbThread(block: suspend () -> T): T {
+        return dbExecutor.submit(Callable {
+            runBlocking { block() }
+        }).get()
+    }
+
     
     companion object {
         private const val IDENTITY_KEY_ALIAS = "signal_identity_key"
@@ -75,7 +93,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         return localRegistrationId
     }
     
-    override fun saveIdentity(address: SignalProtocolAddress, identityKey: IdentityKey): IdentityKeyStore.IdentityChange = runBlocking(Dispatchers.IO) {
+    override fun saveIdentity(address: SignalProtocolAddress, identityKey: IdentityKey): IdentityKeyStore.IdentityChange = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         val now = System.currentTimeMillis()
         
@@ -95,22 +113,35 @@ class SignalProtocolStoreImpl @Inject constructor(
         address: SignalProtocolAddress,
         identityKey: IdentityKey,
         direction: IdentityKeyStore.Direction
-    ): Boolean = runBlocking(Dispatchers.IO) {
+    ): Boolean = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         val stored = identityDao.getIdentity(addressString)
         
         if (stored == null) {
-            // TOFU: Trust On First Use — ilk karşılaşmada kimliği güvenilir say.
-            // Kimlik değişikliği tespiti (isTrustedIdentity false döndüğünde) UI'da
-            // "Güvenlik kodu değişti" uyarısı göstermelidir.
-            return@runBlocking true
+            // TOFU: Trust On First Use
+            _identityChanges.tryEmit(
+                IdentityChangeEvent.NewIdentity(address, identityKey)
+            )
+            return@runOnDbThread true
         }
         
-        // Check if identity key matches
-        stored.identityKey.contentEquals(identityKey.serialize())
+        val matches = stored.identityKey.contentEquals(identityKey.serialize())
+        
+        if (!matches) {
+            // Identity changed
+            _identityChanges.tryEmit(
+                IdentityChangeEvent.IdentityChanged(
+                    address = address,
+                    oldKey = IdentityKey(stored.identityKey, 0),
+                    newKey = identityKey
+                )
+            )
+        }
+        
+        matches
     }
     
-    override fun getIdentity(address: SignalProtocolAddress): IdentityKey? = runBlocking(Dispatchers.IO) {
+    override fun getIdentity(address: SignalProtocolAddress): IdentityKey? = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         val entity = identityDao.getIdentity(addressString)
         entity?.let { IdentityKey(it.identityKey, 0) }
@@ -118,18 +149,23 @@ class SignalProtocolStoreImpl @Inject constructor(
     
     // SessionStore implementation
     
-    override fun loadSession(address: SignalProtocolAddress): SessionRecord = runBlocking(Dispatchers.IO) {
-        val addressString = "${address.name}:${address.deviceId}"
-        val entity = sessionDao.getSession(addressString)
-        
-        if (entity != null) {
-            SessionRecord(entity.sessionRecord)
-        } else {
+    override fun loadSession(address: SignalProtocolAddress): SessionRecord = runOnDbThread {
+        try {
+            val addressString = "${address.name}:${address.deviceId}"
+            val entity = sessionDao.getSession(addressString)
+            
+            if (entity != null) {
+                SessionRecord(entity.sessionRecord)
+            } else {
+                SessionRecord()
+            }
+        } catch (e: Exception) {
+            Logger.e("SignalProtocolStore", "Error loading session", e)
             SessionRecord()
         }
     }
     
-    override fun loadExistingSessions(addresses: MutableList<SignalProtocolAddress>): MutableList<SessionRecord> = runBlocking(Dispatchers.IO) {
+    override fun loadExistingSessions(addresses: MutableList<SignalProtocolAddress>): MutableList<SessionRecord> = runOnDbThread {
         val sessions = mutableListOf<SessionRecord>()
         
         for (address in addresses) {
@@ -142,7 +178,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         sessions
     }
     
-    override fun getSubDeviceSessions(name: String): MutableList<Int> = runBlocking(Dispatchers.IO) {
+    override fun getSubDeviceSessions(name: String): MutableList<Int> = runOnDbThread {
         val allSessions = sessionDao.getAllSessions()
         val deviceIds = mutableListOf<Int>()
         
@@ -156,7 +192,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         deviceIds
     }
     
-    override fun storeSession(address: SignalProtocolAddress, record: SessionRecord) = runBlocking(Dispatchers.IO) {
+    override fun storeSession(address: SignalProtocolAddress, record: SessionRecord) = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         val now = System.currentTimeMillis()
         
@@ -170,18 +206,18 @@ class SignalProtocolStoreImpl @Inject constructor(
         sessionDao.insertSession(entity)
     }
     
-    override fun containsSession(address: SignalProtocolAddress): Boolean = runBlocking(Dispatchers.IO) {
+    override fun containsSession(address: SignalProtocolAddress): Boolean = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         val session = sessionDao.getSession(addressString)
         session != null && SessionRecord(session.sessionRecord).hasSenderChain()
     }
     
-    override fun deleteSession(address: SignalProtocolAddress) = runBlocking(Dispatchers.IO) {
+    override fun deleteSession(address: SignalProtocolAddress) = runOnDbThread {
         val addressString = "${address.name}:${address.deviceId}"
         sessionDao.deleteSession(addressString)
     }
     
-    override fun deleteAllSessions(name: String) = runBlocking(Dispatchers.IO) {
+    override fun deleteAllSessions(name: String) = runOnDbThread {
         val allSessions = sessionDao.getAllSessions()
         
         for (session in allSessions) {
@@ -194,7 +230,7 @@ class SignalProtocolStoreImpl @Inject constructor(
     
     // PreKeyStore implementation
     
-    override fun loadPreKey(preKeyId: Int): PreKeyRecord = runBlocking(Dispatchers.IO) {
+    override fun loadPreKey(preKeyId: Int): PreKeyRecord = runOnDbThread {
         val entity = preKeyDao.getPreKey(preKeyId)
         
         if (entity != null) {
@@ -204,7 +240,7 @@ class SignalProtocolStoreImpl @Inject constructor(
         }
     }
     
-    override fun storePreKey(preKeyId: Int, record: PreKeyRecord) = runBlocking(Dispatchers.IO) {
+    override fun storePreKey(preKeyId: Int, record: PreKeyRecord) = runOnDbThread {
         val entity = SignalPreKeyEntity(
             preKeyId = preKeyId,
             preKeyRecord = record.serialize(),
@@ -214,11 +250,11 @@ class SignalProtocolStoreImpl @Inject constructor(
         preKeyDao.insertPreKey(entity)
     }
     
-    override fun containsPreKey(preKeyId: Int): Boolean = runBlocking(Dispatchers.IO) {
+    override fun containsPreKey(preKeyId: Int): Boolean = runOnDbThread {
         preKeyDao.getPreKey(preKeyId) != null
     }
     
-    override fun removePreKey(preKeyId: Int) = runBlocking(Dispatchers.IO) {
+    override fun removePreKey(preKeyId: Int) = runOnDbThread {
         preKeyDao.deletePreKey(preKeyId)
     }
 
@@ -226,13 +262,13 @@ class SignalProtocolStoreImpl @Inject constructor(
      * Load all stored pre-key records.
      * Used by EncryptionManagerImpl to determine the next available pre-key ID.
      */
-    fun loadAllPreKeys(): List<PreKeyRecord> = runBlocking(Dispatchers.IO) {
+    fun loadAllPreKeys(): List<PreKeyRecord> = runOnDbThread {
         preKeyDao.getAllPreKeys().map { PreKeyRecord(it.preKeyRecord) }
     }
     
     // SignedPreKeyStore implementation
     
-    override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord = runBlocking(Dispatchers.IO) {
+    override fun loadSignedPreKey(signedPreKeyId: Int): SignedPreKeyRecord = runOnDbThread {
         val entity = signedPreKeyDao.getSignedPreKey(signedPreKeyId)
         
         if (entity != null) {
@@ -242,12 +278,12 @@ class SignalProtocolStoreImpl @Inject constructor(
         }
     }
     
-    override fun loadSignedPreKeys(): MutableList<SignedPreKeyRecord> = runBlocking(Dispatchers.IO) {
+    override fun loadSignedPreKeys(): MutableList<SignedPreKeyRecord> = runOnDbThread {
         val entities = signedPreKeyDao.getAllSignedPreKeys()
         entities.map { SignedPreKeyRecord(it.signedPreKeyRecord) }.toMutableList()
     }
     
-    override fun storeSignedPreKey(signedPreKeyId: Int, record: SignedPreKeyRecord) = runBlocking(Dispatchers.IO) {
+    override fun storeSignedPreKey(signedPreKeyId: Int, record: SignedPreKeyRecord) = runOnDbThread {
         val entity = SignalSignedPreKeyEntity(
             signedPreKeyId = signedPreKeyId,
             signedPreKeyRecord = record.serialize(),
@@ -257,17 +293,17 @@ class SignalProtocolStoreImpl @Inject constructor(
         signedPreKeyDao.insertSignedPreKey(entity)
     }
     
-    override fun containsSignedPreKey(signedPreKeyId: Int): Boolean = runBlocking(Dispatchers.IO) {
+    override fun containsSignedPreKey(signedPreKeyId: Int): Boolean = runOnDbThread {
         signedPreKeyDao.getSignedPreKey(signedPreKeyId) != null
     }
     
-    override fun removeSignedPreKey(signedPreKeyId: Int) = runBlocking(Dispatchers.IO) {
+    override fun removeSignedPreKey(signedPreKeyId: Int) = runOnDbThread {
         signedPreKeyDao.deleteSignedPreKey(signedPreKeyId)
     }
 
     // KyberPreKeyStore implementation
     
-    override fun loadKyberPreKey(kyberPreKeyId: Int): KyberPreKeyRecord = runBlocking(Dispatchers.IO) {
+    override fun loadKyberPreKey(kyberPreKeyId: Int): KyberPreKeyRecord = runOnDbThread {
         val entity = kyberPreKeyDao.getKyberPreKey(kyberPreKeyId)
         
         if (entity != null) {
@@ -277,12 +313,12 @@ class SignalProtocolStoreImpl @Inject constructor(
         }
     }
 
-    override fun loadKyberPreKeys(): MutableList<KyberPreKeyRecord> = runBlocking(Dispatchers.IO) {
+    override fun loadKyberPreKeys(): MutableList<KyberPreKeyRecord> = runOnDbThread {
         val entities = kyberPreKeyDao.getAllKyberPreKeys()
         entities.map { KyberPreKeyRecord(it.kyberPreKeyRecord) }.toMutableList()
     }
 
-    override fun storeKyberPreKey(kyberPreKeyId: Int, record: KyberPreKeyRecord) = runBlocking(Dispatchers.IO) {
+    override fun storeKyberPreKey(kyberPreKeyId: Int, record: KyberPreKeyRecord) = runOnDbThread {
         val entity = SignalKyberPreKeyEntity(
             kyberPreKeyId = kyberPreKeyId,
             kyberPreKeyRecord = record.serialize(),
@@ -293,11 +329,11 @@ class SignalProtocolStoreImpl @Inject constructor(
         kyberPreKeyDao.insertKyberPreKey(entity)
     }
 
-    override fun containsKyberPreKey(kyberPreKeyId: Int): Boolean = runBlocking(Dispatchers.IO) {
+    override fun containsKyberPreKey(kyberPreKeyId: Int): Boolean = runOnDbThread {
         kyberPreKeyDao.getKyberPreKey(kyberPreKeyId) != null
     }
 
-    override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, baseKey: ECPublicKey) = runBlocking(Dispatchers.IO) {
+    override fun markKyberPreKeyUsed(kyberPreKeyId: Int, signedPreKeyId: Int, baseKey: ECPublicKey) = runOnDbThread {
         kyberPreKeyDao.markKyberPreKeyUsed(kyberPreKeyId)
     }
     
@@ -305,13 +341,13 @@ class SignalProtocolStoreImpl @Inject constructor(
      * Load all stored Kyber pre-key records.
      * Used by EncryptionManagerImpl to determine the next available Kyber pre-key ID.
      */
-    fun loadAllKyberPreKeys(): List<KyberPreKeyRecord> = runBlocking(Dispatchers.IO) {
+    fun loadAllKyberPreKeys(): List<KyberPreKeyRecord> = runOnDbThread {
         kyberPreKeyDao.getAllKyberPreKeys().map { KyberPreKeyRecord(it.kyberPreKeyRecord) }
     }
 
     // SenderKeyStore implementation
     
-    override fun storeSenderKey(sender: SignalProtocolAddress, distributionId: UUID, record: SenderKeyRecord) = runBlocking(Dispatchers.IO) {
+    override fun storeSenderKey(sender: SignalProtocolAddress, distributionId: UUID, record: SenderKeyRecord) = runOnDbThread {
         val senderAddress = "${sender.name}:${sender.deviceId}"
         val now = System.currentTimeMillis()
         
@@ -326,10 +362,15 @@ class SignalProtocolStoreImpl @Inject constructor(
         senderKeyDao.insertSenderKey(entity)
     }
 
-    override fun loadSenderKey(sender: SignalProtocolAddress, distributionId: UUID): SenderKeyRecord? = runBlocking(Dispatchers.IO) {
+    override fun loadSenderKey(sender: SignalProtocolAddress, distributionId: UUID): SenderKeyRecord? = runOnDbThread {
         val senderAddress = "${sender.name}:${sender.deviceId}"
         val entity = senderKeyDao.getSenderKey(senderAddress, distributionId.toString())
         
         entity?.let { SenderKeyRecord(it.senderKeyRecord) }
     }
+}
+
+sealed class IdentityChangeEvent {
+    data class NewIdentity(val address: SignalProtocolAddress, val identityKey: IdentityKey) : IdentityChangeEvent()
+    data class IdentityChanged(val address: SignalProtocolAddress, val oldKey: IdentityKey, val newKey: IdentityKey) : IdentityChangeEvent()
 }

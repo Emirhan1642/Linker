@@ -1,6 +1,17 @@
 package com.linker.app.core.security
 
+import android.app.Application
+import android.content.Context
+import android.content.SharedPreferences
+import android.os.Bundle
 import android.util.Log
+import androidx.annotation.VisibleForTesting
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.remoteconfig.FirebaseRemoteConfig
+import com.linker.app.BuildConfig
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.tasks.await
 import okhttp3.CertificatePinner
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -10,94 +21,165 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Certificate pinning interceptor for OkHttp to prevent MITM attacks.
+ * Certificate pin configuration
  * 
- * Addresses Issue #40 (P3): Add certificate pinning
+ * IMPORTANT: Update these pins regularly!
+ * Check certificate expiration: https://crt.sh
  * 
- * Pins certificates for critical services:
- * - Firebase/Firestore (*.googleapis.com)
- * - Google APIs (*.google.com)
- * 
- * Certificate pinning ensures that the app only trusts specific certificates,
- * preventing man-in-the-middle attacks even if a CA is compromised.
- * 
- * Usage:
- * ```
- * val okHttpClient = OkHttpClient.Builder()
- *     .certificatePinner(CertificatePinningInterceptor.createCertificatePinner())
- *     .build()
- * ```
- * 
- * Note: Certificate pins must be updated when certificates are rotated.
- * Monitor certificate expiration and update pins before expiry.
+ * Last updated: 2026-05-24
+ * Next review: 2026-11-24 (6 months)
  */
+object CertificatePins {
+    // Google Trust Services (GTS) Root R1
+    const val GTS_ROOT_R1 = "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc="
+    
+    // Google Trust Services (GTS) Root R2 (backup)
+    const val GTS_ROOT_R2 = "sha256/f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk="
+    
+    // GlobalSign Root CA - R2 (backup)
+    const val GLOBALSIGN_ROOT_R2 = "sha256/r/mIkG3eEpVdm+u/ko/cwxzOMo1bk4TyHIlByibiA5E="
+    
+    // Supabase (Let's Encrypt)
+    const val SUPABASE_ROOT_CA = "sha256/Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o=" // ISG X1
+    const val SUPABASE_BACKUP_CA = "sha256/jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=" // ISRG Root X1 Backup
+    
+    // Cloudinary
+    const val CLOUDINARY_ROOT_CA = "sha256/Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o=" 
+    const val CLOUDINARY_BACKUP_CA = "sha256/jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=" 
+}
+
+class CertificatePinMonitor @Inject constructor(
+    @ApplicationContext private val context: Context
+) {
+    private val pinExpirationDates = mapOf(
+        CertificatePins.GTS_ROOT_R1 to 2099836800000L, // 2036-06-22
+        CertificatePins.GTS_ROOT_R2 to 2099836800000L, // 2036-06-22
+        CertificatePins.GLOBALSIGN_ROOT_R2 to 1832889600000L, // 2028-01-28
+        CertificatePins.SUPABASE_ROOT_CA to 1969065600000L, // 2032-05-31
+        CertificatePins.CLOUDINARY_ROOT_CA to 1969065600000L 
+    )
+    
+    fun checkPinExpiration() {
+        val currentTime = System.currentTimeMillis()
+        val warningThreshold = 90 * 24 * 60 * 60 * 1000L // 90 days
+        
+        pinExpirationDates.forEach { (pin, expirationDate) ->
+            val timeUntilExpiration = expirationDate - currentTime
+            
+            when {
+                timeUntilExpiration < 0 -> {
+                    val error = "Certificate pin EXPIRED: $pin"
+                    Log.e("CertPinMonitor", error)
+                    FirebaseAnalytics.getInstance(context).logEvent("cert_pin_expired", Bundle().apply {
+                        putString("pin", pin.take(20))
+                    })
+                }
+                timeUntilExpiration < warningThreshold -> {
+                    val daysRemaining = timeUntilExpiration / (24 * 60 * 60 * 1000L)
+                    Log.w("CertPinMonitor", "Certificate pin expiring in $daysRemaining days: $pin")
+                    FirebaseAnalytics.getInstance(context).logEvent("cert_pin_expiring_soon", Bundle().apply {
+                        putString("pin", pin.take(20))
+                        putLong("days_remaining", daysRemaining)
+                    })
+                }
+            }
+        }
+    }
+}
+
 @Singleton
-class CertificatePinningInterceptor @Inject constructor() : Interceptor {
+class CertificatePinningConfig @Inject constructor(
+    private val remoteConfig: FirebaseRemoteConfig,
+    @ApplicationContext private val context: Context
+) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("cert_pinning_prefs", Context.MODE_PRIVATE)
+    private val PREF_PINNING_ENABLED = "cert_pinning_enabled"
+    private val PREF_PINNING_FAILURES = "cert_pinning_failures"
+    private val MAX_FAILURES_BEFORE_DISABLE = 3
+    
+    suspend fun isPinningEnabled(): Boolean {
+        try {
+            remoteConfig.fetchAndActivate().await()
+        } catch (e: Exception) {
+            // Ignore fetch failure and proceed with local
+        }
+        val remoteEnabled = remoteConfig.getBoolean("cert_pinning_enabled")
+        
+        if (!remoteEnabled && remoteConfig.all.containsKey("cert_pinning_enabled")) {
+            Log.w("CertPinConfig", "Certificate pinning disabled via remote config")
+            return false
+        }
+        
+        val failures = prefs.getInt(PREF_PINNING_FAILURES, 0)
+        if (failures >= MAX_FAILURES_BEFORE_DISABLE) {
+            Log.w("CertPinConfig", "Certificate pinning disabled due to repeated failures")
+            return false
+        }
+        
+        return prefs.getBoolean(PREF_PINNING_ENABLED, true)
+    }
+    
+    fun recordPinningFailure() {
+        val failures = prefs.getInt(PREF_PINNING_FAILURES, 0) + 1
+        prefs.edit().putInt(PREF_PINNING_FAILURES, failures).apply()
+        
+        if (failures >= MAX_FAILURES_BEFORE_DISABLE) {
+            Log.e("CertPinConfig", "Too many pinning failures, disabling certificate pinning")
+            prefs.edit().putBoolean(PREF_PINNING_ENABLED, false).apply()
+        }
+    }
+    
+    fun resetFailures() {
+        prefs.edit().putInt(PREF_PINNING_FAILURES, 0).apply()
+    }
+}
+
+@Singleton
+class CertificatePinningInterceptor @Inject constructor(
+    private val pinningConfig: CertificatePinningConfig,
+    @ApplicationContext private val context: Context
+) : Interceptor {
     
     companion object {
         private const val TAG = "CertificatePinning"
+        private var testMode = false
         
-        /**
-         * Create a CertificatePinner with pins for Firebase/Google services.
-         * 
-         * Pins are SHA-256 hashes of the public key (SPKI) of the certificate.
-         * 
-         * To get certificate pins:
-         * ```
-         * openssl s_client -connect firestore.googleapis.com:443 | \
-         *   openssl x509 -pubkey -noout | \
-         *   openssl pkey -pubin -outform der | \
-         *   openssl dgst -sha256 -binary | \
-         *   openssl enc -base64
-         * ```
-         * 
-         * IMPORTANT: These are example pins. You MUST update them with actual pins
-         * for your production environment. Use multiple pins (backup pins) to handle
-         * certificate rotation.
-         */
-        fun createCertificatePinner(): CertificatePinner {
-            return CertificatePinner.Builder()
-                // Firebase/Firestore (*.googleapis.com)
-                // Pin both current and backup certificates
-                .add(
-                    "*.googleapis.com",
-                    // Google Trust Services LLC (GTS) Root CA
-                    "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=",
-                    // Google Internet Authority G3 (backup)
-                    "sha256/f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk=",
-                    // GlobalSign Root CA (backup)
-                    "sha256/r/mIkG3eEpVdm+u/ko/cwxzOMo1bk4TyHIlByibiA5E="
-                )
-                // Google APIs (*.google.com)
-                .add(
-                    "*.google.com",
-                    // Google Trust Services LLC (GTS) Root CA
-                    "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=",
-                    // Google Internet Authority G3 (backup)
-                    "sha256/f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk="
-                )
-                // Firestore specific
-                .add(
-                    "firestore.googleapis.com",
-                    // Google Trust Services LLC (GTS) Root CA
-                    "sha256/hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=",
-                    // Google Internet Authority G3 (backup)
-                    "sha256/f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk="
-                )
-                .build()
+        @VisibleForTesting
+        fun enableTestMode() {
+            if (!BuildConfig.DEBUG) {
+                throw IllegalStateException("Test mode can only be enabled in debug builds")
+            }
+            testMode = true
+            Log.w(TAG, "Certificate pinning TEST MODE enabled - pinning disabled!")
         }
         
-        /**
-         * Create an OkHttpClient with certificate pinning enabled.
-         * 
-         * Use this for all network requests to Firebase/Google services.
-         * 
-         * @return OkHttpClient with certificate pinning
-         */
-        fun createSecureOkHttpClient(): OkHttpClient {
-            return OkHttpClient.Builder()
-                .certificatePinner(createCertificatePinner())
-                .addInterceptor(CertificatePinningInterceptor())
+        @VisibleForTesting
+        fun disableTestMode() {
+            testMode = false
+        }
+        
+        @Volatile
+        private var cachedPinner: CertificatePinner? = null
+        
+        fun createCertificatePinner(): CertificatePinner? {
+            if (testMode) {
+                Log.w(TAG, "Test mode active, returning null pinner")
+                return null
+            }
+            
+            return cachedPinner ?: synchronized(this) {
+                cachedPinner ?: buildCertificatePinner().also { cachedPinner = it }
+            }
+        }
+        
+        private fun buildCertificatePinner(): CertificatePinner {
+            return CertificatePinner.Builder()
+                .add("*.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GLOBALSIGN_ROOT_R2)
+                .add("*.google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
+                .add("firestore.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
+                .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA)
+                .add("*.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
+                .add("res.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .build()
         }
     }
@@ -105,58 +187,66 @@ class CertificatePinningInterceptor @Inject constructor() : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         
+        val pinningEnabled = runBlocking { pinningConfig.isPinningEnabled() }
+        if (!pinningEnabled || testMode) {
+            return chain.proceed(request)
+        }
+        
         return try {
             val response = chain.proceed(request)
             
-            // Log successful pinning validation
-            if (shouldPin(request.url.host)) {
-                Log.d(TAG, "Certificate pinning validated for ${request.url.host}")
+            if (BuildConfig.DEBUG && shouldPin(request.url.host)) {
+                SecurityLogger.logDebug("Certificate pinning validated for \${request.url.host}")
             }
             
             response
             
         } catch (e: IOException) {
-            // Certificate pinning failure
             if (e.message?.contains("Certificate pinning failure") == true) {
-                Log.e(TAG, "Certificate pinning FAILED for ${request.url.host}: ${e.message}")
-                
-                // In production, you might want to:
-                // 1. Report to analytics/crash reporting
-                // 2. Show user a security warning
-                // 3. Prevent the request from proceeding
-                
-                throw SecurityException("Certificate pinning failed for ${request.url.host}", e)
+                handlePinningFailure(request.url.host, e)
+                pinningConfig.recordPinningFailure()
+                throw SecurityException("Certificate pinning failed for \${request.url.host}", e)
             }
-            
             throw e
         }
     }
     
-    /**
-     * Check if the host should be pinned.
-     * 
-     * @param host Hostname
-     * @return true if host should be pinned
-     */
+    private fun handlePinningFailure(host: String, error: IOException) {
+        Log.e(TAG, "Certificate pinning FAILED for \$host: \${error.message}")
+        
+        SecurityLogger.logEvent(
+            SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+            "Certificate pinning failure detected",
+            metadata = mapOf("host" to host, "error" to (error.message ?: "unknown"))
+        )
+        
+        try {
+
+            FirebaseAnalytics.getInstance(context).logEvent("cert_pinning_failure", Bundle().apply {
+                putString("host", host)
+                putString("error", error.message)
+            })
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to report pinning failure", e)
+        }
+    }
+    
     private fun shouldPin(host: String): Boolean {
         return host.endsWith(".googleapis.com") ||
                 host.endsWith(".google.com") ||
-                host == "firestore.googleapis.com"
+                host == "firestore.googleapis.com" ||
+                host.endsWith(".supabase.co") ||
+                host.endsWith(".cloudinary.com") ||
+                host == "res.cloudinary.com"
     }
 }
 
-/**
- * Extension function to add certificate pinning to OkHttpClient.Builder.
- * 
- * Usage:
- * ```
- * val client = OkHttpClient.Builder()
- *     .withCertificatePinning()
- *     .build()
- * ```
- */
-fun OkHttpClient.Builder.withCertificatePinning(): OkHttpClient.Builder {
+fun OkHttpClient.Builder.withCertificatePinning(
+    interceptor: CertificatePinningInterceptor
+): OkHttpClient.Builder {
+    CertificatePinningInterceptor.createCertificatePinner()?.let { pinner ->
+        this.certificatePinner(pinner)
+        this.addInterceptor(interceptor)
+    }
     return this
-        .certificatePinner(CertificatePinningInterceptor.createCertificatePinner())
-        .addInterceptor(CertificatePinningInterceptor())
 }

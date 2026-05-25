@@ -1,5 +1,7 @@
 package com.linker.app.data.ble
 
+import com.linker.app.core.util.SecureLogger
+
 /**
  * Handles fragmentation and reassembly of large BLE packets
  * 
@@ -7,6 +9,8 @@ package com.linker.app.data.ble
  * split into multiple fragments for transmission over BLE.
  */
 class PacketFragmenter {
+    
+    private val logger = SecureLogger("PacketFragmenter")
     
     /**
      * Fragment a large payload into multiple BLE packets
@@ -89,16 +93,21 @@ class PacketFragmenter {
         val firstFragment = fragments[0]
         val messageId = firstFragment.messageId
         val totalFragments = firstFragment.totalFragments.toInt()
+        val senderId = firstFragment.senderId
+        val recipientId = firstFragment.recipientId
+        val ttl = firstFragment.ttl
         
         if (fragments.size != totalFragments) {
+            logger.e("Reassembly failed: incomplete fragments for $messageId")
             throw IllegalArgumentException(
                 "Incomplete fragments: expected $totalFragments, got ${fragments.size}"
             )
         }
         
-        // Validate all fragments belong to same message
+        // Validate all fragments belong to same message with matching metadata
         for (fragment in fragments) {
             if (fragment.messageId != messageId) {
+                logger.e("Reassembly failed: messageId mismatch")
                 throw IllegalArgumentException(
                     "Fragment messageId mismatch: expected $messageId, got ${fragment.messageId}"
                 )
@@ -107,6 +116,18 @@ class PacketFragmenter {
                 throw IllegalArgumentException(
                     "Fragment totalFragments mismatch: expected $totalFragments, got ${fragment.totalFragments}"
                 )
+            }
+            if (fragment.senderId != senderId) {
+                logger.e("Reassembly failed: senderId mismatch for $messageId")
+                throw IllegalArgumentException("Fragment senderId mismatch")
+            }
+            if (fragment.recipientId != recipientId) {
+                logger.e("Reassembly failed: recipientId mismatch for $messageId")
+                throw IllegalArgumentException("Fragment recipientId mismatch")
+            }
+            if (fragment.ttl != ttl) {
+                logger.e("Reassembly failed: ttl mismatch for $messageId")
+                throw IllegalArgumentException("Fragment ttl mismatch")
             }
         }
         
@@ -122,10 +143,24 @@ class PacketFragmenter {
             }
         }
         
-        // Reassemble payload
-        val totalSize = sortedFragments.sumOf { it.payloadLength.toInt() }
-        val reassembledPayload = ByteArray(totalSize)
+        // Reassemble payload with overflow protection
+        var totalSize = 0L
+        for (fragment in sortedFragments) {
+            val len = fragment.payloadLength.toInt()
+            if (len < 0) {
+                throw IllegalArgumentException("Negative payload length in fragment")
+            }
+            totalSize += len
+            if (totalSize > 10_000_000L) { // Limit to ~10MB max per message to prevent OutOfMemory
+                logger.e("Reassembly failed: payload size exceeds maximum limit ($totalSize bytes)")
+                throw IllegalArgumentException("Payload size exceeds maximum limit")
+            }
+        }
+        
+        val reassembledPayload = ByteArray(totalSize.toInt())
         var offset = 0
+        
+        logger.d("Reassembling message $messageId from ${fragments.size} fragments (${totalSize} bytes)")
         
         for (fragment in sortedFragments) {
             System.arraycopy(
@@ -153,12 +188,17 @@ class PacketFragmenter {
         val totalFragments = fragments[0].totalFragments.toInt()
         if (fragments.size != totalFragments) return false
         
-        val messageId = fragments[0].messageId
+        val firstFragment = fragments[0]
+        val messageId = firstFragment.messageId
+        val senderId = firstFragment.senderId
+        val recipientId = firstFragment.recipientId
         val indices = mutableSetOf<Short>()
         
         for (fragment in fragments) {
             if (fragment.messageId != messageId) return false
             if (fragment.totalFragments != totalFragments.toShort()) return false
+            if (fragment.senderId != senderId) return false
+            if (fragment.recipientId != recipientId) return false
             if (fragment.fragmentIndex < 0 || fragment.fragmentIndex >= totalFragments) return false
             if (!indices.add(fragment.fragmentIndex)) return false // Duplicate index
         }

@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
      * böylece yanlış hesapta chat açılmaz.
      */
     private suspend fun applyLaunchIntent(intent: Intent?) {
-        val target = intent?.getStringExtra(ChatNotificationHelper.EXTRA_TARGET_ACCOUNT_UID)
+        val target = intent?.getStringExtra(com.linker.app.core.notification.NotificationConstants.EXTRA_TARGET_ACCOUNT_UID)
         if (!target.isNullOrBlank()) {
             val active = accountRepository.getActiveUid()
             if (active != target) {
@@ -117,7 +117,9 @@ class MainActivity : ComponentActivity() {
         connectivityMonitor.stopMonitoring()
         // Cleanup all passive sessions when app is destroyed
         if (isFinishing) {
-            hybridAccountManager.cleanupAllSessions()
+            lifecycleScope.launch {
+                hybridAccountManager.cleanupAllSessions()
+            }
         }
     }
 }

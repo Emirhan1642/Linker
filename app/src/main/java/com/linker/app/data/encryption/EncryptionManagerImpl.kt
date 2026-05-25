@@ -13,8 +13,11 @@ import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
 import org.signal.libsignal.protocol.util.KeyHelper
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Implementation of EncryptionManager using Signal Protocol
@@ -33,16 +36,14 @@ class EncryptionManagerImpl @Inject constructor(
         private const val PRE_KEY_COUNT = 100
     }
     
-    @Volatile
-    private var isInitialized = false
+    private val initMutex = Mutex()
+    private val isInitialized = AtomicBoolean(false)
     
     override suspend fun initialize() = withContext(Dispatchers.IO) {
-        if (isInitialized) return@withContext
+        if (isInitialized.get()) return@withContext
 
-        // Double-checked locking: prevent redundant initialization under concurrency
-        synchronized(this@EncryptionManagerImpl) {
-            if (isInitialized) return@synchronized
-        }
+        initMutex.withLock {
+            if (isInitialized.get()) return@withLock
 
         try {
             // Check if identity key pair exists
@@ -66,17 +67,18 @@ class EncryptionManagerImpl @Inject constructor(
                 Logger.d(TAG, "Generated new identity and pre-keys")
             }
 
-            isInitialized = true
+            isInitialized.set(true)
             Logger.d(TAG, "Encryption manager initialized")
-        } catch (e: Exception) {
-            Logger.e(TAG, "Error initializing encryption manager", e)
-            throw e
+            } catch (e: Exception) {
+                Logger.e(TAG, "Error initializing encryption manager", e)
+                throw e
+            }
         }
     }
     
     override suspend fun encryptMessage(recipientId: String, plaintext: String): Result<EncryptedMessage> = withContext(Dispatchers.IO) {
         try {
-            if (!isInitialized) {
+            if (!isInitialized.get()) {
                 initialize()
             }
 
@@ -88,6 +90,11 @@ class EncryptionManagerImpl @Inject constructor(
                 // In a real app, this would fetch the recipient's pre-key bundle from server
                 Logger.w(TAG, "No session for $recipientId, cannot encrypt")
                 return@withContext Result.failure(Exception("No encryption keys for recipient"))
+            }
+            
+            val session = protocolStore.loadSession(recipientAddress)
+            if (!session.hasSenderChain()) {
+                return@withContext Result.failure(Exception("Session has no sender chain"))
             }
 
             // Create session cipher
@@ -109,37 +116,21 @@ class EncryptionManagerImpl @Inject constructor(
     
     override suspend fun decryptMessage(senderId: String, encrypted: EncryptedMessage): Result<String> = withContext(Dispatchers.IO) {
         try {
-            if (!isInitialized) {
+            if (!isInitialized.get()) {
                 initialize()
             }
 
             val senderAddress = SignalProtocolAddress(senderId, DEVICE_ID)
             val sessionCipher = SessionCipher(protocolStore, senderAddress)
 
-            // Determine message type and decrypt using explicit type checks
-            // Catching a broad Exception to distinguish parse failures is unsafe:
-            // we explicitly check the version byte to avoid masking real errors.
-            val messageVersion = encrypted.signalMessage.firstOrNull()?.toInt()?.and(0xFF) ?: 0
-            val plaintext = if (messageVersion >= 3) {
-                // Version 3+ indicates PreKeySignalMessage
-                try {
+            val plaintext = when (detectMessageType(encrypted.signalMessage)) {
+                MessageType.PRE_KEY -> {
                     val preKeyMessage = PreKeySignalMessage(encrypted.signalMessage)
                     sessionCipher.decrypt(preKeyMessage)
-                } catch (e: InvalidVersionException) {
-                    // Not a PreKeySignalMessage after all, fall back to regular
-                    val signalMessage = SignalMessage(encrypted.signalMessage)
-                    sessionCipher.decrypt(signalMessage)
-                } catch (e: InvalidMessageException) {
-                    Logger.e(TAG, "Invalid pre-key signal message from $senderId", e)
-                    throw e
                 }
-            } else {
-                try {
+                MessageType.SIGNAL -> {
                     val signalMessage = SignalMessage(encrypted.signalMessage)
                     sessionCipher.decrypt(signalMessage)
-                } catch (e: InvalidMessageException) {
-                    Logger.e(TAG, "Invalid signal message from $senderId", e)
-                    throw e
                 }
             }
 
@@ -212,7 +203,14 @@ class EncryptionManagerImpl @Inject constructor(
         } catch (e: Exception) {
             emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
         }
-        val startId = (existingPreKeys.maxOfOrNull { record -> record.id } ?: 0) + 1
+        val maxId = existingPreKeys.maxOfOrNull { record -> record.id } ?: 0
+        
+        if (maxId > Int.MAX_VALUE - PRE_KEY_COUNT) {
+            cleanupOldPreKeys()
+            return generatePreKeys()
+        }
+        
+        val startId = maxId + 1
 
         // Generate one-time pre-keys starting from the next available ID
         for (i in 0 until PRE_KEY_COUNT) {
@@ -303,5 +301,29 @@ class EncryptionManagerImpl @Inject constructor(
             kyberKeyPair.publicKey,
             kyberSignature
         )
+    }
+
+    private enum class MessageType { PRE_KEY, SIGNAL }
+
+    private fun detectMessageType(data: ByteArray): MessageType {
+        if (data.isEmpty()) throw IllegalArgumentException("Empty message")
+        
+        return try {
+            PreKeySignalMessage(data)
+            MessageType.PRE_KEY
+        } catch (e: InvalidMessageException) {
+            try {
+                SignalMessage(data)
+                MessageType.SIGNAL
+            } catch (e2: InvalidMessageException) {
+                throw IllegalArgumentException("Invalid message format", e2)
+            }
+        }
+    }
+
+    private fun cleanupOldPreKeys() {
+        val allKeys = protocolStore.loadAllPreKeys()
+        val toDelete = allKeys.sortedBy { it.id }.dropLast(100)
+        toDelete.forEach { protocolStore.removePreKey(it.id) }
     }
 }

@@ -16,6 +16,7 @@ import com.linker.app.data.local.entity.NotificationEntity
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
@@ -49,11 +50,13 @@ class CommentRepositoryImpl @Inject constructor(
                 }
 
                 launch {
-                    val comments = snapshot?.documents?.mapNotNull { doc ->
+                    val dataList = snapshot?.documents?.mapNotNull { doc ->
                         doc.toObject(CommentDocument::class.java)?.let { data ->
-                            documentToComment(data, doc.id)
+                            Pair(doc.id, data)
                         }
                     } ?: emptyList()
+
+                    val comments = mapDocumentsToComments(dataList)
                     trySend(comments)
                 }
             }
@@ -74,9 +77,10 @@ class CommentRepositoryImpl @Inject constructor(
             .get()
             .await()
 
-        snapshot.documents.drop(offset).mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.let { documentToComment(it, doc.id) }
+        val dataList = snapshot.documents.drop(offset).mapNotNull { doc ->
+            doc.toObject(CommentDocument::class.java)?.let { Pair(doc.id, it) }
         }
+        mapDocumentsToComments(dataList)
     }
 
     override suspend fun getReplies(parentCommentId: String): Result<List<Comment>> = RetryUtil.retrySafeCall {
@@ -86,9 +90,10 @@ class CommentRepositoryImpl @Inject constructor(
             .get()
             .await()
 
-        snapshot.documents.mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.let { documentToComment(it, doc.id) }
+        val dataList = snapshot.documents.mapNotNull { doc ->
+            doc.toObject(CommentDocument::class.java)?.let { Pair(doc.id, it) }
         }
+        mapDocumentsToComments(dataList)
     }
 
     override suspend fun addComment(
@@ -116,19 +121,23 @@ class CommentRepositoryImpl @Inject constructor(
             "updatedAt" to now
         )
 
-        commentsCollection.document(commentId).set(commentData).await()
+        val batch = firestore.batch()
+        batch.set(commentsCollection.document(commentId), commentData)
 
         // If this is a reply, increment parent's repliesCount
         if (parentCommentId != null) {
-            commentsCollection.document(parentCommentId).update(
+            batch.update(
+                commentsCollection.document(parentCommentId),
                 "repliesCount", com.google.firebase.firestore.FieldValue.increment(1)
-            ).await()
+            )
         }
 
         // Increment link's comments count
-        linksCollection.document(linkId).update(
+        batch.update(
+            linksCollection.document(linkId),
             "commentsCount", com.google.firebase.firestore.FieldValue.increment(1)
-        ).await()
+        )
+        batch.commit().await()
 
         // Get author info
         val authorDoc = usersCollection.document(currentUser.uid).get().await()
@@ -181,19 +190,23 @@ class CommentRepositoryImpl @Inject constructor(
         val likeDoc = likesRef.get().await()
         val isLiked = likeDoc.exists()
 
+        val batch = firestore.batch()
         if (isLiked) {
             // Unlike
-            likesRef.delete().await()
-            commentsCollection.document(commentId).update(
+            batch.delete(likesRef)
+            batch.update(
+                commentsCollection.document(commentId),
                 "likesCount", com.google.firebase.firestore.FieldValue.increment(-1)
-            ).await()
+            )
         } else {
             // Like
-            likesRef.set(mapOf("likedAt" to System.currentTimeMillis())).await()
-            commentsCollection.document(commentId).update(
+            batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis()))
+            batch.update(
+                commentsCollection.document(commentId),
                 "likesCount", com.google.firebase.firestore.FieldValue.increment(1)
-            ).await()
+            )
         }
+        batch.commit().await()
 
         !isLiked
     }
@@ -203,22 +216,26 @@ class CommentRepositoryImpl @Inject constructor(
         val linkId = commentDoc.getString("linkId")
         val parentCommentId = commentDoc.getString("parentCommentId")
 
+        val batch = firestore.batch()
         // Delete the comment
-        commentsCollection.document(commentId).delete().await()
+        batch.delete(commentsCollection.document(commentId))
 
         // If this was a reply, decrement parent's repliesCount
         if (parentCommentId != null) {
-            commentsCollection.document(parentCommentId).update(
+            batch.update(
+                commentsCollection.document(parentCommentId),
                 "repliesCount", com.google.firebase.firestore.FieldValue.increment(-1)
-            ).await()
+            )
         }
 
         // Decrement link's comments count
         if (linkId != null) {
-            linksCollection.document(linkId).update(
+            batch.update(
+                linksCollection.document(linkId),
                 "commentsCount", com.google.firebase.firestore.FieldValue.increment(-1)
-            ).await()
+            )
         }
+        batch.commit().await()
     }
 
     /**
@@ -241,56 +258,81 @@ class CommentRepositoryImpl @Inject constructor(
         val updatedAt: Long = 0
     )
 
-    private suspend fun documentToComment(data: CommentDocument, docId: String): Comment? {
-        val authorDoc = usersCollection.document(data.authorId).get().await()
-        val author = User(
-            userId = data.authorId,
-            username = authorDoc.getString("username") ?: "",
-            displayName = authorDoc.getString("displayName") ?: "",
-            email = authorDoc.getString("email"),
-            phoneNumber = null,
-            bio = authorDoc.getString("bio"),
-            profileImageUrl = authorDoc.getString("profileImageUrl"),
-            coverImageUrl = authorDoc.getString("coverImageUrl"),
-            isVerified = authorDoc.getBoolean("isVerified") ?: false,
-            followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-            followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-            likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            createdAt = authorDoc.getLong("createdAt") ?: 0,
-            updatedAt = authorDoc.getLong("updatedAt") ?: 0
-        )
+    private suspend fun mapDocumentsToComments(dataList: List<Pair<String, CommentDocument>>): List<Comment> {
+        if (dataList.isEmpty()) return emptyList()
 
-        val currentUserId = auth.currentUser?.uid
-        val isLiked = if (currentUserId != null) {
-            val likeDoc = commentsCollection
-                .document(docId)
-                .collection("likes")
-                .document(currentUserId)
-                .get()
-                .await()
-            likeDoc.exists()
-        } else {
-            false
+        // Batch fetch users
+        val authorIds = dataList.map { it.second.authorId }.distinct()
+        val usersMap = mutableMapOf<String, User>()
+
+        authorIds.chunked(10).forEach { chunk ->
+            val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
+            userDocs.documents.forEach { authorDoc ->
+                val user = User(
+                    userId = authorDoc.id,
+                    username = authorDoc.getString("username") ?: "",
+                    displayName = authorDoc.getString("displayName") ?: "",
+                    email = authorDoc.getString("email"),
+                    phoneNumber = null,
+                    bio = authorDoc.getString("bio"),
+                    profileImageUrl = authorDoc.getString("profileImageUrl"),
+                    coverImageUrl = authorDoc.getString("coverImageUrl"),
+                    isVerified = authorDoc.getBoolean("isVerified") ?: false,
+                    followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
+                    followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
+                    likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
+                    isFollowing = false,
+                    isFollowedBy = false,
+                    isBlocked = false,
+                    isMuted = false,
+                    createdAt = authorDoc.getLong("createdAt") ?: 0,
+                    updatedAt = authorDoc.getLong("updatedAt") ?: 0
+                )
+                usersMap[authorDoc.id] = user
+            }
         }
 
-        return Comment(
-            commentId = docId,
-            linkId = data.linkId,
-            author = author,
-            content = data.content,
-            gifUrl = data.gifUrl,
-            parentCommentId = data.parentCommentId,
-            likesCount = data.likesCount,
-            repliesCount = data.repliesCount,
-            isLiked = isLiked,
-            isPinned = data.isPinned,
-            isEdited = data.isEdited,
-            createdAt = data.createdAt,
-            updatedAt = data.updatedAt
-        )
+        val currentUserId = auth.currentUser?.uid
+
+        // We use kotlinx.coroutines.async to fetch isLiked in parallel for all comments
+        return kotlinx.coroutines.coroutineScope {
+            dataList.map { (docId, data) ->
+                async {
+                    val author = usersMap[data.authorId] ?: return@async null
+
+                    val isLiked = if (currentUserId != null) {
+                        try {
+                            val likeDoc = commentsCollection
+                                .document(docId)
+                                .collection("likes")
+                                .document(currentUserId)
+                                .get()
+                                .await()
+                            likeDoc.exists()
+                        } catch (e: Exception) {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+
+                    Comment(
+                        commentId = docId,
+                        linkId = data.linkId,
+                        author = author,
+                        content = data.content,
+                        gifUrl = data.gifUrl,
+                        parentCommentId = data.parentCommentId,
+                        likesCount = data.likesCount,
+                        repliesCount = data.repliesCount,
+                        isLiked = isLiked,
+                        isPinned = data.isPinned,
+                        isEdited = data.isEdited,
+                        createdAt = data.createdAt,
+                        updatedAt = data.updatedAt
+                    )
+                }
+            }.mapNotNull { it.await() }
+        }
     }
 }

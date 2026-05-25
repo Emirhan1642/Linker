@@ -14,35 +14,15 @@ class PushTokenRegistrar @Inject constructor(
     private val auth: FirebaseAuth,
     private val supabaseNotificationApi: SupabaseNotificationApi
 ) {
-    private fun resolveSupabaseKey(): String {
-        return BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
-    }
-
-    private fun authHeader(): String = "Bearer ${resolveSupabaseKey()}"
-    private fun apiKey(): String = resolveSupabaseKey()
-
-    private fun logAnonKey() {
-        val key = resolveSupabaseKey()
-        val masked = if (key.length >= 8) {
-            "${key.take(4)}...${key.takeLast(4)}"
-        } else {
-            "len=${key.length}"
-        }
-        val source = if (BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()) "publishable" else "anon"
-        android.util.Log.d(TAG, "SUPABASE_KEY[$source]=$masked (len=${key.length})")
-    }
-
     suspend fun registerCurrentToken() {
         val userId = auth.currentUser?.uid ?: return
-        android.util.Log.d(TAG, "registerCurrentToken: userId=$userId")
-        logAnonKey()
+        
         val token = try {
             FirebaseMessaging.getInstance().token.await()
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "Failed to fetch FCM token: ${e.message}")
+            NotificationLogger.w("Failed to fetch FCM token: \${e.message}")
             return
         }
-        android.util.Log.d(TAG, "registerCurrentToken: token fetched")
         registerToken(userId, token)
     }
 
@@ -52,11 +32,12 @@ class PushTokenRegistrar @Inject constructor(
     }
 
     private suspend fun registerToken(userId: String, token: String) {
+        if (BuildConfig.DEBUG) {
+            NotificationLogger.d("Registering token for user: \${userId.take(8)}...")
+        }
+        
         try {
-            android.util.Log.d(TAG, "Attempting to register token for userId=$userId, token=${token.take(20)}...")
             val response = supabaseNotificationApi.registerPushToken(
-                auth = authHeader(),
-                apiKey = apiKey(),
                 request = RegisterPushTokenRequest(
                     userId = userId,
                     fcmToken = token,
@@ -64,17 +45,13 @@ class PushTokenRegistrar @Inject constructor(
                 )
             )
             if (response.isSuccessful) {
-                android.util.Log.d(TAG, "registerToken: success for $userId")
+                NotificationLogger.d("Token registered successfully")
             } else {
                 val errorBody = response.errorBody()?.string()
-                android.util.Log.w(TAG, "registerToken: failed ${response.code()} - $errorBody")
+                NotificationLogger.w("Token registration failed: \${response.code()} - \$errorBody")
             }
         } catch (e: Exception) {
-            android.util.Log.w(TAG, "Failed to register push token: ${e.message}", e)
+            NotificationLogger.e("Failed to register push token", e)
         }
-    }
-
-    companion object {
-        private const val TAG = "PushTokenRegistrar"
     }
 }

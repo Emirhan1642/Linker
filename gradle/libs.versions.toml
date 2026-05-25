@@ -22,6 +22,8 @@ hiltNavigationCompose = "1.2.0"
 
 # Room Database
 room = "2.6.1"
+sqlcipher = "4.5.4"
+sqlite = "2.4.0"
 
 # Networking
 retrofit = "2.11.0"
@@ -78,6 +80,7 @@ androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = 
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycleRuntimeKtx" }
 androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycleRuntimeKtx" }
+androidx-lifecycle-process = { group = "androidx.lifecycle", name = "lifecycle-process", version.ref = "lifecycleRuntimeKtx" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
 
 # Compose
@@ -101,6 +104,8 @@ androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navig
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+androidx-sqlite = { group = "androidx.sqlite", name = "sqlite-ktx", version.ref = "sqlite" }
+sqlcipher-android = { group = "net.zetetic", name = "sqlcipher-android", version.ref = "sqlcipher" }
 
 # Networking
 libsignal-client = { module = "org.signal:libsignal-client", version.ref = "libsignalClient" }
@@ -117,6 +122,8 @@ firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore
 firebase-storage = { group = "com.google.firebase", name = "firebase-storage-ktx" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging-ktx" }
 firebase-config = { group = "com.google.firebase", name = "firebase-config-ktx" }
+firebase-analytics = { module = "com.google.firebase:firebase-analytics" }
+google-firebase-config = { module = "com.google.firebase:firebase-config" }
 
 # Google Play Services
 play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version = "21.2.0" }

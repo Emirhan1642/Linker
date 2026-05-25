@@ -96,11 +96,13 @@ ksp {
 }
 
 dependencies {
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
 
     // Compose
@@ -126,6 +128,10 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+    
+    // Database Encryption
+    implementation(libs.androidx.sqlite)
+    implementation(libs.sqlcipher.android)
 
     // Networking
     implementation(libs.retrofit)
@@ -140,6 +146,9 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.config)
+    implementation(libs.google.firebase.config)
 
     // Google Play Services
     implementation(libs.play.services.auth)

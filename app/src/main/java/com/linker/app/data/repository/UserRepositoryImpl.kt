@@ -17,6 +17,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.tasks.await
 import kotlin.math.max
 import javax.inject.Inject
@@ -38,37 +39,45 @@ class UserRepositoryImpl @Inject constructor(
     // Bu sayede ProfileViewModel'deki combine her hesap değişiminde doğru
     // kullanıcıyı yayınlar.
 
-    override fun getCurrentUser(): Flow<User?> = callbackFlow {
-        var firestoreListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private val currentUserFlow: Flow<User?> by lazy {
+        callbackFlow {
+            var firestoreListener: com.google.firebase.firestore.ListenerRegistration? = null
 
-        fun resubscribe() {
-            firestoreListener?.remove()
-            val uid = firebaseAuth.currentUser?.uid
-            if (uid == null) {
-                trySend(null)
-                return
-            }
-            firestoreListener = firestore.collection("users").document(uid)
-                .addSnapshotListener { snap, _ ->
-                    snap?.data?.let { data ->
-                        if (snap.exists()) {
-                            trySend(mapToEntity(uid, data).toDomain())
-                        } else {
-                            trySend(null)
-                        }
-                    } ?: trySend(null)
+            fun resubscribe() {
+                firestoreListener?.remove()
+                val uid = firebaseAuth.currentUser?.uid
+                if (uid == null) {
+                    trySend(null)
+                    return
                 }
-        }
+                firestoreListener = firestore.collection("users").document(uid)
+                    .addSnapshotListener { snap, _ ->
+                        snap?.data?.let { data ->
+                            if (snap.exists()) {
+                                trySend(mapToEntity(uid, data).toDomain())
+                            } else {
+                                trySend(null)
+                            }
+                        } ?: trySend(null)
+                    }
+            }
 
-        val authListener = FirebaseAuth.AuthStateListener { resubscribe() }
-        firebaseAuth.addAuthStateListener(authListener)
-        resubscribe()
+            val authListener = FirebaseAuth.AuthStateListener { resubscribe() }
+            firebaseAuth.addAuthStateListener(authListener)
+            resubscribe()
 
-        awaitClose {
-            firebaseAuth.removeAuthStateListener(authListener)
-            firestoreListener?.remove()
-        }
+            awaitClose {
+                firebaseAuth.removeAuthStateListener(authListener)
+                firestoreListener?.remove()
+            }
+        }.shareIn(
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob()),
+            started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+            replay = 1
+        )
     }
+
+    override fun getCurrentUser(): Flow<User?> = currentUserFlow
 
     override suspend fun getUserById(userId: String): Result<User> = safeCall {
         val snap = firestore.collection("users").document(userId).get().await()
@@ -106,11 +115,13 @@ class UserRepositoryImpl @Inject constructor(
             .limit(limit.toLong()).get().await()
         val remoteEntities = (byUsername.documents + byName.documents)
             .distinctBy { it.id }.filter { it.id != me }
-            .mapNotNull { doc -> doc.data?.let { enrichWithRelationship(mapToEntity(doc.id, it)) } }
-        remoteEntities.forEach { userDao.insertUser(it) }
-        val remoteIds = remoteEntities.map { it.userId }.toSet()
+            .mapNotNull { doc -> doc.data?.let { mapToEntity(doc.id, it) } }
+            
+        val enrichedRemoteEntities = batchFetchRelationships(remoteEntities)
+        enrichedRemoteEntities.forEach { userDao.insertUser(it) }
+        val remoteIds = enrichedRemoteEntities.map { it.userId }.toSet()
         val localOnly = userDao.searchUsers(query, limit).filter { it.userId != me && it.userId !in remoteIds }
-        (remoteEntities + localOnly).take(limit).map { it.toDomain() }
+        (enrichedRemoteEntities + localOnly).take(limit).map { it.toDomain() }
     }
 
     override suspend fun followUser(targetUserId: String): Result<Unit> = safeCall {
@@ -141,8 +152,8 @@ class UserRepositoryImpl @Inject constructor(
                 )
             )
             if (!privateAccount) {
-                updateCount(tx, meRef, "followingCount", 1, meSnap)
-                updateCount(tx, targetRef, "followersCount", 1, targetSnap)
+                updateCount(tx, meRef, "followingCount", 1)
+                updateCount(tx, targetRef, "followersCount", 1)
             }
             privateAccount
         }.await()
@@ -173,8 +184,8 @@ class UserRepositoryImpl @Inject constructor(
             // Then writes
             tx.delete(followRef)
             if (currentStatus == "active") {
-                updateCount(tx, meRef, "followingCount", -1, meSnap)
-                updateCount(tx, targetRef, "followersCount", -1, targetSnap)
+                updateCount(tx, meRef, "followingCount", -1)
+                updateCount(tx, targetRef, "followersCount", -1)
             }
             currentStatus
         }.await()
@@ -212,8 +223,8 @@ class UserRepositoryImpl @Inject constructor(
 
             // Then writes
             tx.update(followRef, "status", "active")
-            updateCount(tx, fromRef, "followingCount", 1, fromSnap)
-            updateCount(tx, meRef, "followersCount", 1, meSnap)
+            updateCount(tx, fromRef, "followingCount", 1)
+            updateCount(tx, meRef, "followersCount", 1)
             null
         }.await()
     }
@@ -236,8 +247,8 @@ class UserRepositoryImpl @Inject constructor(
             // Then writes
             tx.delete(followRef)
             if (status == "active") {
-                updateCount(tx, fromRef, "followingCount", -1, fromSnap)
-                updateCount(tx, meRef, "followersCount", -1, meSnap)
+                updateCount(tx, fromRef, "followingCount", -1)
+                updateCount(tx, meRef, "followersCount", -1)
             }
             null
         }.await()
@@ -257,13 +268,14 @@ class UserRepositoryImpl @Inject constructor(
         }
         val q = firestore.collection("follows")
             .whereEqualTo("followedId", userId).whereEqualTo("status", "active").get().await()
-        q.documents.mapNotNull { doc ->
+        val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followerId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
             snap.data?.let { data ->
-                if (snap.exists()) enrichWithRelationship(mapToEntity(fid, data)).toDomain() else null
+                if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
+        batchFetchRelationships(entities).map { it.toDomain() }
     }
 
     override suspend fun getFollowing(userId: String): Result<List<User>?> = safeCall {
@@ -280,13 +292,14 @@ class UserRepositoryImpl @Inject constructor(
         }
         val q = firestore.collection("follows")
             .whereEqualTo("followerId", userId).whereEqualTo("status", "active").get().await()
-        q.documents.mapNotNull { doc ->
+        val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
             snap.data?.let { data ->
-                if (snap.exists()) enrichWithRelationship(mapToEntity(fid, data)).toDomain() else null
+                if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
+        batchFetchRelationships(entities).map { it.toDomain() }
     }
 
     override suspend fun getPendingRequests(): Result<List<User>> = safeCall {
@@ -306,13 +319,14 @@ class UserRepositoryImpl @Inject constructor(
         val me = currentUid ?: throw Exception("Not logged in")
         val q = firestore.collection("follows")
             .whereEqualTo("followerId", me).whereEqualTo("status", "pending").get().await()
-        q.documents.mapNotNull { doc ->
+        val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
             snap.data?.let { data ->
-                if (snap.exists()) mapToEntity(fid, data).toDomain() else null
+                if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
+        batchFetchRelationships(entities).map { it.toDomain() }
     }
 
     override suspend fun blockUser(targetUserId: String): Result<Unit> = safeCall {
@@ -394,6 +408,37 @@ class UserRepositoryImpl @Inject constructor(
         )
     }
 
+    private suspend fun batchFetchRelationships(entities: List<UserEntity>): List<UserEntity> {
+        val me = currentUid ?: return entities
+        if (entities.isEmpty()) return entities
+
+        val followDocsMap = mutableMapOf<String, com.google.firebase.firestore.DocumentSnapshot>()
+        val targetIds = entities.map { it.userId }.distinct()
+
+        targetIds.chunked(10).forEach { chunk ->
+            val query = firestore.collection("follows")
+                .whereEqualTo("followerId", me)
+                .whereIn("followedId", chunk)
+                .get()
+                .await()
+
+            query.documents.forEach { doc ->
+                val followedId = doc.getString("followedId")
+                if (followedId != null) {
+                    followDocsMap[followedId] = doc
+                }
+            }
+        }
+
+        return entities.map { entity ->
+            val followDoc = followDocsMap[entity.userId]
+            entity.copy(
+                isFollowing       = followDoc?.getString("status") == "active",
+                followRequestSent = followDoc?.getString("status") == "pending"
+            )
+        }
+    }
+
     private suspend fun decrementSafe(collection: String, docId: String, field: String) {
         val snap = firestore.collection(collection).document(docId).get().await()
         val current = (snap.get(field) as? Number)?.toLong() ?: 0L
@@ -405,12 +450,9 @@ class UserRepositoryImpl @Inject constructor(
         tx: Transaction,
         docRef: DocumentReference,
         field: String,
-        delta: Long,
-        snap: com.google.firebase.firestore.DocumentSnapshot
+        delta: Long
     ) {
-        val current = (snap.get(field) as? Number)?.toLong() ?: 0L
-        val next = max(0L, current + delta)
-        tx.update(docRef, field, next)
+        tx.update(docRef, field, FieldValue.increment(delta))
     }
 
     private fun mapToEntity(id: String, data: Map<String, Any>): UserEntity = UserEntity(

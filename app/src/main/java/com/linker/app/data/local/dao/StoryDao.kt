@@ -16,6 +16,9 @@ interface StoryDao {
     @Query("SELECT * FROM stories WHERE authorId = :authorId AND expiresAt > :currentTime ORDER BY createdAt DESC")
     suspend fun getStoriesByAuthor(authorId: String, currentTime: Long = System.currentTimeMillis()): List<StoryEntity>
     
+    @Query("SELECT * FROM stories WHERE authorId IN (:authorIds) AND expiresAt > :currentTime ORDER BY createdAt DESC")
+    suspend fun getStoriesByAuthors(authorIds: List<String>, currentTime: Long = System.currentTimeMillis()): List<StoryEntity>
+    
     @Query("SELECT * FROM stories WHERE authorId = :authorId AND expiresAt > :currentTime ORDER BY createdAt DESC")
     fun observeStoriesByAuthor(authorId: String, currentTime: Long = System.currentTimeMillis()): Flow<List<StoryEntity>>
     
@@ -31,6 +34,7 @@ interface StoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStory(story: StoryEntity)
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStories(stories: List<StoryEntity>)
     
@@ -43,11 +47,21 @@ interface StoryDao {
     @Query("DELETE FROM stories WHERE storyId = :storyId")
     suspend fun deleteStoryById(storyId: String)
     
-    @Query("DELETE FROM stories WHERE expiresAt < :currentTime")
-    suspend fun deleteExpiredStories(currentTime: Long = System.currentTimeMillis())
+    @Transaction
+    @Query("DELETE FROM stories WHERE storyId IN (:storyIds)")
+    suspend fun batchDeleteStories(storyIds: List<String>)
     
-    @Query("UPDATE stories SET isViewed = 1, viewsCount = viewsCount + 1 WHERE storyId = :storyId")
+    @Transaction
+    @Query("DELETE FROM stories WHERE expiresAt < :currentTime")
+    suspend fun deleteExpiredStories(currentTime: Long = System.currentTimeMillis()): Int
+    
+    @Transaction
+    @Query("UPDATE stories SET isViewed = 1, viewsCount = MAX(0, viewsCount + 1) WHERE storyId = :storyId")
     suspend fun markAsViewed(storyId: String)
+    
+    @Transaction
+    @Query("UPDATE stories SET isViewed = 1, viewsCount = MAX(0, viewsCount + 1) WHERE storyId IN (:storyIds)")
+    suspend fun batchMarkAsViewed(storyIds: List<String>)
     
     @Query("SELECT COUNT(*) FROM stories WHERE authorId = :authorId AND expiresAt > :currentTime")
     suspend fun getActiveStoryCount(authorId: String, currentTime: Long = System.currentTimeMillis()): Int

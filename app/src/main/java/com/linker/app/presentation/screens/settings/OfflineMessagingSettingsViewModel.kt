@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeoutException
 import javax.inject.Inject
 
 /**
@@ -271,7 +272,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isBleEnabled = enabled) }
             // Save to DataStore
-            preferencesRepository.setBleEnabled(enabled)
+            preferencesRepository.setBleEnabled(enabled).onFailure {
+                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update BLE setting") }
+            }
             
             if (enabled) {
                 bleMeshManager.startScanning()
@@ -290,7 +293,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isWifiDirectEnabled = enabled) }
             // Save to DataStore
-            preferencesRepository.setWifiDirectEnabled(enabled)
+            preferencesRepository.setWifiDirectEnabled(enabled).onFailure {
+                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Wi-Fi Direct setting") }
+            }
         }
     }
     
@@ -301,7 +306,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(showNotification = enabled) }
             // Save to DataStore and update service notification
-            preferencesRepository.setShowNotification(enabled)
+            preferencesRepository.setShowNotification(enabled).onFailure {
+                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Notification setting") }
+            }
         }
     }
     
@@ -330,7 +337,9 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 snackbarMessage = "Maximum hops set to $ttl"
             )}
             // Save to DataStore
-            preferencesRepository.setMaxTtl(ttl)
+            preferencesRepository.setMaxTtl(ttl).onFailure {
+                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Max TTL setting") }
+            }
         }
     }
     
@@ -463,11 +472,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
      */
     fun enableBluetooth() {
         viewModelScope.launch {
-            android.util.Log.d("OfflineMessagingVM", "enableBluetooth() called")
-            
-            // Check if BLUETOOTH_CONNECT permission is granted
             if (!bluetoothManager.hasBluetoothConnectPermission()) {
-                android.util.Log.e("OfflineMessagingVM", "BLUETOOTH_CONNECT permission not granted")
                 _uiState.update { it.copy(
                     showBluetoothDialog = false,
                     showPermissionRationale = true,
@@ -476,49 +481,31 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 )}
                 return@launch
             }
-            
-            android.util.Log.d("OfflineMessagingVM", "Permission granted, calling enableBluetooth()")
-            
-            // Send enable request
-            val requestSent = bluetoothManager.enableBluetooth()
-            android.util.Log.d("OfflineMessagingVM", "enableBluetooth() returned: $requestSent")
-            
-            if (requestSent) {
-                _uiState.update { it.copy(
-                    showBluetoothDialog = false,
-                    snackbarMessage = "Enabling Bluetooth..."
-                )}
-                
-                // Wait for Bluetooth to actually enable (up to 5 seconds)
-                var isEnabled = false
-                for (i in 0..10) {
-                    kotlinx.coroutines.delay(500)
-                    isEnabled = bluetoothManager.isBluetoothEnabled()
-                    android.util.Log.d("OfflineMessagingVM", "Check $i: isBluetoothEnabled = $isEnabled")
-                    if (isEnabled) break
-                }
-                
-                if (isEnabled) {
-                    android.util.Log.d("OfflineMessagingVM", "Bluetooth is now enabled")
-                    _uiState.update { it.copy(
+
+            _uiState.update { it.copy(
+                showBluetoothDialog = false,
+                snackbarMessage = "Enabling Bluetooth..."
+            )}
+
+            val result = bluetoothManager.enableBluetoothWithTimeout()
+            result.onSuccess {
+                _uiState.update { state ->
+                    state.copy(
                         isBluetoothEnabled = true,
                         snackbarMessage = "Bluetooth enabled"
-                    )}
-                    // Try to enable offline messaging again
-                    toggleOfflineMessaging(true, skipPermissionCheck = true)
-                } else {
-                    android.util.Log.e("OfflineMessagingVM", "Bluetooth is still disabled after 5 seconds")
-                    _uiState.update { it.copy(
-                        snackbarMessage = "Opening Bluetooth settings..."
-                    )}
-                    // Open Bluetooth settings for manual enable
-                    bluetoothManager.openBluetoothSettings(application)
+                    )
                 }
-            } else {
-                android.util.Log.e("OfflineMessagingVM", "enableBluetooth() returned false")
-                _uiState.update { it.copy(
-                    snackbarMessage = "Failed to enable Bluetooth"
-                )}
+                toggleOfflineMessaging(true, skipPermissionCheck = true)
+            }.onFailure { error ->
+                when (error) {
+                    is TimeoutException -> {
+                        _uiState.update { it.copy(snackbarMessage = "Opening Bluetooth settings...") }
+                        bluetoothManager.openBluetoothSettings(application)
+                    }
+                    else -> {
+                        _uiState.update { it.copy(snackbarMessage = "Failed to enable Bluetooth") }
+                    }
+                }
             }
         }
     }

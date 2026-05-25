@@ -2,7 +2,7 @@ package com.linker.app.data.ble
 
 import android.bluetooth.*
 import android.content.Context
-import android.util.Log
+import com.linker.app.core.util.SecureLogger as Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -34,6 +34,7 @@ class GattServerManager @Inject constructor(
     
     private var bluetoothManager: BluetoothManager? = null
     private var gattServer: BluetoothGattServer? = null
+    private val serverLock = Any()
     
     // Packet with sender MAC address for routing
     data class IncomingPacketWithAddress(
@@ -87,8 +88,12 @@ class GattServerManager @Inject constructor(
                     // Deserialize packet
                     val packet = BLEPacket.deserialize(value)
                     
-                    // Validate checksum
-                    if (BLEPacket.validateChecksum(packet)) {
+                    // Validate checksum and fields strictly
+                    if (BLEPacket.validateChecksum(packet) &&
+                        packet.senderId.isNotBlank() &&
+                        packet.recipientId.isNotBlank() &&
+                        packet.messageId.isNotBlank() &&
+                        packet.ttl >= 0 && packet.hopCount >= 0) {
                         // Emit packet with sender MAC address for routing
                         _incomingPackets.tryEmit(IncomingPacketWithAddress(packet, device?.address ?: "unknown"))
                         
@@ -162,8 +167,13 @@ class GattServerManager @Inject constructor(
      * 
      * @return true if server started successfully, false otherwise
      */
-    fun startServer(): Boolean {
+    fun startServer(): Boolean = synchronized(serverLock) {
         try {
+            if (gattServer != null) {
+                Log.d(TAG, "GATT server already running")
+                return true
+            }
+            
             bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
             
             if (bluetoothManager == null) {
@@ -216,7 +226,7 @@ class GattServerManager @Inject constructor(
     /**
      * Stop GATT server
      */
-    fun stopServer() {
+    fun stopServer() = synchronized(serverLock) {
         try {
             gattServer?.clearServices()
             gattServer?.close()

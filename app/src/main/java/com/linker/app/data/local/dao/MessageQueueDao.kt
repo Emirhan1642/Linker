@@ -36,6 +36,7 @@ interface MessageQueueDao {
      * Batch update multiple queue items
      * More efficient than updating one by one
      */
+    @Transaction
     @Update
     suspend fun updateQueueItems(items: List<MessageQueueEntity>)
     
@@ -51,8 +52,13 @@ interface MessageQueueDao {
     @Query("UPDATE message_queue SET queueStatus = :status, lastAttemptAt = :timestamp WHERE queueId = :queueId")
     suspend fun updateQueueStatus(queueId: String, status: QueueStatus, timestamp: Long)
     
+    @Transaction
     @Query("UPDATE message_queue SET retryCount = retryCount + 1, lastAttemptAt = :timestamp, errorMessage = :error WHERE queueId = :queueId")
     suspend fun incrementRetryCount(queueId: String, timestamp: Long, error: String?)
+    
+    @Transaction
+    @Query("UPDATE message_queue SET queueStatus = :status, errorMessage = :error, lastAttemptAt = :timestamp WHERE queueId = :queueId")
+    suspend fun updateStatus(queueId: String, status: QueueStatus, error: String? = null, timestamp: Long = System.currentTimeMillis())
     
     @Query("SELECT COUNT(*) FROM message_queue WHERE queueStatus IN ('PENDING', 'SENDING')")
     fun observePendingCount(): Flow<Int>
@@ -66,7 +72,7 @@ interface MessageQueueDao {
     suspend fun getFailedMessages(): List<MessageQueueEntity>
     
     @Query("UPDATE message_queue SET queueStatus = :status, sentAt = :sentAt WHERE queueId = :queueId")
-    suspend fun updateQueueStatus(queueId: String, status: QueueStatus, sentAt: Long?)
+    suspend fun updateQueueStatus(queueId: String, status: QueueStatus, sentAt: Long?): Int
     
     @Query("UPDATE message_queue SET retryCount = retryCount + 1 WHERE queueId = :queueId")
     suspend fun incrementRetryCount(queueId: String)
@@ -78,7 +84,7 @@ interface MessageQueueDao {
     suspend fun updateLastAttempt(queueId: String, timestamp: Long)
     
     @Query("DELETE FROM message_queue WHERE queueStatus = 'SENT' AND sentAt < :cutoffTime")
-    suspend fun deleteOldSentMessages(cutoffTime: Long)
+    suspend fun deleteOldSentMessages(cutoffTime: Long): Int
     
     @Query("SELECT COUNT(*) FROM message_queue")
     suspend fun getQueueSize(): Int
@@ -93,6 +99,7 @@ interface MessageQueueDao {
      * Batch delete multiple queue items by IDs
      * More efficient than deleting one by one
      */
+    @Transaction
     @Query("DELETE FROM message_queue WHERE queueId IN (:queueIds)")
     suspend fun deleteQueueItems(queueIds: List<String>)
     
@@ -100,8 +107,32 @@ interface MessageQueueDao {
      * Batch update status for multiple queue items
      * More efficient than updating one by one
      */
+    @Transaction
     @Query("UPDATE message_queue SET queueStatus = :status, lastAttemptAt = :timestamp WHERE queueId IN (:queueIds)")
     suspend fun batchUpdateStatus(queueIds: List<String>, status: QueueStatus, timestamp: Long)
+
+    @Query("""
+        SELECT queueStatus, COUNT(*) as count 
+        FROM message_queue 
+        GROUP BY queueStatus
+    """)
+    suspend fun getStatusCountsList(): List<StatusCountResult>
+
+    suspend fun getStatusCounts(): Map<QueueStatus, Int> {
+        return getStatusCountsList().associate { it.queueStatus to it.count }
+    }
+
+    @Query("""
+        DELETE FROM message_queue 
+        WHERE queueId IN (
+            SELECT queueId 
+            FROM message_queue 
+            WHERE queueStatus = 'SENT' 
+            ORDER BY sentAt ASC 
+            LIMIT :limit
+        )
+    """)
+    suspend fun deleteOldestSentMessages(limit: Int): Int
     
     /**
      * Atomically update queue status and message delivery method.
@@ -115,3 +146,11 @@ interface MessageQueueDao {
      * The actual transaction is implemented in LinkerDatabase.updateQueueAndMessageAtomic()
      */
 }
+
+/**
+ * Wrapper class for status counts query
+ */
+data class StatusCountResult(
+    val queueStatus: QueueStatus,
+    val count: Int
+)

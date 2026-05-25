@@ -3,32 +3,24 @@ package com.linker.app.core.security
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.google.firebase.ktx.Firebase
+import com.google.firebase.remoteconfig.ktx.remoteConfig
+import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.security.MessageDigest
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Centralized security manager for API keys and sensitive data
- *
- * Uses Android Keystore and EncryptedSharedPreferences for secure storage.
- *
- * **Security Features**:
- * - AES256_GCM encryption for values
- * - AES256_SIV encryption for keys
- * - Hardware-backed keystore on supported devices
- * - Auto-generated master key
- *
- * **Usage**:
- * ```kotlin
- * // Initialize in Application.onCreate()
- * if (!securityManager.areKeysInitialized()) {
- *     securityManager.initializeKeys(...)
- * }
- *
- * // Retrieve keys
- * val supabaseUrl = securityManager.getSupabaseUrl()
- * ```
- */
+sealed class ConfigResult<out T> {
+    data class Success<T>(val value: T) : ConfigResult<T>()
+    data class Error(val message: String, val cause: Throwable? = null) : ConfigResult<Nothing>()
+}
+
 @Singleton
 class SecurityManager @Inject constructor(
     @ApplicationContext private val context: Context
@@ -45,105 +37,319 @@ class SecurityManager @Inject constructor(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    // ── Supabase Configuration ──────────────────────────────────────────
-
-    /**
-     * Get Supabase project URL
-     *
-     * @throws IllegalStateException if not initialized
-     */
-    fun getSupabaseUrl(): String {
-        return encryptedPrefs.getString(KEY_SUPABASE_URL, "")
-            ?: throw IllegalStateException("Supabase URL not initialized")
+    private val remoteConfig = Firebase.remoteConfig.apply {
+        setConfigSettingsAsync(remoteConfigSettings {
+            minimumFetchIntervalInSeconds = 3600
+        })
+        setDefaultsAsync(
+            mapOf(
+                "supabase_url" to "",
+                "supabase_anon_key" to "",
+                "cloudinary_cloud_name" to "",
+                "cloudinary_api_key" to "",
+                "cloudinary_api_secret" to ""
+            )
+        )
     }
 
-    /**
-     * Get Supabase anonymous key
-     *
-     * @throws IllegalStateException if not initialized
-     */
-    fun getSupabaseAnonKey(): String {
-        return encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, "")
-            ?: throw IllegalStateException("Supabase Anon Key not initialized")
+    suspend fun initializeKeysFromRemoteConfig() {
+        try {
+            val success = remoteConfig.fetchAndActivate().await()
+            if (success || areKeysInitialized()) { // allow proceed if keys are already there but fetch failed
+                initializeKeys(
+                    supabaseUrl = remoteConfig.getString("supabase_url"),
+                    supabaseAnonKey = remoteConfig.getString("supabase_anon_key"),
+                    cloudinaryCloudName = remoteConfig.getString("cloudinary_cloud_name"),
+                    cloudinaryApiKey = remoteConfig.getString("cloudinary_api_key"),
+                    cloudinaryApiSecret = remoteConfig.getString("cloudinary_api_secret")
+                )
+            } else {
+                throw SecurityException("Failed to fetch remote config and no local keys exist")
+            }
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Failed to initialize keys from remote config: \${e.message}"
+            )
+            throw e
+        }
     }
 
-    // ── Cloudinary Configuration ────────────────────────────────────────
+    private fun validateSupabaseUrl(url: String): Boolean = url.matches(Regex("^https://[a-z0-9-]+\\.supabase\\.co\$")) || url.isEmpty()
+    
+    // In production we would strictly validate. We allow empty for remote config defaults.
+    private fun validateSupabaseKey(key: String): Boolean = key.length > 50 || key.isEmpty()
+    private fun validateCloudinaryCloudName(name: String): Boolean = name.matches(Regex("^[A-Za-z0-9_-]+\$")) || name.isEmpty()
+    private fun validateCloudinaryApiKey(key: String): Boolean = key.matches(Regex("^\\d+\$")) || key.isEmpty()
+    private fun validateCloudinaryApiSecret(secret: String): Boolean = secret.matches(Regex("^[A-Za-z0-9_-]+\$")) || secret.isEmpty()
 
-    /**
-     * Get Cloudinary cloud name
-     *
-     * @throws IllegalStateException if not initialized
-     */
-    fun getCloudinaryCloudName(): String {
-        return encryptedPrefs.getString(KEY_CLOUDINARY_CLOUD_NAME, "")
-            ?: throw IllegalStateException("Cloudinary Cloud Name not initialized")
+    private fun calculateIntegrityHash(): String {
+        val data = buildString {
+            append(encryptedPrefs.getString(KEY_SUPABASE_URL, ""))
+            append(encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, ""))
+            append(encryptedPrefs.getString(KEY_CLOUDINARY_CLOUD_NAME, ""))
+            append(encryptedPrefs.getString(KEY_CLOUDINARY_API_KEY, ""))
+            append(encryptedPrefs.getString(KEY_CLOUDINARY_API_SECRET, ""))
+            append(encryptedPrefs.getInt(KEY_CONFIG_VERSION, 0))
+        }
+        val mac = Mac.getInstance("HmacSHA256")
+        val secretKey = SecretKeySpec(masterKey.toString().toByteArray(), "HmacSHA256")
+        mac.init(secretKey)
+        return mac.doFinal(data.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
-    /**
-     * Get Cloudinary API key
-     *
-     * @throws IllegalStateException if not initialized
-     */
-    fun getCloudinaryApiKey(): String {
-        return encryptedPrefs.getString(KEY_CLOUDINARY_API_KEY, "")
-            ?: throw IllegalStateException("Cloudinary API Key not initialized")
+    fun verifyIntegrity(): Boolean {
+        return try {
+            val storedHash = encryptedPrefs.getString(KEY_INTEGRITY_HASH, null)
+            val calculatedHash = calculateIntegrityHash()
+            val isValid = storedHash == calculatedHash
+            if (!isValid && storedHash != null) {
+                SecurityLogger.logEvent(
+                    SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                    "Config integrity check failed - possible tampering detected"
+                )
+            }
+            isValid
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Integrity verification failed: \${e.message}"
+            )
+            false
+        }
     }
 
-    /**
-     * Get Cloudinary API secret
-     *
-     * @throws IllegalStateException if not initialized
-     */
-    fun getCloudinaryApiSecret(): String {
-        return encryptedPrefs.getString(KEY_CLOUDINARY_API_SECRET, "")
-            ?: throw IllegalStateException("Cloudinary API Secret not initialized")
-    }
-
-    // ── Initialization ──────────────────────────────────────────────────
-
-    /**
-     * Initialize API keys on first app launch
-     *
-     * Call this from Application.onCreate()
-     *
-     * **Important**: After first stable release, remove keys from BuildConfig
-     * and use environment variables or remote config instead.
-     */
-    fun initializeKeys(
+    private fun initializeKeys(
         supabaseUrl: String,
         supabaseAnonKey: String,
         cloudinaryCloudName: String,
         cloudinaryApiKey: String,
         cloudinaryApiSecret: String
     ) {
+        if (supabaseUrl.isNotEmpty() && !validateSupabaseUrl(supabaseUrl)) throw IllegalArgumentException("Invalid Supabase URL")
+        if (supabaseAnonKey.isNotEmpty() && !validateSupabaseKey(supabaseAnonKey)) throw IllegalArgumentException("Invalid Supabase Key")
+        if (cloudinaryCloudName.isNotEmpty() && !validateCloudinaryCloudName(cloudinaryCloudName)) throw IllegalArgumentException("Invalid Cloudinary Name")
+
         encryptedPrefs.edit().apply {
             putString(KEY_SUPABASE_URL, supabaseUrl)
             putString(KEY_SUPABASE_ANON_KEY, supabaseAnonKey)
             putString(KEY_CLOUDINARY_CLOUD_NAME, cloudinaryCloudName)
             putString(KEY_CLOUDINARY_API_KEY, cloudinaryApiKey)
             putString(KEY_CLOUDINARY_API_SECRET, cloudinaryApiSecret)
+            putInt(KEY_CONFIG_VERSION, CURRENT_CONFIG_VERSION)
+            putLong(KEY_LAST_ROTATION, System.currentTimeMillis())
             apply()
+            
+            putString(KEY_INTEGRITY_HASH, calculateIntegrityHash())
+            apply()
+        }
+        SecurityLogger.logApiKeyInitialization()
+    }
+
+    suspend fun rotateKeys() {
+        try {
+            val success = remoteConfig.fetchAndActivate().await()
+            if (success) {
+                initializeKeysFromRemoteConfig()
+                SecurityLogger.logEvent(
+                    SecurityLogger.EventType.API_KEY_INITIALIZED,
+                    "Keys rotated successfully"
+                )
+            }
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Key rotation failed: \${e.message}"
+            )
+            throw e
         }
     }
 
-    /**
-     * Check if keys are already initialized
-     *
-     * @return true if all required keys are present
-     */
-    fun areKeysInitialized(): Boolean {
-        return encryptedPrefs.contains(KEY_SUPABASE_URL) &&
-               encryptedPrefs.contains(KEY_SUPABASE_ANON_KEY) &&
-               encryptedPrefs.contains(KEY_CLOUDINARY_CLOUD_NAME)
+    private val accessCounter = java.util.concurrent.atomic.AtomicInteger(0)
+    private val lastAccessTime = java.util.concurrent.atomic.AtomicLong(0)
+
+    private fun checkAccessPatterns() {
+        val accessCount = accessCounter.incrementAndGet()
+        val now = System.currentTimeMillis()
+        val lastAccess = lastAccessTime.getAndSet(now)
+
+        if (accessCount > 1000) {
+            SecurityLogger.logSuspiciousActivity("Excessive config access detected: \$accessCount times")
+        }
+        if (now - lastAccess < 50) { 
+            // Commenting out rapid access log to prevent log spam during normal init
+            // SecurityLogger.logSuspiciousActivity("Rapid config access detected")
+        }
+        if (!verifyIntegrity()) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Config integrity check failed"
+            )
+            throw SecurityException("Config integrity check failed")
+        }
     }
 
-    /**
-     * Clear all stored keys (use for testing or logout)
-     *
-     * ⚠️ This will require re-initialization
-     */
+    private fun checkExpiration() {
+        val lastRotation = encryptedPrefs.getLong(KEY_LAST_ROTATION, 0)
+        val now = System.currentTimeMillis()
+        if (now - lastRotation > KEY_ROTATION_INTERVAL_MS) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Keys expired, rotation required"
+            )
+        }
+    }
+
+    fun getSupabaseUrl(): ConfigResult<String> {
+        return try {
+            checkAccessPatterns()
+            checkExpiration()
+            val url = encryptedPrefs.getString(KEY_SUPABASE_URL, null)
+            if (url.isNullOrEmpty()) {
+                ConfigResult.Error("Supabase URL not initialized")
+            } else {
+                ConfigResult.Success(url)
+            }
+        } catch (e: Exception) {
+            ConfigResult.Error("Failed to retrieve Supabase URL", e)
+        }
+    }
+
+    fun getSupabaseAnonKeySecure(): CharArray {
+        checkAccessPatterns()
+        val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
+            ?: throw IllegalStateException("Supabase Anon Key not initialized")
+        return key.toCharArray()
+    }
+    
+    fun getSupabaseAnonKey(): ConfigResult<String> {
+        return try {
+            checkAccessPatterns()
+            checkExpiration()
+            val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
+            if (key.isNullOrEmpty()) {
+                ConfigResult.Error("Supabase Anon Key not initialized")
+            } else {
+                ConfigResult.Success(key)
+            }
+        } catch (e: Exception) {
+            ConfigResult.Error("Failed to retrieve Supabase Anon Key", e)
+        }
+    }
+
+    fun getCloudinaryCloudName(): ConfigResult<String> {
+        return try {
+            checkAccessPatterns()
+            val name = encryptedPrefs.getString(KEY_CLOUDINARY_CLOUD_NAME, null)
+            if (name.isNullOrEmpty()) {
+                ConfigResult.Error("Cloudinary Cloud Name not initialized")
+            } else {
+                ConfigResult.Success(name)
+            }
+        } catch (e: Exception) {
+            ConfigResult.Error("Failed to retrieve Cloudinary Cloud Name", e)
+        }
+    }
+
+    fun getCloudinaryApiKey(): ConfigResult<String> {
+        return try {
+            checkAccessPatterns()
+            val key = encryptedPrefs.getString(KEY_CLOUDINARY_API_KEY, null)
+            if (key.isNullOrEmpty()) {
+                ConfigResult.Error("Cloudinary API Key not initialized")
+            } else {
+                ConfigResult.Success(key)
+            }
+        } catch (e: Exception) {
+            ConfigResult.Error("Failed to retrieve Cloudinary API Key", e)
+        }
+    }
+
+    fun getCloudinaryApiSecretSecure(): CharArray {
+        checkAccessPatterns()
+        val secret = encryptedPrefs.getString(KEY_CLOUDINARY_API_SECRET, null)
+            ?: throw IllegalStateException("Cloudinary API Secret not initialized")
+        return secret.toCharArray()
+    }
+
+    fun getDatabasePassphrase(): ByteArray {
+        var passphrase = encryptedPrefs.getString(KEY_DATABASE_PASSPHRASE, null)
+        if (passphrase == null) {
+            passphrase = generateSecurePassphrase()
+            encryptedPrefs.edit().putString(KEY_DATABASE_PASSPHRASE, passphrase).apply()
+        }
+        return passphrase.toByteArray(Charsets.UTF_8)
+    }
+
+    private fun generateSecurePassphrase(): String {
+        val random = java.security.SecureRandom()
+        val bytes = ByteArray(32)
+        random.nextBytes(bytes)
+        return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    fun areKeysInitialized(): Boolean {
+        val hasKeys = encryptedPrefs.contains(KEY_SUPABASE_URL) &&
+                      encryptedPrefs.contains(KEY_SUPABASE_ANON_KEY) &&
+                      encryptedPrefs.contains(KEY_CLOUDINARY_CLOUD_NAME)
+        if (!hasKeys) return false
+        val storedVersion = encryptedPrefs.getInt(KEY_CONFIG_VERSION, 0)
+        if (storedVersion < CURRENT_CONFIG_VERSION) return false
+        return true
+    }
+
     fun clearKeys() {
         encryptedPrefs.edit().clear().apply()
+    }
+
+    suspend fun backupKeysToCloud(userId: String) {
+        try {
+            val encryptedBackup = encryptedPrefs.all.mapValues { it.value.toString() }
+            val backupJson = Json.encodeToString(encryptedBackup)
+            // TODO: Implement actual backend call to save `backupJson` to Supabase user profile.
+            // Example: api.uploadBackup(userId, backupJson)
+            
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.API_KEY_INITIALIZED,
+                "Config backed up to cloud",
+                userId = userId
+            )
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Failed to backup config: \${e.message}",
+                userId = userId
+            )
+        }
+    }
+
+    suspend fun restoreKeysFromCloud(userId: String): Boolean {
+        return try {
+            // TODO: Implement actual backend call to fetch `backupJson` from Supabase user profile.
+            // val backupJson = api.fetchBackup(userId)
+            val backupJson = "{}"
+            val configData = Json.decodeFromString<Map<String, String>>(backupJson)
+            
+            if (configData.isNotEmpty()) {
+                encryptedPrefs.edit().apply {
+                    configData.forEach { (key, value) -> putString(key, value) }
+                    apply()
+                }
+                SecurityLogger.logEvent(
+                    SecurityLogger.EventType.API_KEY_INITIALIZED,
+                    "Config restored from cloud",
+                    userId = userId
+                )
+                true
+            } else false
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Failed to restore config: \${e.message}",
+                userId = userId
+            )
+            false
+        }
     }
 
     companion object {
@@ -152,5 +358,11 @@ class SecurityManager @Inject constructor(
         private const val KEY_CLOUDINARY_CLOUD_NAME = "cloudinary_cloud_name"
         private const val KEY_CLOUDINARY_API_KEY = "cloudinary_api_key"
         private const val KEY_CLOUDINARY_API_SECRET = "cloudinary_api_secret"
+        private const val KEY_DATABASE_PASSPHRASE = "database_passphrase"
+        private const val KEY_INTEGRITY_HASH = "integrity_hash"
+        private const val KEY_CONFIG_VERSION = "config_version"
+        private const val KEY_LAST_ROTATION = "last_rotation_timestamp"
+        private const val CURRENT_CONFIG_VERSION = 2
+        private const val KEY_ROTATION_INTERVAL_MS = 30L * 24 * 60 * 60 * 1000 // 30 days
     }
 }

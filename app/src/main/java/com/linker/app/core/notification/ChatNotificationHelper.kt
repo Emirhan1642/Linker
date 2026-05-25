@@ -10,21 +10,8 @@ import com.linker.app.MainActivity
 import com.linker.app.R
 
 object ChatNotificationHelper {
-    const val KEY_TEXT_REPLY = "key_text_reply"
-
-    const val EXTRA_CHAT_ID = "extra_chat_id"
-    const val EXTRA_MESSAGE_ID = "extra_message_id"
-    const val EXTRA_SENDER_ID = "extra_sender_id"
-    const val EXTRA_SENDER_NAME = "extra_sender_name"
-    const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
-    /** Bildirimin ait olduğu hesap (çoklu oturum); MainActivity önce buna geçiş yapar. */
-    const val EXTRA_TARGET_ACCOUNT_UID = "extra_target_account_uid"
-
-    const val ACTION_REPLY = "com.linker.app.notification.REPLY"
-    const val ACTION_LIKE = "com.linker.app.notification.LIKE"
-    const val ACTION_READ = "com.linker.app.notification.READ"
-
-    fun channelIdForAccount(recipientUid: String): String = "linker_messages_$recipientUid"
+    
+    fun channelIdForAccount(recipientUid: String): String = "linker_messages_\$recipientUid"
 
     fun buildChatNotification(
         context: Context,
@@ -40,10 +27,17 @@ object ChatNotificationHelper {
         isGroupChat: Boolean = false,
         chatName: String? = null
     ): NotificationCompat.Builder {
+        require(notificationId >= 0) { "Notification ID must be non-negative" }
+        require(channelId.isNotBlank()) { "Channel ID cannot be blank" }
+        require(targetAccountUid.isNotBlank()) { "Target account UID cannot be blank" }
+        require(chatId.isNotBlank()) { "Chat ID cannot be blank" }
+        require(senderName.isNotBlank()) { "Sender name cannot be blank" }
+        require(messages.isNotEmpty()) { "Messages list cannot be empty" }
+
         val contentIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("chat_id", chatId)
-            putExtra(EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
+            putExtra(NotificationConstants.EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
         }
         val contentPendingIntent = PendingIntent.getActivity(
             context,
@@ -54,26 +48,27 @@ object ChatNotificationHelper {
 
         fun actionIntent(action: String) = Intent(context, NotificationActionReceiver::class.java).apply {
             this.action = action
-            putExtra(EXTRA_CHAT_ID, chatId)
-            putExtra(EXTRA_MESSAGE_ID, messageId)
-            putExtra(EXTRA_SENDER_ID, senderId)
-            putExtra(EXTRA_SENDER_NAME, senderName)
-            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
-            putExtra(EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
+            putExtra(NotificationConstants.EXTRA_CHAT_ID, chatId)
+            putExtra(NotificationConstants.EXTRA_MESSAGE_ID, messageId)
+            putExtra(NotificationConstants.EXTRA_SENDER_ID, senderId)
+            putExtra(NotificationConstants.EXTRA_SENDER_NAME, senderName)
+            putExtra(NotificationConstants.EXTRA_NOTIFICATION_ID, notificationId)
+            putExtra(NotificationConstants.EXTRA_TARGET_ACCOUNT_UID, targetAccountUid)
         }
 
         val replyPendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId * 10 + 1,
-            actionIntent(ACTION_REPLY),
+            NotificationConstants.getReplyRequestCode(notificationId),
+            actionIntent(NotificationConstants.ACTION_REPLY),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
-        val remoteInput = RemoteInput.Builder(KEY_TEXT_REPLY)
-            .setLabel("Reply")
+        val remoteInput = RemoteInput.Builder(NotificationConstants.KEY_TEXT_REPLY)
+            .setLabel("Yanıtla") 
             .build()
+            
         val replyAction = NotificationCompat.Action.Builder(
             R.drawable.ic_ai_commentary_outline,
-            "Reply",
+            "Yanıtla",
             replyPendingIntent
         )
             .addRemoteInput(remoteInput)
@@ -83,114 +78,90 @@ object ChatNotificationHelper {
 
         val likePendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId * 10 + 2,
-            actionIntent(ACTION_LIKE),
+            NotificationConstants.getLikeRequestCode(notificationId),
+            actionIntent(NotificationConstants.ACTION_LIKE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val likeAction = NotificationCompat.Action.Builder(
             R.drawable.ic_heart_outline,
-            "Like",
+            "Beğen",
             likePendingIntent
         ).build()
 
         val readPendingIntent = PendingIntent.getBroadcast(
             context,
-            notificationId * 10 + 3,
-            actionIntent(ACTION_READ),
+            NotificationConstants.getReadRequestCode(notificationId),
+            actionIntent(NotificationConstants.ACTION_READ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val readAction = NotificationCompat.Action.Builder(
             R.drawable.ic_ai_homepage_outline,
-            "Read",
+            "Okundu İşaretle",
             readPendingIntent
         ).build()
 
         val userPerson = androidx.core.app.Person.Builder()
-            .setName("Siz") // The user receiving the notification
+            .setName("Siz")
             .build()
 
-        // Create messaging style with proper title
         val messagingStyle = if (isGroupChat) {
-            // For group chats, show group name or "Group Chat"
-            val groupTitle = chatName?.takeIf { it.isNotBlank() } ?: "Group Chat"
+            val groupTitle = chatName?.takeIf { it.isNotBlank() } ?: "Grup Sohbeti"
             NotificationCompat.MessagingStyle(userPerson)
                 .setConversationTitle(groupTitle)
                 .setGroupConversation(true)
         } else {
-            // For private chats, show sender name
             NotificationCompat.MessagingStyle(userPerson)
                 .setConversationTitle(senderName)
                 .setGroupConversation(false)
         }
 
-        // Add messages to the style
         for (msg in messages) {
-            // Parse message format: "SenderName: message" or "Siz: message" or just "message"
-            val (messageSender, messageText) = if (msg.startsWith("Siz: ")) {
-                // Message sent by current user
-                userPerson to msg.substring(5)
-            } else if (isGroupChat && msg.contains(": ")) {
-                // Message from another user in group (format: "SenderName: message")
-                val colonIndex = msg.indexOf(": ")
-                val senderNameInMsg = msg.substring(0, colonIndex)
-                val messageContent = msg.substring(colonIndex + 2)
-                val sender = androidx.core.app.Person.Builder()
-                    .setName(senderNameInMsg)
-                    .build()
-                sender to messageContent
+            val parsedMessage = NotificationMessage.parse(msg, isGroupChat, senderName)
+            val person = if (parsedMessage.isFromCurrentUser) {
+                userPerson
             } else {
-                // Plain message (private chat - sender is the other person)
-                val sender = androidx.core.app.Person.Builder()
-                    .setName(senderName)
+                androidx.core.app.Person.Builder()
+                    .setName(parsedMessage.senderName)
                     .build()
-                sender to msg
             }
-            
-            messagingStyle.addMessage(messageText, System.currentTimeMillis(), messageSender)
+            messagingStyle.addMessage(
+                parsedMessage.text,
+                parsedMessage.timestamp,
+                person
+            )
         }
 
         val largeIcon = BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher)
 
-        // Build notification title
-        // For group chats, extract sender from last message
-        // For private chats, use senderName parameter
         val lastMessageSender = if (isGroupChat && messages.isNotEmpty()) {
-            val lastMsg = messages.last()
-            if (lastMsg.startsWith("Siz: ")) {
-                "Siz"
-            } else if (lastMsg.contains(": ")) {
-                lastMsg.substring(0, lastMsg.indexOf(": "))
-            } else {
-                senderName
-            }
+            val lastMsg = NotificationMessage.parse(messages.last(), isGroupChat, senderName)
+            if (lastMsg.isFromCurrentUser) "Siz" else lastMsg.senderName
         } else {
             senderName
         }
         
-        val notificationTitle = "Linker • $lastMessageSender bir mesaj gönderdi"
+        val notificationTitle = "Linker • $lastMessageSender size mesaj gönderdi"
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setLargeIcon(largeIcon)
             .setContentTitle(notificationTitle)
-            .setContentText(messages.lastOrNull() ?: "New message")
+            .setContentText(messages.lastOrNull() ?: "Yeni mesaj")
             .setContentIntent(contentPendingIntent)
             .setStyle(messagingStyle)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOnlyAlertOnce(true)
-            .setGroup("linker_chat_${chatId}_${targetAccountUid}")
+            .setGroup("linker_chat_\${chatId}_\${targetAccountUid}")
             .setGroupSummary(false)
             .addAction(replyAction)
             .addAction(likeAction)
             .addAction(readAction)
         
-        // Add messageId and chatId to extras for deletion tracking
-        builder.extras.putString(EXTRA_MESSAGE_ID, messageId)
-        builder.extras.putString(EXTRA_CHAT_ID, chatId)
+        builder.extras.putString(NotificationConstants.EXTRA_MESSAGE_ID, messageId)
+        builder.extras.putString(NotificationConstants.EXTRA_CHAT_ID, chatId)
         
-        // Set remote input history to show sent messages and clear progress indicator
         if (remoteInputHistory != null && remoteInputHistory.isNotEmpty()) {
             builder.setRemoteInputHistory(remoteInputHistory)
         }

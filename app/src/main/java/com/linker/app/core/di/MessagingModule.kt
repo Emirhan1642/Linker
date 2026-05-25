@@ -20,24 +20,45 @@ import javax.inject.Singleton
 
 /**
  * DI Module for messaging system improvements
- * Binds all new UseCases and implementations from the messaging analysis
+ * 
+ * Binds all UseCases and implementations from the messaging analysis.
+ * 
+ * **Components:**
+ * - CurrentUserProvider: Current user information access
+ * - MessageQueueProcessor: Offline message queue management
+ * - SyncManager: Message synchronization with server
+ * - UserCache: In-memory user data cache
+ * - Message UseCases: Message loading and display
+ * - TypingIndicator: Real-time typing status
+ * 
+ * **Configuration:**
+ * MessageQueueProcessor and SyncManager use OfflineMessagingConfig
+ * for queue size limits, sync intervals, and retry policies.
  */
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class MessagingModule {
 
+    /**
+     * Binds CurrentUserProvider for accessing current user info
+     */
     @Binds
     @Singleton
     abstract fun bindCurrentUserProvider(
         impl: CurrentUserProviderImpl
     ): CurrentUserProvider
     
-    @Binds
-    @Singleton
-    abstract fun bindMessageQueueProcessor(
-        impl: MessageQueueProcessorImpl
-    ): MessageQueueProcessor
+    // MessageQueueProcessor is now provided in companion object to attach LifecycleObserver
     
+    /**
+     * Binds SyncManager for message synchronization
+     * 
+     * CONFIGURATION:
+     * Uses OfflineMessagingConfig for:
+     * - SYNC_INTERVAL_MS: Sync frequency
+     * - BATCH_SIZE: Messages per sync batch
+     * - SYNC_TIMEOUT_MS: Timeout for sync operations
+     */
     @Binds
     @Singleton
     abstract fun bindSyncManager(
@@ -45,10 +66,6 @@ abstract class MessagingModule {
     ): SyncManager
 
     companion object {
-
-        @Provides
-        @Singleton
-        fun provideUserCache(): UserCache = UserCache()
 
         @Provides
         @Singleton
@@ -74,5 +91,20 @@ abstract class MessagingModule {
         ): GetUserDisplayNameUseCase {
             return GetUserDisplayNameUseCase(userRepository, currentUserProvider)
         }
+
+        @Provides
+        @Singleton
+        fun provideMessageQueueProcessor(
+            impl: MessageQueueProcessorImpl
+        ): MessageQueueProcessor {
+            return impl.also { processor ->
+                androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+                    override fun onStop(owner: androidx.lifecycle.LifecycleOwner) {
+                        processor.shutdown()
+                    }
+                })
+            }
+        }
+        
     }
 }

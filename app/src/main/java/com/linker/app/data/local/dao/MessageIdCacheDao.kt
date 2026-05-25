@@ -15,6 +15,7 @@ interface MessageIdCacheDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessageId(cache: MessageIdCacheEntity): Long
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessageIds(caches: List<MessageIdCacheEntity>)
     
@@ -43,6 +44,7 @@ interface MessageIdCacheDao {
      * Delete message IDs older than the given timestamp
      * Used for cleanup to prevent unbounded growth
      */
+    @Transaction
     @Query("DELETE FROM message_id_cache WHERE receivedAt < :beforeTimestamp")
     suspend fun deleteOldMessageIds(beforeTimestamp: Long): Int
     
@@ -68,12 +70,13 @@ interface MessageIdCacheDao {
      * Delete oldest entries when cache exceeds limit
      * Keeps the most recent N entries
      */
+    @Transaction
     @Query("""
         DELETE FROM message_id_cache 
         WHERE messageId IN (
             SELECT messageId FROM message_id_cache 
             ORDER BY receivedAt ASC 
-            LIMIT (SELECT COUNT(*) - :maxSize FROM message_id_cache)
+            LIMIT CASE WHEN (SELECT COUNT(*) FROM message_id_cache) > :maxSize THEN (SELECT COUNT(*) FROM message_id_cache) - :maxSize ELSE 0 END
         )
     """)
     suspend fun trimToSize(maxSize: Int): Int

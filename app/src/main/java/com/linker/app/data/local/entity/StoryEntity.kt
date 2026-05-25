@@ -21,7 +21,7 @@ import androidx.room.PrimaryKey
         )
     ],
     indices = [
-        Index(value = ["authorId"]),
+        Index(value = ["authorId", "expiresAt"], name = "idx_active_stories"),
         Index(value = ["expiresAt"])
     ]
 )
@@ -39,7 +39,20 @@ data class StoryEntity(
     val createdAt: Long,
     val expiresAt: Long, // createdAt + 24 hours
     val lastSyncedAt: Long = System.currentTimeMillis()
-)
+) {
+    init {
+        require(storyId.isNotBlank()) { "Story ID cannot be blank" }
+        require(authorId.isNotBlank()) { "Author ID cannot be blank" }
+        require(mediaUrl.isNotBlank()) { "Media URL cannot be blank" }
+        require(expiresAt > createdAt) { "Expiration must be after creation" }
+        caption?.let { require(it.length <= MAX_CAPTION_LENGTH) { "Caption too long" } }
+        duration?.let { require(it <= MAX_VIDEO_DURATION) { "Duration too long" } }
+    }
+    companion object {
+        const val MAX_CAPTION_LENGTH = 300
+        const val MAX_VIDEO_DURATION = 30
+    }
+}
 
 enum class StoryMediaType {
     IMAGE,

@@ -6,12 +6,17 @@ import com.linker.app.data.local.dao.MessageQueueDao
 import com.linker.app.data.local.entity.DeliveryMethod
 import com.linker.app.data.local.entity.QueueStatus
 import com.linker.app.domain.repository.MessageRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.min
 
 /**
  * Manages synchronization of offline messages to Firestore when online.
@@ -43,6 +48,21 @@ interface SyncManager {
      * Observe current sync status.
      */
     fun observeSyncStatus(): Flow<SyncStatus>
+    
+    /**
+     * Cancel ongoing sync operation.
+     */
+    fun cancelSync()
+    
+    /**
+     * Check if a sync is currently in progress.
+     */
+    fun isSyncing(): Boolean
+    
+    /**
+     * Get sync statistics
+     */
+    fun getStatistics(): SyncStatistics
 }
 
 /**
@@ -55,6 +75,17 @@ data class SyncResult(
 )
 
 /**
+ * Sync statistics for monitoring
+ */
+data class SyncStatistics(
+    val totalPendingSynced: Long,
+    val totalFailedSynced: Long,
+    val totalSucceeded: Long,
+    val totalFailed: Long,
+    val lastSyncTime: Long?
+)
+
+/**
  * Current sync status.
  */
 sealed class SyncStatus {
@@ -62,6 +93,34 @@ sealed class SyncStatus {
     data class Syncing(val progress: Int, val total: Int) : SyncStatus()
     data class Completed(val result: SyncResult) : SyncStatus()
     data class Error(val message: String) : SyncStatus()
+}
+
+/**
+ * Token Bucket Rate Limiter
+ */
+class RateLimiter(private val maxOperations: Int, private val timeWindowMs: Long) {
+    private var tokens = maxOperations
+    private var lastRefillTimestamp = System.currentTimeMillis()
+
+    suspend fun acquire() {
+        val now = System.currentTimeMillis()
+        val timePassed = now - lastRefillTimestamp
+        val tokensToAdd = (timePassed / timeWindowMs).toInt() * maxOperations
+        
+        if (tokensToAdd > 0) {
+            tokens = min(maxOperations, tokens + tokensToAdd)
+            lastRefillTimestamp = now
+        }
+        
+        if (tokens > 0) {
+            tokens--
+        } else {
+            val waitTime = timeWindowMs - timePassed
+            if (waitTime > 0) delay(waitTime)
+            tokens = maxOperations - 1
+            lastRefillTimestamp = System.currentTimeMillis()
+        }
+    }
 }
 
 @Singleton
@@ -74,19 +133,48 @@ class SyncManagerImpl @Inject constructor(
 ) : SyncManager {
     
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+    private val syncMutex = Mutex()
+    private var currentSyncJob: Job? = null
+    
+    private var totalPendingSynced = 0L
+    private var totalFailedSynced = 0L
+    private var totalSucceeded = 0L
+    private var totalFailed = 0L
+    private var lastSyncTime: Long? = null
+    
+    private val rateLimiter = RateLimiter(10, 1000L) // 10 operations per second
     
     companion object {
         private const val TAG = "SyncManager"
-        private const val RATE_LIMIT_DELAY_MS = 100L // 10 messages per second
         private const val CLEANUP_AGE_MS = 7 * 24 * 60 * 60 * 1000L // 7 days
     }
     
+    override fun getStatistics(): SyncStatistics = SyncStatistics(
+        totalPendingSynced, totalFailedSynced, totalSucceeded, totalFailed, lastSyncTime
+    )
+
+    override fun cancelSync() {
+        currentSyncJob?.cancel()
+        currentSyncJob = null
+        _syncStatus.value = SyncStatus.Idle
+        Log.d(TAG, "Sync cancelled")
+    }
+
+    override fun isSyncing(): Boolean {
+        return syncMutex.isLocked
+    }
+    
     override suspend fun syncPendingMessages(): Result<SyncResult> {
-        return try {
-            // Cleanup old deduplication entries periodically
+        if (!syncMutex.tryLock()) {
+            Log.w(TAG, "Sync already in progress, skipping")
+            return Result.failure(IllegalStateException("Sync already in progress"))
+        }
+        
+        currentSyncJob = currentCoroutineContext()[Job]
+        
+        try {
             messageDeduplicationManager.cleanupOldEntries()
             
-            // Get all pending messages ordered by createdAt (chronological)
             val pendingMessages = messageQueueDao.getPendingMessages()
             
             if (pendingMessages.isEmpty()) {
@@ -100,12 +188,16 @@ class SyncManagerImpl @Inject constructor(
             var failedCount = 0
             val errors = mutableListOf<String>()
             
-            pendingMessages.forEachIndexed { index, queueItem ->
+            for ((index, queueItem) in pendingMessages.withIndex()) {
+                if (!currentCoroutineContext().isActive) {
+                    Log.w(TAG, "Sync cancelled during execution")
+                    break
+                }
+                
                 try {
-                    // Check for duplicates using MessageDeduplicationManager
+                    rateLimiter.acquire()
+                    
                     if (messageDeduplicationManager.isDuplicate(queueItem.messageId)) {
-                        // Message already processed (possibly via online route)
-                        // Mark as SENT and skip
                         messageQueueDao.updateQueueStatus(
                             queueId = queueItem.queueId,
                             status = QueueStatus.SENT,
@@ -113,13 +205,11 @@ class SyncManagerImpl @Inject constructor(
                         )
                         successCount++
                         _syncStatus.value = SyncStatus.Syncing(index + 1, pendingMessages.size)
-                        return@forEachIndexed
+                        continue
                     }
 
-                    // Mark as being processed
                     messageDeduplicationManager.markAsProcessed(queueItem.messageId)
 
-                    // Send message via MessageRepository (which handles Firestore)
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
@@ -130,8 +220,6 @@ class SyncManagerImpl @Inject constructor(
 
                     when (result) {
                         is com.linker.app.core.util.Result.Success -> {
-                            // Atomically update queue status and message delivery method
-                            // Addresses Issue #56 (P3): Add transaction support for queue updates
                             updateQueueAndMessageAtomic(
                                 queueId = queueItem.queueId,
                                 messageId = queueItem.messageId,
@@ -139,65 +227,63 @@ class SyncManagerImpl @Inject constructor(
                                 sentAt = System.currentTimeMillis(),
                                 deliveryMethod = DeliveryMethod.ONLINE
                             )
-
                             successCount++
                         }
                         is com.linker.app.core.util.Result.Error -> {
-                            // Increment retry count
                             messageQueueDao.incrementRetryCount(queueItem.queueId)
-
-                            // Update error message
                             messageQueueDao.updateErrorMessage(
                                 queueId = queueItem.queueId,
                                 errorMessage = result.message
                             )
-
                             failedCount++
                             errors.add("Message ${queueItem.messageId}: ${result.message}")
                         }
-                        is com.linker.app.core.util.Result.Loading -> {
-                            // Should not happen, ignore
-                        }
+                        is com.linker.app.core.util.Result.Loading -> { }
                     }
 
-                    // Update progress
                     _syncStatus.value = SyncStatus.Syncing(index + 1, pendingMessages.size)
 
                 } catch (e: Exception) {
                     failedCount++
                     errors.add("Message ${queueItem.messageId}: ${e.message}")
-
-                    // Increment retry count
                     messageQueueDao.incrementRetryCount(queueItem.queueId)
                     messageQueueDao.updateErrorMessage(
                         queueId = queueItem.queueId,
                         errorMessage = e.message ?: "Unknown error"
                     )
-                } finally {
-                    // Rate limiting: 10 messages per second, applied on every path
-                    // (including duplicate-skip and error paths) to prevent burst writes.
-                    delay(RATE_LIMIT_DELAY_MS)
                 }
             }
             
-            // Cleanup old SENT messages
             cleanupOldMessages()
+            
+            totalPendingSynced += pendingMessages.size
+            totalSucceeded += successCount
+            totalFailed += failedCount
+            lastSyncTime = System.currentTimeMillis()
             
             val syncResult = SyncResult(successCount, failedCount, errors)
             _syncStatus.value = SyncStatus.Completed(syncResult)
             
-            Result.success(syncResult)
+            return Result.success(syncResult)
             
         } catch (e: Exception) {
             val errorMessage = "Sync failed: ${e.message}"
             _syncStatus.value = SyncStatus.Error(errorMessage)
-            Result.failure(e)
+            return Result.failure(e)
+        } finally {
+            syncMutex.unlock()
+            currentSyncJob = null
         }
     }
     
     override suspend fun syncFailedMessages(): Result<SyncResult> {
-        return try {
-            // Get all failed messages that haven't exceeded max retries
+        if (!syncMutex.tryLock()) {
+            return Result.failure(IllegalStateException("Sync already in progress"))
+        }
+        
+        currentSyncJob = currentCoroutineContext()[Job]
+        
+        try {
             val failedMessages = messageQueueDao.getFailedMessages()
             
             if (failedMessages.isEmpty()) {
@@ -210,11 +296,13 @@ class SyncManagerImpl @Inject constructor(
             var failedCount = 0
             val errors = mutableListOf<String>()
             
-            failedMessages.forEachIndexed { index, queueItem ->
+            for ((index, queueItem) in failedMessages.withIndex()) {
+                if (!currentCoroutineContext().isActive) break
+                
                 try {
-                    // Check for duplicates using MessageDeduplicationManager
+                    rateLimiter.acquire()
+                    
                     if (messageDeduplicationManager.isDuplicate(queueItem.messageId)) {
-                        // Message already processed
                         messageQueueDao.updateQueueStatus(
                             queueId = queueItem.queueId,
                             status = QueueStatus.SENT,
@@ -222,26 +310,20 @@ class SyncManagerImpl @Inject constructor(
                         )
                         successCount++
                         _syncStatus.value = SyncStatus.Syncing(index + 1, failedMessages.size)
-                        return@forEachIndexed
+                        continue
                     }
                     
-                    // Calculate retry delay based on retry count
                     val retryDelay = RetryStrategy.calculateDelay(queueItem.retryCount)
+                    val lastAttempt = queueItem.lastAttemptAt ?: queueItem.createdAt
+                    val timeSinceLastAttempt = System.currentTimeMillis() - lastAttempt
                     
-                    // Check if enough time has passed since last attempt
-                    val timeSinceLastAttempt = System.currentTimeMillis() - (queueItem.lastAttemptAt ?: 0)
-                    if (timeSinceLastAttempt < retryDelay) {
-                        // Skip this message, not ready for retry yet
-                        return@forEachIndexed
-                    }
+                    if (timeSinceLastAttempt < retryDelay) continue
                     
-                    // Update last attempt timestamp
                     messageQueueDao.updateLastAttempt(
                         queueId = queueItem.queueId,
                         timestamp = System.currentTimeMillis()
                     )
                     
-                    // Attempt to send
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
@@ -252,7 +334,6 @@ class SyncManagerImpl @Inject constructor(
                     
                     when (result) {
                         is com.linker.app.core.util.Result.Success -> {
-                            // Atomically update queue status and message delivery method
                             updateQueueAndMessageAtomic(
                                 queueId = queueItem.queueId,
                                 messageId = queueItem.messageId,
@@ -260,7 +341,6 @@ class SyncManagerImpl @Inject constructor(
                                 sentAt = System.currentTimeMillis(),
                                 deliveryMethod = DeliveryMethod.ONLINE
                             )
-                            
                             successCount++
                         }
                         is com.linker.app.core.util.Result.Error -> {
@@ -270,7 +350,6 @@ class SyncManagerImpl @Inject constructor(
                                 errorMessage = result.message
                             )
                             
-                            // Check if max retries exceeded
                             if (queueItem.retryCount + 1 >= queueItem.maxRetries) {
                                 messageQueueDao.updateQueueStatus(
                                     queueId = queueItem.queueId,
@@ -282,18 +361,14 @@ class SyncManagerImpl @Inject constructor(
                             failedCount++
                             errors.add("Message ${queueItem.messageId}: ${result.message}")
                         }
-                        is com.linker.app.core.util.Result.Loading -> {
-                            // Should not happen, ignore
-                        }
+                        is com.linker.app.core.util.Result.Loading -> { }
                     }
                     
                     _syncStatus.value = SyncStatus.Syncing(index + 1, failedMessages.size)
-                    delay(RATE_LIMIT_DELAY_MS)
                     
                 } catch (e: Exception) {
                     failedCount++
                     errors.add("Message ${queueItem.messageId}: ${e.message}")
-                    
                     messageQueueDao.incrementRetryCount(queueItem.queueId)
                     messageQueueDao.updateErrorMessage(
                         queueId = queueItem.queueId,
@@ -302,15 +377,23 @@ class SyncManagerImpl @Inject constructor(
                 }
             }
             
+            totalFailedSynced += failedMessages.size
+            totalSucceeded += successCount
+            totalFailed += failedCount
+            lastSyncTime = System.currentTimeMillis()
+            
             val syncResult = SyncResult(successCount, failedCount, errors)
             _syncStatus.value = SyncStatus.Completed(syncResult)
             
-            Result.success(syncResult)
+            return Result.success(syncResult)
             
         } catch (e: Exception) {
             val errorMessage = "Failed message sync failed: ${e.message}"
             _syncStatus.value = SyncStatus.Error(errorMessage)
-            Result.failure(e)
+            return Result.failure(e)
+        } finally {
+            syncMutex.unlock()
+            currentSyncJob = null
         }
     }
     
@@ -318,26 +401,20 @@ class SyncManagerImpl @Inject constructor(
     
     /**
      * Clean up SENT queue items older than 7 days.
+     * @return Number of deleted messages or -1 on error
      */
-    private suspend fun cleanupOldMessages() {
-        try {
+    private suspend fun cleanupOldMessages(): Int {
+        return try {
             val cutoffTime = System.currentTimeMillis() - CLEANUP_AGE_MS
             val deletedCount = messageQueueDao.deleteOldSentMessages(cutoffTime)
             Log.d(TAG, "Cleaned up $deletedCount old SENT messages (older than 7 days)")
+            deletedCount
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up old messages", e)
+            -1
         }
     }
     
-    /**
-     * Atomically update queue status and message delivery method.
-     *
-     * Uses Room @Transaction to ensure both updates succeed or both fail.
-     * This prevents data inconsistency where queue shows SENT but message
-     * still shows BLE delivery method.
-     * 
-     * Addresses Issue #56 (P3): Add transaction support for queue updates
-     */
     private suspend fun updateQueueAndMessageAtomic(
         queueId: String,
         messageId: String,
@@ -345,19 +422,20 @@ class SyncManagerImpl @Inject constructor(
         sentAt: Long?,
         deliveryMethod: DeliveryMethod
     ) {
-        // Use database transaction method for atomicity
-        database.updateQueueAndMessageAtomic(
-            queueId = queueId,
-            queueStatus = queueStatus,
-            sentAt = sentAt,
-            messageId = messageId,
-            deliveryMethod = deliveryMethod
-        )
+        try {
+            database.updateQueueAndMessageAtomic(
+                queueId = queueId,
+                queueStatus = queueStatus,
+                sentAt = sentAt,
+                messageId = messageId,
+                deliveryMethod = deliveryMethod
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Database transaction failed for message $messageId", e)
+            throw e
+        }
     }
     
-    /**
-     * Map MessageQueueEntity.messageType to domain MessageType
-     */
     private fun mapQueueMessageTypeToMessageType(queueMessageType: com.linker.app.data.local.entity.MessageType): com.linker.app.domain.model.MessageType {
         return when (queueMessageType) {
             com.linker.app.data.local.entity.MessageType.TEXT -> com.linker.app.domain.model.MessageType.TEXT

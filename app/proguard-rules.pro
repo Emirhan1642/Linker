@@ -171,6 +171,25 @@
 #     public static *** i(...);
 # }
 
+# ── Bluetooth manager ─────────────────────────────────────────────────────
+-keep interface com.linker.app.data.bluetooth.BluetoothManager { *; }
+-keep class com.linker.app.data.bluetooth.BluetoothManagerImpl { *; }
+-keep class com.linker.app.data.bluetooth.BluetoothState { *; }
+-keep class com.linker.app.data.bluetooth.BluetoothError { *; }
+-keep class com.linker.app.data.bluetooth.BluetoothError$* { *; }
+-dontwarn android.bluetooth.**
+
+# ── UserCache ─────────────────────────────────────────────────────────────
+-keep class com.linker.app.data.cache.UserCache { *; }
+-keep class com.linker.app.data.cache.CacheEntry { *; }
+-keep class com.linker.app.data.cache.CacheStats { *; }
+-keep class com.linker.app.data.cache.CacheConfig { *; }
+-keep class com.linker.app.data.cache.CacheSnapshot { *; }
+
+# ── Connectivity Layer ───────────────────────────────────────────────────────
+-keep class com.linker.app.data.connectivity.** { *; }
+-keep class android.net.** { *; }
+
 # ============================================================================
 # End of ProGuard Configuration
 # ============================================================================

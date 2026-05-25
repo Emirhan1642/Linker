@@ -78,8 +78,12 @@ class MessageRepositoryImpl @Inject constructor(
         get() = auth.currentUser?.uid ?: ""
     
     init {
-        // Start global message listener to cache all messages
-        startGlobalMessageListener()
+        auth.addAuthStateListener {
+            stopGlobalMessageListener()
+            if (auth.currentUser != null) {
+                startGlobalMessageListener()
+            }
+        }
     }
 
     private fun hasValidatedInternet(): Boolean {
@@ -266,7 +270,7 @@ class MessageRepositoryImpl @Inject constructor(
             ?: return Result.Error(Exception("Failed to parse chat").toString())
         val chat = mapToChatSync(chatId, chatData)
         if (chat.chatType == ChatType.GROUP) {
-            val restrictToAdmins = (chat.groupPermissions["canSendMessages"] as? Boolean) == false
+            val restrictToAdmins = !chat.groupPermissions.canSendMessages
             val isCurrentUserAdmin = chat.groupAdminIds.contains(currentUserId) || chat.groupCreatedBy == currentUserId
             if (restrictToAdmins && !isCurrentUserAdmin) {
                 return Result.Error("Only admins can send messages")
@@ -702,8 +706,6 @@ class MessageRepositoryImpl @Inject constructor(
             val key = BuildConfig.SUPABASE_PUBLISHABLE_KEY.ifBlank { BuildConfig.SUPABASE_ANON_KEY }
             android.util.Log.d("MessageRepository", "Sending notification to $recipientUserId for message $messageId")
             val response = supabaseNotificationApi.sendChatNotification(
-                auth = "Bearer $key",
-                apiKey = key,
                 request = ChatNotificationRequest(
                     recipientId = recipientUserId,
                     senderId = currentUserId,
@@ -822,8 +824,6 @@ class MessageRepositoryImpl @Inject constructor(
                     for (recipientId in otherParticipants) {
                         try {
                             supabaseNotificationApi.deleteChatNotification(
-                                auth = "Bearer $key",
-                            apiKey = key,
                             request = com.linker.app.core.di.DeleteChatNotificationRequest(
                                 recipientId = recipientId,
                                 messageId = messageId,
@@ -971,13 +971,16 @@ class MessageRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun retryFailedMessages(): Result<Unit> = safeCall {
+    override suspend fun retryFailedMessages(batchSize: Int): Result<Int> = safeCall {
         val now = System.currentTimeMillis()
+        var processedCount = 0
 
         // 1. Retry plain SENDING state items that failed quick edits
-        messageDao.observeMessagesByStatus(status = EntityMessageStatus.SENDING)
+        val sendingItems = messageDao.observeMessagesByStatus(status = EntityMessageStatus.SENDING)
             .first()
-            .forEach { entity ->
+            .take(batchSize)
+            
+        sendingItems.forEach { entity ->
                 try {
                     // Use chatId from local entity to target the correct subcollection
                     messagesRef(entity.chatId).document(entity.messageId).update(
@@ -987,10 +990,14 @@ class MessageRepositoryImpl @Inject constructor(
                         )
                     ).await()
                     messageDao.updateMessageStatus(entity.messageId, EntityMessageStatus.SENT)
+                    processedCount++
                 } catch (_: Exception) {
                     // Keep as SENDING for retry later
                 }
             }
+
+        val remainingBatch = batchSize - processedCount
+        if (remainingBatch <= 0) return@safeCall processedCount
 
         // 2. Process queued items from BLE/offline insertions
         val pendingQueueItems = (
@@ -998,6 +1005,8 @@ class MessageRepositoryImpl @Inject constructor(
                 messageQueueDao.getQueueItemsByStatus(QueueStatus.FAILED)
             )
             .distinctBy { it.queueId }
+            .take(remainingBatch)
+            
         pendingQueueItems.forEach { queueItem ->
             try {
                 // Fetch the full message locally to reconstruct the payload
@@ -1064,6 +1073,7 @@ class MessageRepositoryImpl @Inject constructor(
                     updatedAt = 0L
                 )
                 sendNotificationsIfNeeded(chat, sender, messageEntity.content, messageEntity.chatId, messageEntity.messageId, DeliveryMethod.ONLINE)
+                processedCount++
 
             } catch (e: Exception) {
                 messageQueueDao.incrementRetryCount(queueItem.queueId, now, e.message)
@@ -1076,6 +1086,8 @@ class MessageRepositoryImpl @Inject constructor(
                 }
             }
         }
+        
+        processedCount
     }
 
     override suspend fun forwardMessage(
@@ -1121,7 +1133,14 @@ class MessageRepositoryImpl @Inject constructor(
             val replyToMessageId = data["replyToMessageId"] as? String
             val replyStub = replyToMessageId
                 ?.takeIf { it.isNotBlank() }
-                ?.let { Message(messageId = it, chatId = chatId) }
+                ?.let { MessageReference(
+                    messageId = it,
+                    senderId = senderId,
+                    senderName = "",
+                    content = null,
+                    messageType = MessageType.TEXT,
+                    createdAt = 0L
+                ) }
 
             Message(
                 messageId = messageId,
@@ -1189,7 +1208,14 @@ class MessageRepositoryImpl @Inject constructor(
     private fun messageEntityToDomainSync(entity: MessageEntity): Message {
         val replyStub = entity.replyToMessageId
             ?.takeIf { it.isNotBlank() }
-            ?.let { Message(messageId = it, chatId = entity.chatId) }
+            ?.let { MessageReference(
+                messageId = it,
+                senderId = entity.senderId,
+                senderName = "",
+                content = null,
+                messageType = MessageType.TEXT,
+                createdAt = 0L
+            ) }
         return Message(
             messageId = entity.messageId,
             chatId = entity.chatId,

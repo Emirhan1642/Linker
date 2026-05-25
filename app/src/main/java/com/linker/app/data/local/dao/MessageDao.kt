@@ -17,7 +17,14 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt ASC")
     fun observeMessagesByChat(chatId: String): Flow<List<MessageEntity>>
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId ORDER BY createdAt ASC LIMIT :limit OFFSET :offset")
+    @Query("""
+        SELECT * FROM (
+            SELECT * FROM messages 
+            WHERE chatId = :chatId 
+            ORDER BY createdAt DESC 
+            LIMIT :limit OFFSET :offset
+        ) ORDER BY createdAt ASC
+    """)
     suspend fun getMessagesByChat(chatId: String, limit: Int = 50, offset: Int = 0): List<MessageEntity>
     
     @Query("SELECT * FROM messages WHERE chatId = :chatId AND messageStatus = :status")
@@ -44,22 +51,23 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE messageId = :messageId")
     suspend fun deleteMessageById(messageId: String)
     
-    @Query("UPDATE messages SET isDeleted = 1, deletedForEveryone = :forEveryone WHERE messageId = :messageId")
-    suspend fun markAsDeleted(messageId: String, forEveryone: Boolean)
+    @Query("UPDATE messages SET isDeleted = 1, deletedForEveryone = :forEveryone, updatedAt = :timestamp WHERE messageId = :messageId")
+    suspend fun markAsDeleted(messageId: String, forEveryone: Boolean, timestamp: Long = System.currentTimeMillis())
     
-    @Query("UPDATE messages SET messageStatus = :status WHERE messageId = :messageId")
-    suspend fun updateMessageStatus(messageId: String, status: MessageStatus)
+    @Query("UPDATE messages SET messageStatus = :status, updatedAt = :timestamp WHERE messageId = :messageId")
+    suspend fun updateMessageStatus(messageId: String, status: MessageStatus, timestamp: Long = System.currentTimeMillis())
     
     @Query("UPDATE messages SET content = :content, isEdited = 1, updatedAt = :timestamp WHERE messageId = :messageId")
     suspend fun editMessage(messageId: String, content: String, timestamp: Long)
     
-    @Query("UPDATE messages SET messageStatus = :status WHERE chatId = :chatId AND senderId != :currentUserId AND messageStatus != :readStatus")
-    suspend fun markChatMessagesAsRead(chatId: String, currentUserId: String, status: MessageStatus, readStatus: MessageStatus = MessageStatus.READ)
+    @Transaction
+    @Query("UPDATE messages SET messageStatus = :readStatus, updatedAt = :timestamp WHERE chatId = :chatId AND senderId != :currentUserId AND messageStatus IN (:statusList)")
+    suspend fun markChatMessagesAsRead(chatId: String, currentUserId: String, statusList: List<MessageStatus> = listOf(MessageStatus.SENT, MessageStatus.DELIVERED), readStatus: MessageStatus = MessageStatus.READ, timestamp: Long = System.currentTimeMillis())
     
     @Query("SELECT COUNT(*) FROM messages WHERE chatId = :chatId")
     suspend fun getMessageCount(chatId: String): Int
     
-    @Query("SELECT * FROM messages WHERE chatId = :chatId AND (content LIKE '%' || :query || '%') ORDER BY createdAt DESC")
+    @Query("SELECT * FROM messages WHERE chatId = :chatId AND (content LIKE '%' || :query || '%' ESCAPE '\\') ORDER BY createdAt DESC")
     suspend fun searchMessagesInChat(chatId: String, query: String): List<MessageEntity>
 
     // ✅ PAGINATION: Load messages before a specific timestamp
@@ -81,6 +89,14 @@ interface MessageDao {
     suspend fun getOldestMessageTimestamp(chatId: String): Long?
     
     // Offline messaging support
-    @Query("UPDATE messages SET deliveryMethod = :deliveryMethod WHERE messageId = :messageId")
-    suspend fun updateDeliveryMethod(messageId: String, deliveryMethod: com.linker.app.data.local.entity.DeliveryMethod)
+    @Query("UPDATE messages SET deliveryMethod = :deliveryMethod, updatedAt = :timestamp WHERE messageId = :messageId")
+    suspend fun updateDeliveryMethod(messageId: String, deliveryMethod: com.linker.app.data.local.entity.DeliveryMethod, timestamp: Long = System.currentTimeMillis()): Int
+
+    @Transaction
+    @Query("UPDATE messages SET messageStatus = :status, updatedAt = :timestamp WHERE messageId IN (:messageIds)")
+    suspend fun batchUpdateMessageStatus(messageIds: List<String>, status: MessageStatus, timestamp: Long = System.currentTimeMillis())
+
+    @Transaction
+    @Query("DELETE FROM messages WHERE messageId IN (:messageIds)")
+    suspend fun batchDeleteMessages(messageIds: List<String>)
 }

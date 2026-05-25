@@ -25,6 +25,7 @@ interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNote(note: NoteEntity)
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotes(notes: List<NoteEntity>)
     
@@ -37,8 +38,13 @@ interface NoteDao {
     @Query("DELETE FROM notes WHERE noteId = :noteId")
     suspend fun deleteNoteById(noteId: String)
     
+    @Transaction
+    @Query("DELETE FROM notes WHERE noteId IN (:noteIds)")
+    suspend fun batchDeleteNotes(noteIds: List<String>)
+    
+    @Transaction
     @Query("DELETE FROM notes WHERE expiresAt < :currentTime")
-    suspend fun deleteExpiredNotes(currentTime: Long = System.currentTimeMillis())
+    suspend fun deleteExpiredNotes(currentTime: Long = System.currentTimeMillis()): Int
     
     @Query("SELECT COUNT(*) FROM notes WHERE authorId = :authorId AND expiresAt > :currentTime")
     suspend fun getActiveNoteCount(authorId: String, currentTime: Long = System.currentTimeMillis()): Int

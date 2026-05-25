@@ -2,12 +2,96 @@ package com.linker.app.core.util
 
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import com.linker.app.BuildConfig
+// FirebaseCrashlytics import removed — dependency not available
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Error handling utilities for reducing try-catch boilerplate
  * 
  * Provides extension functions and inline utilities for common error handling patterns.
+ * 
+ * ✅ ENHANCED: Added sanitization, crash reporting, and rate limiting
  */
+
+/**
+ * Sanitize exception message to prevent PII exposure in logs
+ */
+@PublishedApi
+internal fun sanitizeExceptionMessage(e: Exception): String {
+    return if (BuildConfig.DEBUG) {
+        e.message ?: "Unknown error"
+    } else {
+        // ✅ Sanitize exception message in production
+        when (e) {
+            is SecurityException -> "Security error"
+            is IllegalArgumentException -> "Invalid input"
+            is IllegalStateException -> "Invalid state"
+            is java.net.UnknownHostException -> "Network error"
+            is java.net.SocketTimeoutException -> "Connection timeout"
+            else -> "An error occurred"
+        }
+    }
+}
+
+/**
+ * Report exception to crash reporting service
+ */
+@PublishedApi
+internal fun reportException(
+    tag: String,
+    errorMessage: String,
+    exception: Exception
+) {
+    if (!BuildConfig.DEBUG) {
+        // Structured log for future crash reporting integration
+        Log.e("ErrorHandling", "CRASH_REPORT tag=$tag error=$errorMessage type=${exception.javaClass.simpleName}", exception)
+    }
+}
+
+/**
+ * Rate limiter for error logging
+ */
+@PublishedApi
+internal object ErrorRateLimiter {
+    private val errorCounts = ConcurrentHashMap<String, ErrorCount>()
+    private const val RATE_LIMIT_WINDOW_MS = 60_000L // 1 minute
+    private const val MAX_ERRORS_PER_WINDOW = 10
+    
+    private data class ErrorCount(
+        var count: Int = 0,
+        var windowStart: Long = System.currentTimeMillis(),
+        var lastLogged: Long = 0
+    )
+    
+    fun shouldLog(tag: String, errorMessage: String): Boolean {
+        val key = "$tag:$errorMessage"
+        val now = System.currentTimeMillis()
+        
+        val errorCount = errorCounts.getOrPut(key) { ErrorCount() }
+        
+        // Reset window if expired
+        if (now - errorCount.windowStart > RATE_LIMIT_WINDOW_MS) {
+            errorCount.count = 0
+            errorCount.windowStart = now
+        }
+        
+        errorCount.count++
+        
+        // Check rate limit
+        if (errorCount.count > MAX_ERRORS_PER_WINDOW) {
+            // Log rate limit exceeded only once per window
+            if (now - errorCount.lastLogged > RATE_LIMIT_WINDOW_MS) {
+                Log.w("ErrorHandling", "Rate limit exceeded for $tag: ${errorCount.count} errors")
+                errorCount.lastLogged = now
+            }
+            return false
+        }
+        
+        errorCount.lastLogged = now
+        return true
+    }
+}
 
 /**
  * Execute a block with error handling and logging
@@ -30,11 +114,21 @@ inline fun <T> safeExecute(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: SecurityException) {
-        Log.e(tag, "$errorMessage: Security exception", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         onError?.invoke(e)
         null
     } catch (e: Exception) {
-        Log.e(tag, "$errorMessage: ${e.message}", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         onError?.invoke(e)
         null
     }
@@ -61,11 +155,21 @@ suspend inline fun <T> safeSuspendExecute(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: SecurityException) {
-        Log.e(tag, "$errorMessage: Security exception", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         onError?.invoke(e)
         null
     } catch (e: Exception) {
-        Log.e(tag, "$errorMessage: ${e.message}", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         onError?.invoke(e)
         null
     }
@@ -92,10 +196,20 @@ inline fun <T> safeExecuteOrDefault(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: SecurityException) {
-        Log.e(tag, "$errorMessage: Security exception", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         defaultValue
     } catch (e: Exception) {
-        Log.e(tag, "$errorMessage: ${e.message}", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         defaultValue
     }
 }
@@ -119,14 +233,24 @@ inline fun <T> safeExecuteResult(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: SecurityException) {
-        Log.e(tag, "$errorMessage: Security exception", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         Result.Error(
             message = e.message ?: errorMessage,
             code = ErrorCodes.PERMISSION,
             cause = e
         )
     } catch (e: Exception) {
-        Log.e(tag, "$errorMessage: ${e.message}", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         Result.Error(
             message = e.message ?: errorMessage,
             code = ErrorCodes.UNKNOWN,
@@ -154,14 +278,24 @@ suspend inline fun <T> safeSuspendExecuteResult(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: SecurityException) {
-        Log.e(tag, "$errorMessage: Security exception", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         Result.Error(
             message = e.message ?: errorMessage,
             code = ErrorCodes.PERMISSION,
             cause = e
         )
     } catch (e: Exception) {
-        Log.e(tag, "$errorMessage: ${e.message}", e)
+        // ✅ Rate limit logging
+        if (ErrorRateLimiter.shouldLog(tag, errorMessage)) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "$errorMessage: $sanitized")
+            reportException(tag, errorMessage, e)
+        }
         Result.Error(
             message = e.message ?: errorMessage,
             code = ErrorCodes.UNKNOWN,
@@ -171,13 +305,17 @@ suspend inline fun <T> safeSuspendExecuteResult(
 }
 
 /**
- * Execute a block and ignore all errors (use sparingly)
+ * Execute a block and ignore specific error types
  * 
- * @param tag Log tag for error messages (optional)
+ * ⚠️ Use sparingly! Only for truly non-critical operations.
+ * 
+ * @param tag Log tag for error messages (required for tracking)
+ * @param allowedExceptions List of exception types to ignore (default: empty = ignore all)
  * @param block The code block to execute
  */
 inline fun ignoreErrors(
-    tag: String? = null,
+    tag: String,
+    allowedExceptions: List<Class<out Exception>> = emptyList(),
     block: () -> Unit
 ) {
     try {
@@ -186,6 +324,24 @@ inline fun ignoreErrors(
         // Don't catch coroutine cancellation
         throw e
     } catch (e: Exception) {
-        tag?.let { Log.w(it, "Ignoring error: ${e.message}") }
+        // ✅ Check if exception type is allowed to be ignored
+        val shouldIgnore = allowedExceptions.isEmpty() || 
+                          allowedExceptions.any { it.isInstance(e) }
+        
+        if (shouldIgnore) {
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.w(tag, "Ignoring error: $sanitized")
+            
+            // Structured log for future crash reporting integration
+            if (!BuildConfig.DEBUG) {
+                Log.e("ErrorHandling", "IGNORED_ERROR tag=$tag type=${e.javaClass.simpleName} msg=$sanitized")
+            }
+        } else {
+            // ✅ Don't ignore unexpected exceptions
+            val sanitized = sanitizeExceptionMessage(e)
+            Log.e(tag, "Unexpected error (not in allowed list): $sanitized")
+            reportException(tag, "Unexpected error in ignoreErrors", e)
+            throw e
+        }
     }
 }

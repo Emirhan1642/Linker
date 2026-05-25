@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.PowerManager
+import androidx.core.content.ContextCompat
+import com.linker.app.core.util.SecureLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,7 +29,7 @@ import javax.inject.Singleton
 class AdaptiveScanningStrategy @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    
+    private val logger = SecureLogger("AdaptiveScanningStrategy")
     private val _scanSettings = MutableStateFlow(calculateOptimalScanSettings())
     val scanSettings: StateFlow<ScanSettings> = _scanSettings.asStateFlow()
     
@@ -86,18 +88,35 @@ class AdaptiveScanningStrategy @Inject constructor(
         synchronized(this) {
             if (isMonitoring) return
 
-            // Register battery receiver
-            val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-            context.registerReceiver(batteryReceiver, batteryFilter)
+            try {
+                // Register battery receiver
+                val batteryFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                ContextCompat.registerReceiver(
+                    context,
+                    batteryReceiver,
+                    batteryFilter,
+                    ContextCompat.RECEIVER_NOT_EXPORTED
+                )
 
-            // Register screen receiver
-            val screenFilter = IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_ON)
-                addAction(Intent.ACTION_SCREEN_OFF)
+                // Register screen receiver
+                val screenFilter = IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_ON)
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                }
+                ContextCompat.registerReceiver(
+                    context,
+                    screenReceiver,
+                    screenFilter,
+                    ContextCompat.RECEIVER_NOT_EXPORTED
+                )
+
+                isMonitoring = true
+                logger.d("Started monitoring battery and screen state")
+            } catch (e: SecurityException) {
+                logger.e("SecurityException during receiver registration", e)
+            } catch (e: Exception) {
+                logger.e("Error registering receivers", e)
             }
-            context.registerReceiver(screenReceiver, screenFilter)
-
-            isMonitoring = true
         }
 
         // Initial update (outside synchronized – StateFlow emission doesn't need locking)
@@ -114,8 +133,12 @@ class AdaptiveScanningStrategy @Inject constructor(
             try {
                 context.unregisterReceiver(batteryReceiver)
                 context.unregisterReceiver(screenReceiver)
+                logger.d("Stopped monitoring battery and screen state")
             } catch (e: IllegalArgumentException) {
                 // Receiver not registered, ignore
+                logger.w("Receivers not registered during stopMonitoring")
+            } catch (e: Exception) {
+                logger.e("Error unregistering receivers", e)
             } finally {
                 isMonitoring = false
             }
@@ -164,18 +187,29 @@ class AdaptiveScanningStrategy @Inject constructor(
      * Get current battery level percentage.
      */
     private fun getCurrentBatteryLevel(): Int {
-        val batteryIntent = context.registerReceiver(
-            null,
-            IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        )
-        
-        val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        
-        return if (level >= 0 && scale > 0) {
-            (level * 100) / scale
-        } else {
-            100 // Default to full battery if unable to read
+        return try {
+            val batteryIntent = ContextCompat.registerReceiver(
+                context,
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            
+            val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+            
+            if (level >= 0 && scale > 0) {
+                (level * 100) / scale
+            } else {
+                logger.w("Invalid battery level ($level) or scale ($scale)")
+                100 // Default to full battery if unable to read
+            }
+        } catch (e: SecurityException) {
+            logger.e("SecurityException reading battery level", e)
+            100
+        } catch (e: Exception) {
+            logger.e("Error reading battery level", e)
+            100
         }
     }
     

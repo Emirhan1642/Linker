@@ -13,6 +13,7 @@ interface BleNodeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNode(node: BleNodeEntity)
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNodes(nodes: List<BleNodeEntity>)
     
@@ -56,26 +57,30 @@ interface BleNodeDao {
     /**
      * Delete nodes not seen since the given timestamp (stale nodes)
      */
+    @Transaction
     @Query("DELETE FROM ble_nodes WHERE lastSeen < :beforeTimestamp")
     suspend fun deleteStaleNodes(beforeTimestamp: Long): Int
     
     /**
-     * Update connection status for a node by nodeId
+     * Update connection status for a specific node
+     * @param nodeId Unique identifier of the node
+     * @param isConnected New connection status
+     * @param timestamp Update timestamp (defaults to current time)
      */
     @Query("UPDATE ble_nodes SET isConnected = :isConnected, updatedAt = :timestamp WHERE nodeId = :nodeId")
-    suspend fun updateConnectionStatus(nodeId: String, isConnected: Boolean, timestamp: Long)
+    suspend fun updateConnectionStatus(nodeId: String, isConnected: Boolean, timestamp: Long = System.currentTimeMillis())
     
     /**
      * Update connection status for a node by device address
      */
     @Query("UPDATE ble_nodes SET isConnected = :isConnected, updatedAt = :timestamp WHERE deviceAddress = :deviceAddress")
-    suspend fun updateConnectionStatusByAddress(deviceAddress: String, isConnected: Boolean, timestamp: Long)
+    suspend fun updateConnectionStatusByAddress(deviceAddress: String, isConnected: Boolean, timestamp: Long = System.currentTimeMillis())
     
     /**
      * Update RSSI and last seen timestamp
      */
     @Query("UPDATE ble_nodes SET rssi = :rssi, lastSeen = :timestamp, updatedAt = :timestamp WHERE nodeId = :nodeId")
-    suspend fun updateRssiAndLastSeen(nodeId: String, rssi: Int, timestamp: Long)
+    suspend fun updateRssiAndLastSeen(nodeId: String, rssi: Int, timestamp: Long = System.currentTimeMillis())
     
     /**
      * Get nodes with signal strength above threshold

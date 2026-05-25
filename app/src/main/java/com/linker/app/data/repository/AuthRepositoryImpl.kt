@@ -12,9 +12,13 @@ import com.linker.app.data.local.entity.UserEntity
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.AuthRepository
+import com.linker.app.domain.repository.AuthError
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.tasks.await
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -42,50 +46,90 @@ class AuthRepositoryImpl @Inject constructor(
         }
         firebaseAuth.addAuthStateListener(listener)
         awaitClose { firebaseAuth.removeAuthStateListener(listener) }
-    }
+    }.shareIn(
+        scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + SupervisorJob()),
+        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        replay = 1
+    )
 
     override suspend fun getCurrentUser(): User? =
         firebaseAuth.currentUser?.let {
             userDao.getUserById(it.uid)?.toDomain() ?: it.toLocalUser()
         }
 
+    private val userCacheMutex = kotlinx.coroutines.sync.Mutex()
+
     override suspend fun signInWithGoogle(idToken: String): Result<User> = safeCall {
-        val credential = GoogleAuthProvider.getCredential(idToken, null)
-        val result = firebaseAuth.signInWithCredential(credential).await()
-        val firebaseUser = result.user ?: throw Exception("Sign-in failed")
-        val user = firebaseUser.toLocalUser()
-        // Cache the user
-        userDao.insertUser(user.toEntity())
-        user
+        try {
+            val credential = GoogleAuthProvider.getCredential(idToken, null)
+            val result = firebaseAuth.signInWithCredential(credential).await()
+            val firebaseUser = result.user ?: throw AuthError.SignInFailed("Google")
+            
+            val user = firebaseUser.toLocalUser()
+            
+            userCacheMutex.withLock {
+                userDao.insertUser(user.toEntity())
+            }
+            user
+        } catch (e: com.google.firebase.auth.FirebaseAuthException) {
+            throw when (e.errorCode) {
+                "ERROR_NETWORK_REQUEST_FAILED" -> AuthError.NetworkError()
+                "ERROR_USER_NOT_FOUND" -> AuthError.UserNotFound()
+                else -> AuthError.SignInFailed("Google")
+            }
+        }
     }
 
     override suspend fun signInWithEmail(
         email: String,
         password: String
     ): Result<User> = safeCall {
-        val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
-        val firebaseUser = result.user ?: throw Exception("Sign-in failed")
-        val user = firebaseUser.toLocalUser()
-        userDao.insertUser(user.toEntity())
-        user
+        try {
+            val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
+            val firebaseUser = result.user ?: throw AuthError.SignInFailed("Email")
+            val user = firebaseUser.toLocalUser()
+            userCacheMutex.withLock {
+                userDao.insertUser(user.toEntity())
+            }
+            user
+        } catch (e: com.google.firebase.auth.FirebaseAuthException) {
+            throw when (e.errorCode) {
+                "ERROR_NETWORK_REQUEST_FAILED" -> AuthError.NetworkError()
+                "ERROR_USER_NOT_FOUND" -> AuthError.UserNotFound()
+                "ERROR_WRONG_PASSWORD" -> AuthError.InvalidCredentials()
+                else -> AuthError.SignInFailed("Email")
+            }
+        }
     }
 
     override suspend fun createAccountWithEmail(
         email: String,
         password: String
     ): Result<User> = safeCall {
-        val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
-        val firebaseUser = result.user ?: throw Exception("Account creation failed")
-        val user = firebaseUser.toLocalUser()
-        userDao.insertUser(user.toEntity())
-        user
+        try {
+            val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
+            val firebaseUser = result.user ?: throw AuthError.AccountCreationFailed()
+            val user = firebaseUser.toLocalUser()
+            userCacheMutex.withLock {
+                userDao.insertUser(user.toEntity())
+            }
+            user
+        } catch (e: com.google.firebase.auth.FirebaseAuthException) {
+            throw when (e.errorCode) {
+                "ERROR_EMAIL_ALREADY_IN_USE" -> AuthError.AccountCreationFailed("Email already in use")
+                "ERROR_NETWORK_REQUEST_FAILED" -> AuthError.NetworkError()
+                else -> AuthError.AccountCreationFailed()
+            }
+        }
     }
 
-    override suspend fun sendPhoneOtp(phoneNumber: String): Result<String> {
-        // Firebase Phone Auth requires an Activity for verification callbacks.
-        // In production this would use PhoneAuthOptions. Here we return a placeholder
-        // that the AuthViewModel fills in via the Credential Manager flow.
-        return Result.Error("Phone OTP requires Activity context — handled in ViewModel")
+    override suspend fun sendPhoneOtp(phoneNumber: String): Result<String> = safeCall {
+        if (!phoneNumber.matches(Regex("^\\+[1-9]\\d{1,14}$"))) {
+            throw IllegalArgumentException("Invalid phone number format")
+        }
+        // In clean architecture, Activity context shouldn't be here.
+        // We will leave the exception so ViewModel handles it properly.
+        throw IllegalStateException("Phone OTP requires Activity context — handled in ViewModel / Presentation Layer")
     }
 
     override suspend fun signInWithPhoneOtp(
@@ -101,6 +145,10 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = safeCall {
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            throw IllegalArgumentException("Invalid email format")
+        }
+        
         firebaseAuth.sendPasswordResetEmail(email).await()
     }
 
@@ -110,31 +158,41 @@ class AuthRepositoryImpl @Inject constructor(
         displayName: String,
         profileImageLocalPath: String?
     ): Result<User> = safeCall {
-        // Update Firebase Auth display name so we know onboarding is complete
+        if (!username.matches(Regex("^[a-zA-Z0-9_]{3,20}$"))) {
+            throw IllegalArgumentException("Username must be 3-20 alphanumeric characters")
+        }
+        
+        val existingUser = firestore.collection("users")
+            .whereEqualTo("username", username)
+            .get()
+            .await()
+        
+        if (!existingUser.isEmpty && existingUser.documents[0].id != userId) {
+            throw IllegalStateException("Username already taken")
+        }
+        
+        if (displayName.isBlank() || displayName.length > 50) {
+            throw IllegalArgumentException("Display name must be 1-50 characters")
+        }
+        
+        val sanitizedUsername = username.trim().lowercase()
+        val sanitizedDisplayName = displayName.trim()
+
         val request = com.google.firebase.auth.UserProfileChangeRequest.Builder()
-            .setDisplayName(displayName)
+            .setDisplayName(sanitizedDisplayName)
             .build()
         firebaseAuth.currentUser?.updateProfile(request)?.await()
 
-        /**
-         * PROFILE IMAGE UPLOAD:
-         * Production implementation should:
-         * 1. Upload image to Cloudinary via WorkManager
-         * 2. Get secure URL
-         * 3. Update both Firestore and Supabase profile
-         * 
-         * For now, profile images are handled client-side.
-         */
         val currentEntity = userDao.getUserById(userId)
         val updated = currentEntity?.copy(
-            username = username,
-            displayName = displayName,
+            username = sanitizedUsername,
+            displayName = sanitizedDisplayName,
             updatedAt = System.currentTimeMillis(),
             lastSyncedAt = System.currentTimeMillis()
         ) ?: UserEntity(
             userId = userId,
-            username = username,
-            displayName = displayName,
+            username = sanitizedUsername,
+            displayName = sanitizedDisplayName,
             email = firebaseAuth.currentUser?.email,
             phoneNumber = null,
             bio = null,

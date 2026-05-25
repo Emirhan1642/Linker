@@ -281,8 +281,7 @@ class ChatViewModel @Inject constructor(
 
             // Compute canSendMessages from groupPermissions
             val canSend = if (isGroup) {
-                val onlyAdmins = chat.groupPermissions["canSendMessages"] as? Boolean
-                if (onlyAdmins == false) {
+                if (!chat.groupPermissions.canSendMessages) {
                     // Only admins can send → check if current user is admin
                     chat.groupAdminIds.contains(currentUserId) || chat.groupCreatedBy == currentUserId
                 } else {

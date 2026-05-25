@@ -154,7 +154,7 @@ class RetryFailedMessagesUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(
         preferredMethod: DeliveryMethod = DeliveryMethod.BLE
-    ): Result<Unit> = chatRepository.retryFailedMessages(preferredMethod)
+    ): Result<Unit> = chatRepository.retryFailedMessages(preferredMethod).map { }
 }
 
 // ─── Get Chat By Id ───────────────────────────────────────────────────────────

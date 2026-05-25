@@ -86,8 +86,8 @@ interface ChatRepository {
     /** Returns the number of items waiting in the offline queue. */
     fun observeQueuedMessageCount(): Flow<Int>
 
-    /** Retries all failed messages for a specific delivery method. */
-    suspend fun retryFailedMessages(preferredMethod: DeliveryMethod): Result<Unit>
+    /** Retries failed messages for a specific delivery method in batches. */
+    suspend fun retryFailedMessages(preferredMethod: DeliveryMethod, batchSize: Int = 50): Result<Int>
 
     // ✅ PAGINATION: Load messages with cursor-based pagination
     suspend fun getMessagesPaged(

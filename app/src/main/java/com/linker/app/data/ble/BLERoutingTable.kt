@@ -8,9 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.util.concurrent.locks.ReentrantReadWriteLock
-import kotlin.concurrent.read
-import kotlin.concurrent.write
+import com.linker.app.core.util.SecureLogger
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,11 +40,9 @@ class BLERoutingTable @Inject constructor(
     private val mutex = Mutex()
     private val routeCache = mutableMapOf<String, RouteInfo>()
     
-    // Use ReadWriteLock for better concurrent read performance
-    private val cacheLock = ReentrantReadWriteLock()
-    
     // Coroutine scope for background cache warming
     private val cacheScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val logger = SecureLogger("BLERoutingTable")
     
     companion object {
         private const val STALE_NODE_THRESHOLD = 60_000L // 60 seconds
@@ -65,7 +61,7 @@ class BLERoutingTable @Inject constructor(
         val now = System.currentTimeMillis()
         val recentNodes = bleNodeDao.getRecentNodes(now - STALE_NODE_THRESHOLD)
         
-        cacheLock.write {
+        mutex.withLock {
             recentNodes.forEach { node ->
                 routeCache[node.nodeId] = RouteInfo(
                     nodeId = node.nodeId,
@@ -78,7 +74,7 @@ class BLERoutingTable @Inject constructor(
             }
         }
         
-        android.util.Log.d("BLERoutingTable", "Cache warmed with ${recentNodes.size} routes")
+        logger.d("Cache warmed with ${recentNodes.size} routes")
     }
     
     /**
@@ -95,8 +91,8 @@ class BLERoutingTable @Inject constructor(
         val result = mutableMapOf<String, RouteInfo>()
         val missingIds = mutableListOf<String>()
         
-        // Check cache first (with read lock)
-        cacheLock.read {
+        // Check cache first
+        mutex.withLock {
             recipientIds.forEach { id ->
                 val cachedRoute = routeCache[id]
                 if (cachedRoute != null && !isStale(cachedRoute.lastSeen)) {
@@ -112,7 +108,7 @@ class BLERoutingTable @Inject constructor(
             val nodes = bleNodeDao.getNodesByIds(missingIds)
             val now = System.currentTimeMillis()
             
-            cacheLock.write {
+            mutex.withLock {
                 nodes.forEach { node ->
                     if (!isStale(node.lastSeen)) {
                         val routeInfo = RouteInfo(
@@ -224,7 +220,7 @@ class BLERoutingTable @Inject constructor(
      */
     suspend fun getRoute(recipientId: String): RouteInfo? {
         // Use read lock for cache check (allows concurrent reads)
-        val cachedRoute = cacheLock.read {
+        val cachedRoute = mutex.withLock {
             routeCache[recipientId]
         }
         
@@ -237,7 +233,7 @@ class BLERoutingTable @Inject constructor(
         
         // Check if stale
         if (isStale(node.lastSeen)) {
-            cacheLock.write {
+            mutex.withLock {
                 routeCache.remove(recipientId)
             }
             return null
@@ -253,7 +249,7 @@ class BLERoutingTable @Inject constructor(
             lastSeen = node.lastSeen
         )
         
-        cacheLock.write {
+        mutex.withLock {
             routeCache[recipientId] = routeInfo
         }
         

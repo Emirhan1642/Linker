@@ -1,6 +1,7 @@
 package com.linker.app.data.ble
 
 import java.nio.ByteBuffer
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.zip.CRC32
 
 /**
@@ -46,7 +47,7 @@ data class BLEPacket(
         
         // ByteBuffer object pool for reducing allocation overhead
         private const val POOL_SIZE = 10
-        private val bufferPool = ArrayDeque<ByteBuffer>(POOL_SIZE)
+        private val bufferPool = ArrayBlockingQueue<ByteBuffer>(POOL_SIZE)
         
         /**
          * Get a ByteBuffer from the pool or create a new one
@@ -55,14 +56,12 @@ data class BLEPacket(
          * @return ByteBuffer with at least the requested capacity
          */
         private fun getBuffer(capacity: Int): ByteBuffer {
-            synchronized(bufferPool) {
-                val buffer = bufferPool.removeFirstOrNull()
-                return if (buffer != null && buffer.capacity() >= capacity) {
-                    buffer.clear()
-                    buffer
-                } else {
-                    ByteBuffer.allocate(capacity)
-                }
+            val buffer = bufferPool.poll()
+            return if (buffer != null && buffer.capacity() >= capacity) {
+                buffer.clear()
+                buffer
+            } else {
+                ByteBuffer.allocate(capacity)
             }
         }
         
@@ -72,12 +71,8 @@ data class BLEPacket(
          * @param buffer ByteBuffer to return
          */
         private fun returnBuffer(buffer: ByteBuffer) {
-            synchronized(bufferPool) {
-                if (bufferPool.size < POOL_SIZE) {
-                    buffer.clear()
-                    bufferPool.addLast(buffer)
-                }
-            }
+            buffer.clear()
+            bufferPool.offer(buffer)
         }
         
         /**
@@ -95,9 +90,9 @@ data class BLEPacket(
             try {
                 // Write header
                 buffer.put(packet.version)
-                buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(packet.senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(packet.recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
                 buffer.put(packet.ttl)
                 buffer.put(packet.hopCount)
                 buffer.putShort(packet.fragmentIndex)
@@ -135,15 +130,15 @@ data class BLEPacket(
             
             val messageIdBytes = ByteArray(36)
             buffer.get(messageIdBytes)
-            val messageId = String(messageIdBytes).trim()
+            val messageId = String(messageIdBytes, Charsets.UTF_8).trim()
             
             val senderIdBytes = ByteArray(36)
             buffer.get(senderIdBytes)
-            val senderId = String(senderIdBytes).trim()
+            val senderId = String(senderIdBytes, Charsets.UTF_8).trim()
             
             val recipientIdBytes = ByteArray(36)
             buffer.get(recipientIdBytes)
-            val recipientId = String(recipientIdBytes).trim()
+            val recipientId = String(recipientIdBytes, Charsets.UTF_8).trim()
             
             val ttl = buffer.get()
             val hopCount = buffer.get()
@@ -210,9 +205,9 @@ data class BLEPacket(
             
             try {
                 buffer.put(packet.version)
-                buffer.put(packet.messageId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(packet.senderId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(packet.recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(packet.messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(packet.senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(packet.recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
                 buffer.put(packet.ttl)
                 buffer.put(packet.hopCount)
                 buffer.putShort(packet.fragmentIndex)
@@ -262,9 +257,9 @@ data class BLEPacket(
             try {
                 // Create packet without checksum
                 buffer.put(version)
-                buffer.put(messageId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(senderId.padEnd(36).toByteArray().copyOf(36))
-                buffer.put(recipientId.padEnd(36).toByteArray().copyOf(36))
+                buffer.put(messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
                 buffer.put(ttl)
                 buffer.put(hopCount)
                 buffer.putShort(fragmentIndex)

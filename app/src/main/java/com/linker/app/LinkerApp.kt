@@ -8,12 +8,18 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.google.firebase.FirebaseApp
 import com.linker.app.BuildConfig
 import com.linker.app.core.security.RootDetector
 import com.linker.app.core.security.SecurityLogger
 import com.linker.app.core.security.SecurityManager
 import com.linker.app.core.security.SecurityRiskLevel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import com.linker.app.core.work.MessageQueueWorker
+import com.linker.app.data.bluetooth.BluetoothManager
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -33,6 +39,7 @@ class LinkerApp : Application(), Configuration.Provider {
 
     @Inject lateinit var securityManager: SecurityManager
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var bluetoothManager: BluetoothManager
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -42,24 +49,79 @@ class LinkerApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
+        // CRITICAL: Initialize Firebase before any Firebase service is used
+        initializeFirebase()
+
         // SECURITY: Check device security status on startup
         checkDeviceSecurity()
 
-        // SECURITY: Initialize API keys in encrypted storage on first launch
-        if (!securityManager.areKeysInitialized()) {
-            securityManager.initializeKeys(
-                supabaseUrl = BuildConfig.SUPABASE_URL,
-                supabaseAnonKey = BuildConfig.SUPABASE_ANON_KEY,
-                cloudinaryCloudName = BuildConfig.CLOUDINARY_CLOUD_NAME,
-                cloudinaryApiKey = BuildConfig.CLOUDINARY_API_KEY,
-                cloudinaryApiSecret = BuildConfig.CLOUDINARY_API_SECRET
-            )
-            SecurityLogger.logApiKeyInitialization()
+        // SECURITY: Initialize API keys from Remote Config
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                securityManager.initializeKeysFromRemoteConfig()
+            } catch (e: Exception) {
+                android.util.Log.e("LinkerApp", "Failed to initialize keys from remote config", e)
+            }
         }
 
         scheduleMessageQueueSync()
         scheduleSessionCleanup()
         initializeMonitoring()
+        bluetoothManager.initialize()
+    }
+
+    /**
+     * Initialize Firebase with proper error handling
+     * 
+     * CRITICAL: Must be called before any Firebase service (Auth, Firestore, Storage)
+     * is accessed. Failure to initialize will cause crashes.
+     * 
+     * IMPLEMENTATION NOTES:
+     * - Uses google-services.json configuration
+     * - Validates Firebase configuration on startup
+     * - Logs initialization status for debugging
+     * - Handles initialization errors gracefully
+     * 
+     * @throws IllegalStateException if Firebase configuration is invalid
+     */
+    private fun initializeFirebase() {
+        try {
+            // Check if Firebase is already initialized (prevents double initialization)
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                // Initialize Firebase with default configuration from google-services.json
+                FirebaseApp.initializeApp(this)
+                android.util.Log.d("LinkerApp", "Firebase initialized successfully")
+                
+                // Validate Firebase configuration
+                val app = FirebaseApp.getInstance()
+                val options = app.options
+                
+                require(!options.projectId.isNullOrEmpty()) {
+                    "Firebase project ID is missing"
+                }
+                require(options.applicationId.isNotEmpty()) {
+                    "Firebase application ID is missing"
+                }
+                require(options.apiKey.isNotEmpty()) {
+                    "Firebase API key is missing"
+                }
+                
+                android.util.Log.d("LinkerApp", "Firebase configuration validated: projectId=${options.projectId}")
+            } else {
+                android.util.Log.d("LinkerApp", "Firebase already initialized")
+            }
+        } catch (e: Exception) {
+            // CRITICAL: Firebase initialization failure
+            android.util.Log.e("LinkerApp", "Firebase initialization failed", e)
+            
+            // In production, consider:
+            // 1. Showing error dialog to user
+            // 2. Disabling Firebase-dependent features
+            // 3. Reporting to crash analytics (non-Firebase)
+            // 4. Graceful degradation to offline mode
+            
+            throw IllegalStateException("Failed to initialize Firebase: ${e.message}", e)
+        }
     }
 
     /**

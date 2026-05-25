@@ -72,8 +72,12 @@ class ChatRepositoryImpl @Inject constructor(
         get() = auth.currentUser?.uid ?: ""
     
     init {
-        // Start global chat listener to cache all chats
-        startGlobalChatListener()
+        auth.addAuthStateListener {
+            stopGlobalChatListener()
+            if (auth.currentUser != null) {
+                startGlobalChatListener()
+            }
+        }
     }
 
     private fun isUserArchivedChat(data: Map<String, Any?>): Boolean {
@@ -233,7 +237,8 @@ class ChatRepositoryImpl @Inject constructor(
             }
         }
 
-        val chatId = UUID.randomUUID().toString()
+        val sortedIds = listOf(currentUserId, recipientUserId).sorted()
+        val chatId = "private_${sortedIds[0]}_${sortedIds[1]}"
         val now = System.currentTimeMillis()
         val chatData = hashMapOf(
             "chatType" to "PRIVATE",
@@ -261,7 +266,7 @@ class ChatRepositoryImpl @Inject constructor(
             "createdAt" to now,
             "updatedAt" to now
         )
-        chatsCollection.document(chatId).set(chatData).await()
+        chatsCollection.document(chatId).set(chatData, com.google.firebase.firestore.SetOptions.merge()).await()
 
         val localChat = ChatEntity(
             chatId = chatId,
@@ -415,8 +420,8 @@ class ChatRepositoryImpl @Inject constructor(
     override suspend fun searchMessages(chatId: String, query: String): Result<List<Message>> = 
         messageRepository.searchMessages(chatId, query)
 
-    override suspend fun retryFailedMessages(preferredMethod: DeliveryMethod): Result<Unit> = 
-        messageRepository.retryFailedMessages()
+    override suspend fun retryFailedMessages(preferredMethod: DeliveryMethod, batchSize: Int): Result<Int> = 
+        messageRepository.retryFailedMessages(batchSize)
 
     // ✅ DELEGATED: Reaction operations to MessageReactionRepository
     override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
@@ -501,7 +506,7 @@ class ChatRepositoryImpl @Inject constructor(
         return Message(
             messageId = mid,
             chatId = chatId,
-            sender = createUserStub(""),
+            sender = User(),
             messageType = MessageType.TEXT,
             content = text,
             mediaUrl = null,
@@ -601,9 +606,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     private suspend fun mapToChat(chatId: String, data: Map<String, Any?>): Chat {
         val participantIds = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+        val usersList = userDao.getUsersByIds(participantIds)
+        val usersMap = usersList.associateBy { it.userId }
         val participants = participantIds.map { uid ->
-            val cached = userDao.getUserById(uid)
-            cached?.toDomain() ?: createUserStub(uid)
+            usersMap[uid]?.toDomain() ?: createUserStub(uid)
         }
 
         val chatTypeStr = data["chatType"] as? String ?: "PRIVATE"
@@ -641,7 +647,7 @@ class ChatRepositoryImpl @Inject constructor(
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
             groupAdminIds = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
             groupCreatedBy = data["createdBy"] as? String,
-            groupPermissions = (data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any } ?: emptyMap()
+            groupPermissions = GroupPermissions.fromMap((data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any })
         )
     }
 
@@ -686,7 +692,7 @@ class ChatRepositoryImpl @Inject constructor(
             updatedAt = (data["updatedAt"] as? Number)?.toLong() ?: 0L,
             groupAdminIds = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
             groupCreatedBy = data["createdBy"] as? String,
-            groupPermissions = (data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any } ?: emptyMap()
+            groupPermissions = GroupPermissions.fromMap((data["groupPermissions"] as? Map<*, *>)?.mapKeys { it.key.toString() }?.mapValues { it.value as Any })
         )
     }
 
@@ -718,29 +724,13 @@ class ChatRepositoryImpl @Inject constructor(
 
         val replyToMessageId = data["replyToMessageId"] as? String
         val replyStub = if (!replyToMessageId.isNullOrBlank()) {
-            Message(
+            MessageReference(
                 messageId = replyToMessageId,
-                chatId = data["chatId"] as? String ?: "",
-                sender = senderStub,
-                messageType = MessageType.TEXT,
+                senderId = senderId,
+                senderName = "",
                 content = null,
-                mediaUrl = null,
-                thumbnailUrl = null,
-                mediaWidth = null,
-                mediaHeight = null,
-                mediaDuration = null,
-                sharedLink = null,
-                replyToMessage = null,
-                reactions = emptyMap(),
-                isEdited = false,
-                isDeleted = false,
-                deletedForEveryone = false,
-                messageStatus = MessageStatus.SENT,
-                deliveryMethod = DeliveryMethod.ONLINE,
-                createdAt = 0L,
-                updatedAt = 0L,
-                deliveredAt = null,
-                readAt = null
+                messageType = MessageType.TEXT,
+                createdAt = 0L
             )
         } else null
 

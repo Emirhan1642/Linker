@@ -2,6 +2,13 @@ package com.linker.app.core.util
 
 import com.linker.app.BuildConfig
 import com.linker.app.core.config.OfflineMessagingConfig
+// FirebaseCrashlytics import removed — dependency not available
+import java.security.MessageDigest
+import java.io.File
+import java.io.FileWriter
+import java.text.SimpleDateFormat
+import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Secure logging utility that prevents sensitive data from being logged in production.
@@ -14,55 +21,197 @@ import com.linker.app.core.config.OfflineMessagingConfig
  * SecureLogger.logMessage("MyTag", "Sending message", messageContent)
  * ```
  * 
- * In production builds:
- * - Sensitive data is masked (e.g., "user_***")
- * - Message contents are never logged
- * - Only metadata is logged
+ * ✅ ENHANCED: Added multiple masking strategies, audit trail, rate limiting
  */
+
+/**
+ * ✅ Multiple masking strategies
+ */
+enum class MaskingStrategy {
+    HASH,        // Show hash of value
+    PARTIAL,     // Show first/last chars
+    LENGTH,      // Show only length
+    FULL         // Show "***" only
+}
+
+/**
+ * Wrapper to allow instance-like usage: val logger = SecureLogger("TAG")
+ */
+class SecureLoggerWrapper(private val tag: String) {
+    fun d(message: String) = SecureLogger.d(tag, message)
+    fun w(message: String, throwable: Throwable? = null) = SecureLogger.w(tag, message, throwable)
+    fun e(message: String, throwable: Throwable? = null) = SecureLogger.e(tag, message, throwable)
+}
+
 object SecureLogger {
     
+    operator fun invoke(tag: String): SecureLoggerWrapper {
+        return SecureLoggerWrapper(tag)
+    }
+
     /**
-     * Mask sensitive data for logging.
-     * In production: returns masked version (e.g., "user_***")
-     * In debug: returns full value
+     * ✅ Configurable masking strategy
      */
-    fun mask(value: String?): String {
-        if (value == null) return "null"
-        
-        return if (BuildConfig.DEBUG && OfflineMessagingConfig.ENABLE_SENSITIVE_LOGGING) {
-            value
-        } else {
-            // Show first 4 chars + "***" for debugging while protecting privacy
-            if (value.length <= 4) {
-                "***"
-            } else {
-                "${value.take(4)}***"
+    var maskingStrategy: MaskingStrategy = MaskingStrategy.HASH
+    
+    // ✅ Audit trail configuration
+    private var auditFile: File? = null
+    private val auditDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private var enableAuditTrail: Boolean = !BuildConfig.DEBUG
+    
+    // ✅ Rate limiting
+    private val logRateLimiter = ConcurrentHashMap<String, RateLimitInfo>()
+    private const val RATE_LIMIT_WINDOW_MS = 60_000L // 1 minute
+    private const val MAX_LOGS_PER_WINDOW = 100
+    
+    private data class RateLimitInfo(
+        var count: Int = 0,
+        var windowStart: Long = System.currentTimeMillis(),
+        var lastLogged: Long = 0
+    )
+    
+    /**
+     * ✅ Initialize audit trail
+     */
+    fun initializeAuditTrail(context: android.content.Context) {
+        if (enableAuditTrail) {
+            try {
+                val auditDir = File(context.filesDir, "audit")
+                if (!auditDir.exists()) {
+                    auditDir.mkdirs()
+                }
+                
+                val timestamp = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+                auditFile = File(auditDir, "audit_$timestamp.log")
+                
+                Logger.d("SecureLogger", "Audit trail initialized: ${auditFile?.absolutePath}")
+            } catch (e: Exception) {
+                Logger.e("SecureLogger", "Failed to initialize audit trail", e)
             }
         }
     }
     
     /**
-     * Mask user ID for logging.
-     * Shows format but protects actual ID.
+     * ✅ Hash value for consistent masking
      */
-    fun maskUserId(userId: String?): String {
-        return "userId=${mask(userId)}"
+    private fun hashValue(value: String): String {
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val hash = digest.digest(value.toByteArray())
+            // Take first 8 chars of hex for readability
+            hash.joinToString("") { "%02x".format(it) }.take(8)
+        } catch (e: Exception) {
+            "error"
+        }
     }
     
     /**
-     * Mask message ID for logging.
-     * Shows format but protects actual ID.
+     * ✅ Check if logging should be rate limited
      */
-    fun maskMessageId(messageId: String?): String {
-        return "msgId=${mask(messageId)}"
+    private fun shouldLog(tag: String, operation: String): Boolean {
+        val key = "$tag:$operation"
+        val now = System.currentTimeMillis()
+        
+        val rateLimitInfo = logRateLimiter.getOrPut(key) { RateLimitInfo() }
+        
+        // Reset window if expired
+        if (now - rateLimitInfo.windowStart > RATE_LIMIT_WINDOW_MS) {
+            rateLimitInfo.count = 0
+            rateLimitInfo.windowStart = now
+        }
+        
+        rateLimitInfo.count++
+        
+        // Check rate limit
+        if (rateLimitInfo.count > MAX_LOGS_PER_WINDOW) {
+            // Log rate limit exceeded only once per window
+            if (now - rateLimitInfo.lastLogged > RATE_LIMIT_WINDOW_MS) {
+                Logger.w("SecureLogger", "Rate limit exceeded for $tag:$operation (${rateLimitInfo.count} logs)")
+                rateLimitInfo.lastLogged = now
+            }
+            return false
+        }
+        
+        rateLimitInfo.lastLogged = now
+        return true
     }
     
     /**
-     * Mask device address (MAC address) for logging.
-     * Shows format but protects actual address.
+     * ✅ Write to audit trail
      */
-    fun maskDeviceAddress(address: String?): String {
-        return "device=${mask(address)}"
+    private fun writeAudit(
+        operation: String,
+        tag: String,
+        details: Map<String, String>
+    ) {
+        if (!enableAuditTrail || auditFile == null) return
+        
+        try {
+            val timestamp = auditDateFormat.format(Date())
+            val auditEntry = buildString {
+                append("$timestamp | $operation | $tag")
+                details.forEach { (key, value) ->
+                    append(" | $key=$value")
+                }
+                append("\n")
+            }
+            
+            FileWriter(auditFile, true).use { writer ->
+                writer.append(auditEntry)
+            }
+        } catch (e: Exception) {
+            // Silently fail to avoid infinite loop
+        }
+    }
+    
+    /**
+     * ✅ Improved masking with multiple strategies
+     */
+    fun mask(value: String?, strategy: MaskingStrategy = maskingStrategy): String {
+        if (value == null) return "null"
+        
+        return if (BuildConfig.DEBUG && OfflineMessagingConfig.ENABLE_SENSITIVE_LOGGING) {
+            value
+        } else {
+            when (strategy) {
+                MaskingStrategy.HASH -> {
+                    // Show hash for debugging while protecting privacy
+                    val hash = hashValue(value)
+                    "hash_$hash"
+                }
+                MaskingStrategy.PARTIAL -> {
+                    // Show first 2 and last 2 chars
+                    when {
+                        value.length <= 4 -> "***"
+                        value.length <= 8 -> "${value.take(2)}***"
+                        else -> "${value.take(2)}***${value.takeLast(2)}"
+                    }
+                }
+                MaskingStrategy.LENGTH -> {
+                    // Show only length
+                    "len_${value.length}"
+                }
+                MaskingStrategy.FULL -> {
+                    // Show nothing
+                    "***"
+                }
+            }
+        }
+    }
+    
+    /**
+     * ✅ Mask with specific strategy
+     */
+    fun maskUserId(userId: String?, strategy: MaskingStrategy = MaskingStrategy.HASH): String {
+        return "userId=${mask(userId, strategy)}"
+    }
+    
+    fun maskMessageId(messageId: String?, strategy: MaskingStrategy = MaskingStrategy.HASH): String {
+        return "msgId=${mask(messageId, strategy)}"
+    }
+    
+    fun maskDeviceAddress(address: String?, strategy: MaskingStrategy = MaskingStrategy.HASH): String {
+        return "device=${mask(address, strategy)}"
     }
     
     /**
@@ -74,6 +223,9 @@ object SecureLogger {
      * @param messageContent Message content (will be masked in production)
      */
     fun logMessage(tag: String, action: String, messageContent: String?) {
+        // ✅ Check rate limit
+        if (!shouldLog(tag, "logMessage")) return
+        
         if (BuildConfig.DEBUG && OfflineMessagingConfig.ENABLE_SENSITIVE_LOGGING) {
             Logger.d(tag, "$action: content='$messageContent'")
         } else {
@@ -81,6 +233,17 @@ object SecureLogger {
             val contentLength = messageContent?.length ?: 0
             Logger.d(tag, "$action: contentLength=$contentLength")
         }
+        
+        // ✅ Write to audit trail
+        writeAudit(
+            operation = "LOG_MESSAGE",
+            tag = tag,
+            details = mapOf(
+                "action" to action,
+                "content_length" to (messageContent?.length ?: 0).toString(),
+                "thread" to Thread.currentThread().name
+            )
+        )
     }
     
     /**
@@ -102,12 +265,28 @@ object SecureLogger {
         recipientId: String?,
         payloadSize: Int
     ) {
+        // ✅ Check rate limit
+        if (!shouldLog(tag, "logBlePacket")) return
+        
         Logger.d(
             tag,
             "$action: ${maskMessageId(messageId)}, " +
                     "from=${mask(senderId)}, " +
                     "to=${mask(recipientId)}, " +
                     "size=$payloadSize bytes"
+        )
+        
+        // ✅ Write to audit trail
+        writeAudit(
+            operation = "LOG_BLE_PACKET",
+            tag = tag,
+            details = mapOf(
+                "action" to action,
+                "message_id" to mask(messageId),
+                "sender_id" to mask(senderId),
+                "recipient_id" to mask(recipientId),
+                "payload_size" to payloadSize.toString()
+            )
         )
     }
     
@@ -128,11 +307,26 @@ object SecureLogger {
         plaintextSize: Int,
         ciphertextSize: Int
     ) {
+        // ✅ Check rate limit
+        if (!shouldLog(tag, "logEncryption")) return
+        
         Logger.d(
             tag,
             "$action: recipient=${mask(recipientId)}, " +
                     "plaintext=$plaintextSize bytes, " +
                     "ciphertext=$ciphertextSize bytes"
+        )
+        
+        // ✅ Write to audit trail
+        writeAudit(
+            operation = "LOG_ENCRYPTION",
+            tag = tag,
+            details = mapOf(
+                "action" to action,
+                "recipient_id" to mask(recipientId),
+                "plaintext_size" to plaintextSize.toString(),
+                "ciphertext_size" to ciphertextSize.toString()
+            )
         )
     }
     
@@ -173,6 +367,11 @@ object SecureLogger {
             "$action: count=$messageCount, chat=${mask(chatId)}"
         )
     }
+    
+    /**
+     * ✅ Get audit file for compliance/investigation
+     */
+    fun getAuditFile(): File? = auditFile
     
     /**
      * Standard debug log (delegates to Logger).

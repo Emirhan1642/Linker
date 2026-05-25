@@ -3,7 +3,7 @@ package com.linker.app.data.ble
 import android.bluetooth.*
 import android.content.Context
 import android.os.Build
-import android.util.Log
+import com.linker.app.core.util.SecureLogger as Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
@@ -214,8 +214,10 @@ class GattClientManager @Inject constructor(
                 try {
                     gatt.disconnect()
                     gatt.close()
+                } catch (ex: SecurityException) {
+                    Log.e(TAG, "SecurityException cleaning up timed out connection for $deviceAddress", ex)
                 } catch (ex: Exception) {
-                    Log.e(TAG, "Error cleaning up timed out connection", ex)
+                    Log.e(TAG, "Error cleaning up timed out connection for $deviceAddress", ex)
                 }
             }
             false
@@ -369,15 +371,21 @@ class GattClientManager @Inject constructor(
     fun disconnect(deviceAddress: String) {
         try {
             val gatt = connections.remove(deviceAddress)
-            gatt?.disconnect()
-            gatt?.close()
+            try {
+                gatt?.disconnect()
+                gatt?.close()
+            } catch (e: SecurityException) {
+                Log.e(TAG, "Security exception closing GATT for $deviceAddress", e)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing GATT for $deviceAddress", e)
+            }
             
             connectionPool.removeConnection(deviceAddress)
             rssiMap.remove(deviceAddress)
             
             Log.d(TAG, "Disconnected from $deviceAddress")
         } catch (e: Exception) {
-            Log.e(TAG, "Error disconnecting from $deviceAddress", e)
+            Log.e(TAG, "Unexpected error in disconnect for $deviceAddress", e)
         }
     }
     

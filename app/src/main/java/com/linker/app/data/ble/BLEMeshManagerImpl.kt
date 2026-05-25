@@ -7,8 +7,8 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.*
 import android.content.Context
 import android.os.ParcelUuid
-import android.util.Log
 import androidx.annotation.RequiresPermission
+import com.linker.app.core.util.SecureLogger as Log
 import com.linker.app.data.local.dao.BleNodeDao
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -57,13 +57,13 @@ class BLEMeshManagerImpl @Inject constructor(
     private var isAdvertising = false
     
     // Track connection attempts to avoid duplicate retries
-    private val connectionAttempts = mutableMapOf<String, Int>()
+    private val connectionAttempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
     
     // Map sender user ID to MAC address for routing (thread-safe)
     private val userIdToMacAddress = java.util.concurrent.ConcurrentHashMap<String, String>()
     
     // Track incoming connections (MAC address -> connection time)
-    private val incomingConnections = mutableMapOf<String, Long>()
+    private val incomingConnections = java.util.concurrent.ConcurrentHashMap<String, Long>()
     
     // Track recently processed scan results to avoid duplicate processing
     private val recentlyProcessedDevices = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -230,13 +230,27 @@ class BLEMeshManagerImpl @Inject constructor(
         // Clean up fragment manager to prevent memory leaks
         fragmentManager.shutdown()
         
-        // Cancel all coroutines
+        // Cancel all coroutines but keep scope alive
         coroutineScope.coroutineContext[Job]?.cancelChildren()
         
         _meshStatus.value = MeshStatus.Idle
         _connectedPeers.value = emptyList()
         
         Log.d(TAG, "Mesh network stopped")
+    }
+
+    override fun shutdown() {
+        try {
+            stopScanning()
+            stopAdvertising()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping during shutdown", e)
+        }
+        gattServerManager.stopServer()
+        gattClientManager.disconnectAll()
+        fragmentManager.shutdown()
+        coroutineScope.cancel() // Fully cancel scope
+        Log.d(TAG, "Mesh manager shutdown complete")
     }
     
     override fun startScanning() {

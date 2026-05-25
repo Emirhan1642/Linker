@@ -15,7 +15,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -53,31 +53,33 @@ class NotificationRepositoryImpl @Inject constructor(
                     doc.data?.let { mapToNotificationSync(doc.id, it) }
                 } ?: emptyList()
 
-                notifications.forEach { notification ->
-                    val entity = NotificationEntity(
-                        notificationId = notification.notificationId,
-                        notificationType = when (notification.notificationType) {
-                            com.linker.app.domain.model.NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
-                            com.linker.app.domain.model.NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
-                            com.linker.app.domain.model.NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
-                            com.linker.app.domain.model.NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
-                            com.linker.app.domain.model.NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
-                            com.linker.app.domain.model.NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
-                            com.linker.app.domain.model.NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
-                            com.linker.app.domain.model.NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
-                            com.linker.app.domain.model.NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
-                        },
-                        actorId = notification.actor.userId,
-                        targetEntityId = notification.targetEntityId,
-                        targetEntityType = notification.targetEntityType,
-                        title = notification.title,
-                        message = notification.message,
-                        imageUrl = notification.imageUrl,
-                        actionUrl = notification.actionUrl,
-                        isRead = notification.isRead,
-                        createdAt = notification.createdAt
-                    )
-                    runBlocking { notificationDao.insertNotification(entity) }
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    val entities = notifications.map { notification ->
+                        NotificationEntity(
+                            notificationId = notification.notificationId,
+                            notificationType = when (notification.notificationType) {
+                                com.linker.app.domain.model.NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
+                                com.linker.app.domain.model.NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
+                                com.linker.app.domain.model.NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
+                                com.linker.app.domain.model.NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
+                                com.linker.app.domain.model.NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
+                                com.linker.app.domain.model.NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
+                                com.linker.app.domain.model.NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
+                                com.linker.app.domain.model.NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
+                                com.linker.app.domain.model.NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
+                            },
+                            actorId = notification.actor.userId,
+                            targetEntityId = notification.targetEntityId,
+                            targetEntityType = notification.targetEntityType,
+                            title = notification.title,
+                            message = notification.message,
+                            imageUrl = notification.imageUrl,
+                            actionUrl = notification.actionUrl,
+                            isRead = notification.isRead,
+                            createdAt = notification.createdAt
+                        )
+                    }
+                    entities.forEach { notificationDao.insertNotification(it) }
                 }
 
                 trySend(notifications)
@@ -111,16 +113,18 @@ class NotificationRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markAllAsRead(): Result<Unit> = safeCall {
-        val batch = firestore.batch()
         val query = notificationsRef()
             .whereEqualTo("isRead", false)
             .get()
             .await()
 
-        for (doc in query.documents) {
-            batch.update(doc.reference, "isRead", true)
+        query.documents.chunked(500).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { doc ->
+                batch.update(doc.reference, "isRead", true)
+            }
+            batch.commit().await()
         }
-        batch.commit().await()
         notificationDao.markAllAsRead()
     }
 
@@ -129,11 +133,13 @@ class NotificationRepositoryImpl @Inject constructor(
             .get()
             .await()
 
-        val batch = firestore.batch()
-        for (doc in query.documents) {
-            batch.delete(doc.reference)
+        query.documents.chunked(500).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { doc ->
+                batch.delete(doc.reference)
+            }
+            batch.commit().await()
         }
-        batch.commit().await()
         notificationDao.deleteAllNotifications()
     }
 

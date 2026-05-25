@@ -1,6 +1,7 @@
 package com.linker.app.data.ble
 
 import kotlinx.coroutines.*
+import com.linker.app.core.util.SecureLogger
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -16,6 +17,7 @@ class FragmentManager(
     
     private val fragmentStore = ConcurrentHashMap<String, FragmentSet>()
     private val packetFragmenter = PacketFragmenter()
+    private val logger = SecureLogger("FragmentManager")
     
     // Periodic cleanup job
     private var cleanupJob: Job? = null
@@ -74,16 +76,19 @@ class FragmentManager(
             
             if (existingFragment == null) {
                 fragmentSet.fragments.add(fragment)
+                logger.d("Added fragment ${fragment.fragmentIndex} for message $messageId")
             }
             
             // Check if complete
             if (packetFragmenter.isComplete(fragmentSet.fragments)) {
                 // Cancel timeout
                 fragmentSet.timeoutJob?.cancel()
+                fragmentSet.timeoutJob = null
                 
                 // Reassemble and remove from store
                 val payload = packetFragmenter.reassemble(fragmentSet.fragments)
                 fragmentStore.remove(messageId)
+                logger.d("Message $messageId reassembled successfully, fragments removed")
                 return payload
             }
         }
@@ -118,6 +123,8 @@ class FragmentManager(
     private fun cleanupMessage(messageId: String) {
         fragmentStore.remove(messageId)?.let { fragmentSet ->
             fragmentSet.timeoutJob?.cancel()
+            fragmentSet.timeoutJob = null
+            logger.w("Cleaned up stale fragments for message $messageId")
         }
     }
     
@@ -154,8 +161,10 @@ class FragmentManager(
     fun clearAll() {
         fragmentStore.values.forEach { fragmentSet ->
             fragmentSet.timeoutJob?.cancel()
+            fragmentSet.timeoutJob = null
         }
         fragmentStore.clear()
+        logger.d("Cleared all fragments")
     }
     
     /**

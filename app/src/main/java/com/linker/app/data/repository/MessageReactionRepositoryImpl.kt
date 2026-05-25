@@ -32,21 +32,31 @@ class MessageReactionRepositoryImpl @Inject constructor(
         firestore.collection("chats").document(chatId).collection("messages")
 
     override suspend fun reactToMessage(chatId: String, messageId: String, emoji: String?): Result<Unit> = safeCall {
-        val messageDoc = messagesRef(chatId).document(messageId).get().await()
-        val reactions = (messageDoc.get("reactions") as? Map<String, String>)?.toMutableMap() ?: mutableMapOf()
-        val messageSenderId = messageDoc.getString("senderId") ?: ""
-        
-        if (emoji == null) {
-            reactions.remove(currentUserId)
-        } else {
-            reactions[currentUserId] = emoji
+        val docRef = messagesRef(chatId).document(messageId)
+        var messageSenderId = ""
+        var notificationRequired = false
+
+        firestore.runTransaction { transaction ->
+            val snapshot = transaction.get(docRef)
+            @Suppress("UNCHECKED_CAST")
+            val reactions = (snapshot.get("reactions") as? Map<String, String>)?.toMutableMap() ?: mutableMapOf()
+            messageSenderId = snapshot.getString("senderId") ?: ""
             
-            // Send notification to message sender if it's not us
-            if (messageSenderId.isNotBlank() && messageSenderId != currentUserId) {
-                sendReactionNotification(messageSenderId, messageId, emoji)
+            if (emoji == null) {
+                reactions.remove(currentUserId)
+            } else {
+                reactions[currentUserId] = emoji
+                if (messageSenderId.isNotBlank() && messageSenderId != currentUserId) {
+                    notificationRequired = true
+                }
             }
+            transaction.update(docRef, "reactions", reactions)
+        }.await()
+
+        // Send notification after transaction succeeds
+        if (notificationRequired && emoji != null) {
+            sendReactionNotification(messageSenderId, messageId, emoji)
         }
-        messagesRef(chatId).document(messageId).update("reactions", reactions).await()
     }
     
     private suspend fun sendReactionNotification(recipientId: String, messageId: String, emoji: String) {
@@ -58,8 +68,6 @@ class MessageReactionRepositoryImpl @Inject constructor(
             
             // Use sendChatNotification with a special format for reactions
             val response = supabaseNotificationApi.sendChatNotification(
-                auth = "Bearer $key",
-                apiKey = key,
                 request = com.linker.app.core.di.ChatNotificationRequest(
                     recipientId = recipientId,
                     senderId = currentUserId,

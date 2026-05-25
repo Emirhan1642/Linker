@@ -2,6 +2,9 @@ package com.linker.app.data.queue
 
 import android.content.Context
 import android.util.Log
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.linker.app.data.ble.BLEMeshManager
 import com.linker.app.data.ble.BLEPacket
 import com.linker.app.data.ble.MessageBatcher
@@ -12,20 +15,24 @@ import com.linker.app.data.local.entity.DeliveryMethod
 import com.linker.app.data.local.entity.MessageQueueEntity
 import com.linker.app.data.local.entity.QueueStatus as EntityQueueStatus
 import com.linker.app.data.local.entity.MessageStatus as EntityMessageStatus
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Implementation of MessageQueueProcessor
- * 
- * Handles offline message queueing, processing, and retry logic.
+ * Queue processing metrics
  */
+data class QueueMetrics(
+    val totalEnqueued: Long,
+    val totalProcessed: Long,
+    val totalSucceeded: Long,
+    val totalFailed: Long,
+    val averageProcessingTimeMs: Long,
+    val successRate: Double
+)
+
 @Singleton
 class MessageQueueProcessorImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
@@ -42,38 +49,52 @@ class MessageQueueProcessorImpl @Inject constructor(
         private const val TAG = "MessageQueueProcessor"
         private const val DEFAULT_TTL: Byte = 5
         private const val MAX_QUEUE_SIZE = 1000
+        private const val MAX_PAYLOAD_SIZE = 10 * 1024 * 1024 // 10 MB
     }
 
-    // Class-level scope tied to this singleton's lifecycle.
-    // Using SupervisorJob so individual child failures don't cancel the whole scope.
-    private val processorScope = kotlinx.coroutines.CoroutineScope(
-        kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob()
-    )
+    private val processorJob = SupervisorJob()
+    private val processorScope = CoroutineScope(Dispatchers.Default + processorJob)
     
-    private val _queueStatus = MutableStateFlow(
-        QueueStatus(0, 0, 0)
-    )
+    private val _queueStatus = MutableStateFlow(QueueStatus(0, 0, 0))
     
-    /**
-     * Execute a queue status update transaction
-     * 
-     * This wrapper ensures that queue item updates are followed by status refresh.
-     * Reduces code duplication and ensures consistency.
-     * 
-     * @param block The transaction block that updates queue items
-     */
-    private suspend inline fun withQueueStatusUpdate(block: suspend () -> Unit) {
+    // Metrics
+    private var totalEnqueued = 0L
+    private var totalProcessed = 0L
+    private var totalSucceeded = 0L
+    private var totalFailed = 0L
+    private val processingTimes = mutableListOf<Long>()
+    
+    fun getMetrics(): QueueMetrics {
+        val avgProcessingTime = if (processingTimes.isNotEmpty()) {
+            processingTimes.average().toLong()
+        } else {
+            0L
+        }
+        val successRate = if (totalProcessed > 0) {
+            totalSucceeded.toDouble() / totalProcessed
+        } else {
+            0.0
+        }
+        return QueueMetrics(
+            totalEnqueued = totalEnqueued,
+            totalProcessed = totalProcessed,
+            totalSucceeded = totalSucceeded,
+            totalFailed = totalFailed,
+            averageProcessingTimeMs = avgProcessingTime,
+            successRate = successRate
+        )
+    }
+
+    private suspend inline fun <T> withQueueStatusUpdate(block: suspend () -> T): T {
         try {
-            block()
+            return block()
         } finally {
             updateQueueStatus()
         }
     }
     
     init {
-        // Setup message batcher callback
         messageBatcher.setOnBatchReady { batch ->
-            // Batch is ready, send all messages using the class-level scope
             processorScope.launch {
                 batch.forEach { packet ->
                     try {
@@ -86,6 +107,20 @@ class MessageQueueProcessorImpl @Inject constructor(
         }
     }
     
+    fun shutdown() {
+        try {
+            processorJob.cancel()
+            Log.d(TAG, "MessageQueueProcessor shutdown completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during shutdown", e)
+        }
+    }
+
+    private suspend fun getCurrentUserIdOrThrow(): String {
+        return currentUserProvider.getCurrentUserId()
+            ?: throw IllegalStateException("Current user ID not available. User must be logged in.")
+    }
+
     override suspend fun enqueueMessage(
         messageId: String,
         chatId: String,
@@ -93,21 +128,29 @@ class MessageQueueProcessorImpl @Inject constructor(
         payload: String,
         deliveryMethod: DeliveryMethod
     ): Result<Unit> {
+        if (messageId.isBlank()) return Result.failure(IllegalArgumentException("messageId cannot be blank"))
+        if (chatId.isBlank()) return Result.failure(IllegalArgumentException("chatId cannot be blank"))
+        if (recipientId.isBlank()) return Result.failure(IllegalArgumentException("recipientId cannot be blank"))
+        if (payload.isBlank()) return Result.failure(IllegalArgumentException("payload cannot be blank"))
+        if (payload.length > MAX_PAYLOAD_SIZE) return Result.failure(IllegalArgumentException("payload exceeds maximum size ($MAX_PAYLOAD_SIZE bytes)"))
+        if (deliveryMethod != DeliveryMethod.BLE && deliveryMethod != DeliveryMethod.WIFI_DIRECT) {
+            return Result.failure(IllegalArgumentException("Invalid delivery method for offline message: $deliveryMethod"))
+        }
+
         return try {
-            // Determine priority based on message type from database
             val message = messageDao.getMessageById(messageId)
             val priority = when (message?.messageType) {
                 com.linker.app.data.local.entity.MessageType.TEXT,
                 com.linker.app.data.local.entity.MessageType.LINK,
                 com.linker.app.data.local.entity.MessageType.CONTACT,
-                com.linker.app.data.local.entity.MessageType.LOCATION -> MessagePriority.TEXT // High priority (0)
+                com.linker.app.data.local.entity.MessageType.LOCATION -> MessagePriority.TEXT
                 
                 com.linker.app.data.local.entity.MessageType.IMAGE,
                 com.linker.app.data.local.entity.MessageType.VIDEO,
                 com.linker.app.data.local.entity.MessageType.GIF,
                 com.linker.app.data.local.entity.MessageType.AUDIO,
                 com.linker.app.data.local.entity.MessageType.FILE,
-                com.linker.app.data.local.entity.MessageType.STICKER -> MessagePriority.MEDIA // Low priority (1)
+                com.linker.app.data.local.entity.MessageType.STICKER -> MessagePriority.MEDIA
                 
                 null -> {
                     Log.w(TAG, "Message $messageId not found in database, defaulting to TEXT priority")
@@ -135,24 +178,18 @@ class MessageQueueProcessorImpl @Inject constructor(
             )
             
             messageQueueDao.insertQueueItem(queueEntity)
+            totalEnqueued++
             
-            // Check queue size and cleanup if needed
             val queueSize = messageQueueDao.getQueueSize()
             if (queueSize > MAX_QUEUE_SIZE) {
-                // Remove oldest SENT messages using batch delete
-                val sentMessages = messageQueueDao.getMessagesByStatus(EntityQueueStatus.SENT)
-                    .sortedBy { it.sentAt }
-                    .take(queueSize - MAX_QUEUE_SIZE)
-                
-                if (sentMessages.isNotEmpty()) {
-                    val queueIds = sentMessages.map { it.queueId }
-                    messageQueueDao.deleteQueueItems(queueIds)
-                    Log.d(TAG, "Batch deleted ${queueIds.size} old messages to maintain queue size")
+                val messagesToDelete = queueSize - MAX_QUEUE_SIZE
+                val deletedCount = messageQueueDao.deleteOldestSentMessages(messagesToDelete)
+                if (deletedCount > 0) {
+                    Log.d(TAG, "Deleted $deletedCount old SENT messages to maintain queue size")
                 }
             }
             
             updateQueueStatus()
-            
             Log.d(TAG, "Message $messageId enqueued for $deliveryMethod delivery")
             Result.success(Unit)
         } catch (e: Exception) {
@@ -160,42 +197,62 @@ class MessageQueueProcessorImpl @Inject constructor(
             Result.failure(e)
         }
     }
+
+    override suspend fun enqueueMessages(messages: List<QueueMessageRequest>): Result<BatchEnqueueResult> {
+        var successCount = 0
+        var failedCount = 0
+        val errors = mutableListOf<String>()
+        
+        for (request in messages) {
+            val result = enqueueMessage(
+                request.messageId, request.chatId, request.recipientId, request.payload, request.deliveryMethod
+            )
+            if (result.isSuccess) successCount++ else {
+                failedCount++
+                errors.add(result.exceptionOrNull()?.message ?: "Unknown error")
+            }
+        }
+        return Result.success(BatchEnqueueResult(successCount, failedCount, errors))
+    }
     
-    override suspend fun processQueue() {
+    override suspend fun processQueue(): Int {
+        var processedCount = 0
         try {
-            // Get pending messages ordered by priority (lower = higher priority)
-            val pendingMessages = messageQueueDao.getPendingMessages()
-                .sortedBy { it.priority }
+            val pendingMessages = messageQueueDao.getPendingMessages().sortedBy { it.priority }
             
             for (message in pendingMessages) {
-                // Check if enough time has passed since last attempt (for retries)
-                if (message.retryCount > 0 && message.lastAttemptAt != null) {
-                    val requiredDelay = RetryStrategy.calculateDelay(message.retryCount - 1)
-                    val timeSinceLastAttempt = System.currentTimeMillis() - message.lastAttemptAt
-                    
-                    if (timeSinceLastAttempt < requiredDelay) {
-                        // Skip this message, not ready for retry yet
-                        Log.d(TAG, "Message ${message.messageId} not ready for retry (${requiredDelay - timeSinceLastAttempt}ms remaining)")
-                        continue
+                if (message.retryCount > 0) {
+                    val lastAttemptAt = message.lastAttemptAt
+                    if (lastAttemptAt == null) {
+                        Log.d(TAG, "Message ${message.messageId} first retry attempt")
+                    } else {
+                        val requiredDelay = RetryStrategy.calculateDelay(message.retryCount - 1)
+                        val timeSinceLastAttempt = System.currentTimeMillis() - lastAttemptAt
+                        
+                        if (timeSinceLastAttempt < requiredDelay) {
+                            val remainingDelay = requiredDelay - timeSinceLastAttempt
+                            Log.d(TAG, "Message ${message.messageId} not ready for retry (${remainingDelay}ms remaining, attempt ${message.retryCount})")
+                            continue
+                        }
+                        Log.d(TAG, "Message ${message.messageId} ready for retry (attempt ${message.retryCount})")
                     }
                 }
                 
                 processMessage(message)
+                processedCount++
             }
-            
             updateQueueStatus()
         } catch (e: Exception) {
             Log.e(TAG, "Error processing queue", e)
         }
+        return processedCount
     }
     
     override suspend fun retryFailedMessages() {
         try {
             val failedMessages = messageQueueDao.getMessagesByStatus(EntityQueueStatus.FAILED)
-            
             for (message in failedMessages) {
                 if (message.retryCount < message.maxRetries) {
-                    // Reset to pending for retry
                     val updated = message.copy(
                         queueStatus = EntityQueueStatus.PENDING,
                         errorMessage = null
@@ -203,80 +260,115 @@ class MessageQueueProcessorImpl @Inject constructor(
                     messageQueueDao.updateQueueItem(updated)
                 }
             }
-            
             processQueue()
         } catch (e: Exception) {
             Log.e(TAG, "Error retrying failed messages", e)
         }
     }
     
-    override suspend fun cancelMessage(messageId: String) {
-        withQueueStatusUpdate {
+    override suspend fun cancelMessage(messageId: String): Result<Unit> {
+        return withQueueStatusUpdate {
             try {
                 val queueItem = messageQueueDao.getQueueItemByMessageId(messageId)
-                
-                if (queueItem != null) {
-                    messageQueueDao.deleteQueueItem(queueItem.queueId)
-                    Log.d(TAG, "Message $messageId cancelled")
+                if (queueItem == null) {
+                    Log.w(TAG, "Message $messageId not found in queue")
+                    return@withQueueStatusUpdate Result.failure(IllegalArgumentException("Message not found in queue"))
                 }
+                
+                if (queueItem.queueStatus == EntityQueueStatus.SENDING) {
+                    Log.w(TAG, "Message $messageId is currently being sent, attempting to cancel")
+                    try {
+                        when (queueItem.deliveryMethod) {
+                            DeliveryMethod.BLE -> {
+                                // best-effort cancel for BLE
+                            }
+                            DeliveryMethod.WIFI_DIRECT -> Log.w(TAG, "Cannot cancel ongoing Wi-Fi Direct transfer")
+                            else -> {}
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error cancelling ongoing transfer", e)
+                    }
+                }
+                
+                messageQueueDao.deleteQueueItem(queueItem.queueId)
+                Log.d(TAG, "Message $messageId cancelled")
+                Result.success(Unit)
             } catch (e: Exception) {
                 Log.e(TAG, "Error cancelling message $messageId", e)
+                Result.failure(e)
             }
         }
+    }
+
+    override suspend fun cancelMessages(messageIds: List<String>): Int {
+        var count = 0
+        for (id in messageIds) {
+            if (cancelMessage(id).isSuccess) count++
+        }
+        return count
     }
     
     override suspend fun clearSentMessages() {
         withQueueStatusUpdate {
             try {
                 val sentMessages = messageQueueDao.getMessagesByStatus(EntityQueueStatus.SENT)
-                
                 if (sentMessages.isNotEmpty()) {
-                    // Batch delete for better performance
                     val queueIds = sentMessages.map { it.queueId }
                     messageQueueDao.deleteQueueItems(queueIds)
                     Log.d(TAG, "Cleared ${sentMessages.size} sent messages using batch delete")
-                } else {
-                    Log.d(TAG, "No sent messages to clear")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing sent messages", e)
             }
         }
     }
-    
-    override fun observeQueueStatus(): Flow<QueueStatus> {
-        return _queueStatus.asStateFlow()
+
+    override suspend fun clearMessagesByStatus(status: EntityQueueStatus): Int {
+        var count = 0
+        withQueueStatusUpdate {
+            try {
+                val messages = messageQueueDao.getMessagesByStatus(status)
+                if (messages.isNotEmpty()) {
+                    val queueIds = messages.map { it.queueId }
+                    messageQueueDao.deleteQueueItems(queueIds)
+                    count = queueIds.size
+                    Log.d(TAG, "Cleared $count messages with status $status")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing messages by status", e)
+            }
+        }
+        return count
     }
     
-    override fun observePendingCount(): Flow<Int> {
-        return messageQueueDao.observePendingCount()
-    }
+    override fun observeQueueStatus(): Flow<QueueStatus> = _queueStatus.asStateFlow()
+    
+    override fun observePendingCount(): Flow<Int> = messageQueueDao.observePendingCount()
     
     private suspend fun processMessage(message: MessageQueueEntity) {
+        val startTime = System.currentTimeMillis()
         try {
-            // Update status to SENDING
             val sending = message.copy(
                 queueStatus = EntityQueueStatus.SENDING,
                 lastAttemptAt = System.currentTimeMillis()
             )
             messageQueueDao.updateQueueItem(sending)
             
-            // Send based on delivery method
             val result = when (message.deliveryMethod) {
                 DeliveryMethod.BLE -> sendViaBLE(message)
                 DeliveryMethod.WIFI_DIRECT -> sendViaWiFiDirect(message)
                 else -> Result.failure(Exception("Invalid delivery method for offline message"))
             }
             
+            totalProcessed++
             if (result.isSuccess) {
-                // Mark as SENT in queue
+                totalSucceeded++
                 val sent = message.copy(
                     queueStatus = EntityQueueStatus.SENT,
                     sentAt = System.currentTimeMillis()
                 )
                 messageQueueDao.updateQueueItem(sent)
                 
-                // Update message status in database
                 try {
                     messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.DELIVERED)
                     Log.d(TAG, "Updated message ${message.messageId} status to DELIVERED")
@@ -286,197 +378,168 @@ class MessageQueueProcessorImpl @Inject constructor(
                 
                 Log.d(TAG, "Message ${message.messageId} sent successfully")
             } else {
-                // Handle failure
+                totalFailed++
                 handleMessageFailure(message, result.exceptionOrNull())
             }
         } catch (e: Exception) {
+            totalFailed++
             Log.e(TAG, "Error processing message ${message.messageId}", e)
             handleMessageFailure(message, e)
+        } finally {
+            val processingTime = System.currentTimeMillis() - startTime
+            processingTimes.add(processingTime)
+            if (processingTimes.size > 100) processingTimes.removeAt(0)
         }
     }
-    
-    /**
-     * Send message via BLE mesh
-     */
-    private suspend fun sendViaBLE(message: MessageQueueEntity): Result<Unit> {
-        return try {
-            // Get current user ID
-            val currentUserId = currentUserProvider.getCurrentUserId()
-            if (currentUserId == null) {
-                Log.e(TAG, "Cannot send BLE message: current user ID not available")
-                return Result.failure(Exception("Current user ID not available"))
-            }
-            
-            // Encrypt message payload before sending
-            val encryptedPayload = try {
+
+    private suspend fun encryptMessagePayloadWithRetry(
+        recipientId: String,
+        plaintext: String,
+        maxRetries: Int = 2
+    ): ByteArray? {
+        repeat(maxRetries + 1) { attempt ->
+            try {
                 val encryptionResult = encryptionManager.encryptMessage(
-                    recipientId = message.recipientId,
-                    plaintext = message.messagePayload
+                    recipientId = recipientId,
+                    plaintext = plaintext
                 )
                 
                 if (encryptionResult.isSuccess) {
-                    encryptionResult.getOrNull()?.signalMessage ?: run {
-                        Log.e(TAG, "Encryption succeeded but returned null encrypted message")
-                        return Result.failure(Exception("Encryption returned null"))
-                    }
-                } else {
-                    Log.e(TAG, "Failed to encrypt message: ${encryptionResult.exceptionOrNull()?.message}")
-                    return Result.failure(encryptionResult.exceptionOrNull() ?: Exception("Encryption failed"))
+                    val encrypted = encryptionResult.getOrNull()?.signalMessage
+                    if (encrypted != null) return encrypted
                 }
+                
+                val error = encryptionResult.exceptionOrNull()
+                Log.w(TAG, "Encryption attempt ${attempt + 1} failed: ${error?.message}")
+                
+                if (attempt < maxRetries) delay(1000L * (attempt + 1))
             } catch (e: Exception) {
-                Log.e(TAG, "Exception during message encryption", e)
-                return Result.failure(e)
+                Log.e(TAG, "Exception during encryption attempt ${attempt + 1}", e)
+                if (attempt < maxRetries) delay(1000L * (attempt + 1))
             }
+        }
+        Log.e(TAG, "Encryption failed after $maxRetries retries")
+        return null
+    }
+    
+    private suspend fun sendViaBLE(
+        message: MessageQueueEntity,
+        onProgress: ((Int) -> Unit)? = null
+    ): Result<Unit> {
+        return try {
+            val currentUserId = getCurrentUserIdOrThrow()
+            onProgress?.invoke(10)
             
-            // Create BLE packet with encrypted payload
+            val encryptedPayload = encryptMessagePayloadWithRetry(message.recipientId, message.messagePayload)
+                ?: return Result.failure(Exception("Encryption failed"))
+            
+            onProgress?.invoke(50)
+            
             val packet = BLEPacket.create(
                 messageId = message.messageId,
-                senderId = currentUserId,  // Use actual current user ID
+                senderId = currentUserId,
                 recipientId = message.recipientId,
                 ttl = message.ttl.toByte(),
                 hopCount = 0,
                 encryptedPayload = encryptedPayload
             )
             
-            Log.d(TAG, "Attempting to send BLE packet for message ${message.messageId} from $currentUserId to recipient ${message.recipientId}")
-            
-            // Add to message batcher for efficient transmission
-            // The batcher will automatically send when batch size (5) is reached or timeout (5s) occurs
+            onProgress?.invoke(75)
             messageBatcher.addMessage(packet)
+            onProgress?.invoke(100)
             
-            // For now, consider it successful when added to batcher
-            // The actual send result will be handled by the batcher callback
             Log.d(TAG, "BLE packet added to batcher for message ${message.messageId}")
             Result.success(Unit)
+        } catch (e: IllegalStateException) {
+            Log.e(TAG, "User not logged in", e)
+            Result.failure(e)
         } catch (e: Exception) {
             Log.e(TAG, "Error sending via BLE: ${message.messageId}", e)
             Result.failure(e)
         }
     }
     
-    /**
-     * Send message via Wi-Fi Direct
-     */
     private suspend fun sendViaWiFiDirect(message: MessageQueueEntity): Result<Unit> {
         return try {
-            // Get current user ID
-            val currentUserId = currentUserProvider.getCurrentUserId()
-            if (currentUserId == null) {
-                Log.e(TAG, "Cannot send Wi-Fi Direct message: current user ID not available")
-                return Result.failure(Exception("Current user ID not available"))
-            }
+            val currentUserId = getCurrentUserIdOrThrow()
             
             Log.d(TAG, "Attempting to send message ${message.messageId} via Wi-Fi Direct to ${message.recipientId}")
             
-            // Start discovery to find the recipient
             val discoveryResult = nearbyConnectionsManager.startDiscovery()
             if (discoveryResult.isFailure) {
-                Log.e(TAG, "Failed to start Wi-Fi Direct discovery: ${discoveryResult.exceptionOrNull()?.message}")
                 return Result.failure(discoveryResult.exceptionOrNull() ?: Exception("Discovery failed"))
             }
             
-            Log.d(TAG, "Wi-Fi Direct discovery started, waiting for recipient ${message.recipientId}")
+            val discoveryTimeout = 10_000L
             
-            // Wait for recipient to be discovered (with timeout)
-            var recipientEndpointId: String? = null
-            val discoveryTimeout = 10_000L // 10 seconds
-            val startTime = System.currentTimeMillis()
-            
-            // Collect discovered endpoints using the class-level scope
-            val discoveryJob = processorScope.launch {
-                nearbyConnectionsManager.observeDiscoveredEndpoints().collect { endpoints ->
-                    val recipientEndpoint = endpoints.find { it.userId == message.recipientId }
-                    if (recipientEndpoint != null) {
-                        recipientEndpointId = recipientEndpoint.endpointId
-                        Log.d(TAG, "Found recipient ${message.recipientId} at endpoint ${recipientEndpoint.endpointId}")
-                    }
+            val recipientEndpointId = try {
+                withTimeoutOrNull(discoveryTimeout) {
+                    nearbyConnectionsManager.observeDiscoveredEndpoints()
+                        .mapNotNull { endpoints ->
+                            endpoints.find { it.userId == message.recipientId }?.endpointId
+                        }
+                        .first()
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during discovery", e)
+                null
+            } finally {
+                nearbyConnectionsManager.stopDiscovery()
             }
-            
-            // Wait for discovery or timeout
-            while (recipientEndpointId == null && (System.currentTimeMillis() - startTime) < discoveryTimeout) {
-                kotlinx.coroutines.delay(500)
-            }
-            
-            discoveryJob.cancel()
-            nearbyConnectionsManager.stopDiscovery()
             
             if (recipientEndpointId == null) {
-                Log.w(TAG, "Recipient ${message.recipientId} not found via Wi-Fi Direct, falling back to BLE")
+                Log.w(TAG, "Recipient ${message.recipientId} not found via Wi-Fi Direct after ${discoveryTimeout}ms")
                 return Result.failure(Exception("Recipient not found via Wi-Fi Direct"))
             }
             
-            // Connect to recipient
-            Log.d(TAG, "Connecting to recipient endpoint $recipientEndpointId")
-            val connectionResult = nearbyConnectionsManager.connectToEndpoint(recipientEndpointId!!)
+            val connectionResult = nearbyConnectionsManager.connectToEndpoint(recipientEndpointId)
             if (connectionResult.isFailure) {
-                Log.e(TAG, "Failed to connect to recipient: ${connectionResult.exceptionOrNull()?.message}")
                 return Result.failure(connectionResult.exceptionOrNull() ?: Exception("Connection failed"))
             }
             
-            Log.d(TAG, "Connected to recipient, preparing to send message")
-            
-            // Encrypt message payload
-            val encryptedPayload = try {
-                val encryptionResult = encryptionManager.encryptMessage(
-                    recipientId = message.recipientId,
-                    plaintext = message.messagePayload
-                )
-                
-                if (encryptionResult.isSuccess) {
-                    encryptionResult.getOrNull()?.signalMessage ?: run {
-                        Log.e(TAG, "Encryption succeeded but returned null encrypted message")
-                        nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId!!)
-                        return Result.failure(Exception("Encryption returned null"))
-                    }
-                } else {
-                    Log.e(TAG, "Failed to encrypt message: ${encryptionResult.exceptionOrNull()?.message}")
-                    nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId!!)
-                    return Result.failure(encryptionResult.exceptionOrNull() ?: Exception("Encryption failed"))
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Exception during message encryption", e)
-                nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId!!)
-                return Result.failure(e)
+            val encryptedPayload = encryptMessagePayloadWithRetry(message.recipientId, message.messagePayload)
+            if (encryptedPayload == null) {
+                nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId)
+                return Result.failure(Exception("Encryption failed"))
             }
             
-            // Create temporary file with encrypted payload
             val tempFile = java.io.File.createTempFile("linker_msg_${message.messageId}", ".enc", context.cacheDir)
             try {
                 tempFile.writeBytes(encryptedPayload)
                 
-                Log.d(TAG, "Sending file via Wi-Fi Direct (size: ${tempFile.length()} bytes)")
-                
-                // Send file with progress tracking
                 var lastProgress = 0L
                 val sendResult = nearbyConnectionsManager.sendFile(
-                    endpointId = recipientEndpointId!!,
+                    endpointId = recipientEndpointId,
                     file = tempFile,
                     onProgress = { bytesTransferred, totalBytes ->
                         val progress = (bytesTransferred * 100 / totalBytes).toInt()
-                        if (progress - lastProgress >= 10) { // Log every 10%
-                            Log.d(TAG, "Wi-Fi Direct transfer progress: $progress% ($bytesTransferred/$totalBytes bytes)")
+                        if (progress - lastProgress >= 10) {
+                            Log.d(TAG, "Wi-Fi Direct transfer progress: $progress%")
                             lastProgress = progress.toLong()
                         }
                     }
                 )
                 
-                // Clean up
-                tempFile.delete()
-                nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId!!)
-                
                 if (sendResult.isSuccess) {
                     Log.d(TAG, "Message ${message.messageId} sent successfully via Wi-Fi Direct")
                     Result.success(Unit)
                 } else {
-                    Log.e(TAG, "Failed to send file via Wi-Fi Direct: ${sendResult.exceptionOrNull()?.message}")
                     Result.failure(sendResult.exceptionOrNull() ?: Exception("File send failed"))
                 }
             } catch (e: Exception) {
-                tempFile.delete()
-                nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId!!)
                 Log.e(TAG, "Error during Wi-Fi Direct file transfer", e)
                 Result.failure(e)
+            } finally {
+                try {
+                    if (tempFile.exists()) tempFile.delete()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error deleting temp file", e)
+                }
+                try {
+                    nearbyConnectionsManager.disconnectFromEndpoint(recipientEndpointId)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error disconnecting endpoint", e)
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error sending via Wi-Fi Direct: ${message.messageId}", e)
@@ -484,45 +547,39 @@ class MessageQueueProcessorImpl @Inject constructor(
         }
     }
     
-    /**
-     * Handle message sending failure with exponential backoff
-     */
     private suspend fun handleMessageFailure(message: MessageQueueEntity, error: Throwable?) {
         val newRetryCount = message.retryCount + 1
         
         if (!RetryStrategy.shouldRetry(newRetryCount)) {
-            // Mark as FAILED
             val failed = message.copy(
                 queueStatus = EntityQueueStatus.FAILED,
                 retryCount = newRetryCount,
                 errorMessage = error?.message ?: "Unknown error"
             )
             messageQueueDao.updateQueueItem(failed)
-            
             Log.e(TAG, "Message ${message.messageId} failed after $newRetryCount attempts")
         } else {
-            // Reset to PENDING for retry with exponential backoff
-            // The actual delay will be calculated by RetryStrategy when processing
             val pending = message.copy(
                 queueStatus = EntityQueueStatus.PENDING,
                 retryCount = newRetryCount,
                 errorMessage = error?.message
             )
             messageQueueDao.updateQueueItem(pending)
-            
             val nextDelay = RetryStrategy.calculateDelay(newRetryCount)
             Log.w(TAG, "Message ${message.messageId} will retry in ${nextDelay}ms (attempt $newRetryCount)")
         }
     }
     
-    /**
-     * Update queue status
-     */
     private suspend fun updateQueueStatus() {
-        val pending = messageQueueDao.getMessagesByStatus(EntityQueueStatus.PENDING).size
-        val sending = messageQueueDao.getMessagesByStatus(EntityQueueStatus.SENDING).size
-        val failed = messageQueueDao.getMessagesByStatus(EntityQueueStatus.FAILED).size
-        
-        _queueStatus.value = QueueStatus(pending, sending, failed)
+        try {
+            val statusCounts = messageQueueDao.getStatusCounts()
+            _queueStatus.value = QueueStatus(
+                pendingCount = statusCounts[EntityQueueStatus.PENDING] ?: 0,
+                sendingCount = statusCounts[EntityQueueStatus.SENDING] ?: 0,
+                failedCount = statusCounts[EntityQueueStatus.FAILED] ?: 0
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating queue status", e)
+        }
     }
 }

@@ -5,7 +5,11 @@ import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import dagger.hilt.android.qualifiers.ApplicationContext
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import com.linker.app.core.util.SecureLogger
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.signal.libsignal.protocol.IdentityKeyPair
 import java.security.KeyStore
 import javax.crypto.Cipher
@@ -15,6 +19,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
 import javax.inject.Singleton
 import androidx.core.content.edit
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 /**
  * Wrapper for Android Keystore operations
@@ -30,6 +35,7 @@ class AndroidKeystoreWrapper @Inject constructor(
 ) {
     
     companion object {
+        private const val TAG = "AndroidKeystoreWrapper"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val PREFS_NAME = "signal_keystore_prefs"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -40,7 +46,17 @@ class AndroidKeystoreWrapper @Inject constructor(
         load(null)
     }
     
-    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        PREFS_NAME,
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
     
     /**
      * Generate or retrieve AES key from Android Keystore
@@ -72,33 +88,44 @@ class AndroidKeystoreWrapper @Inject constructor(
     /**
      * Encrypt data using Android Keystore
      */
-    fun encrypt(alias: String, data: ByteArray): ByteArray {
-        val secretKey = getOrCreateSecretKey(alias)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey)
-        
-        val iv = cipher.iv
-        val encrypted = cipher.doFinal(data)
-        
-        // Combine IV and encrypted data
-        return iv + encrypted
+    fun encrypt(alias: String, data: ByteArray): Result<ByteArray> {
+        return try {
+            val secretKey = getOrCreateSecretKey(alias)
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey)
+            
+            val iv = cipher.iv
+            val encrypted = cipher.doFinal(data)
+            
+            Result.success(iv + encrypted)
+        } catch (e: Exception) {
+            SecureLogger.e(TAG, "Encryption failed for alias: $alias", e)
+            Result.failure(e)
+        }
     }
     
     /**
      * Decrypt data using Android Keystore
      */
-    fun decrypt(alias: String, encryptedData: ByteArray): ByteArray {
-        val secretKey = getOrCreateSecretKey(alias)
-        
-        // Extract IV and encrypted data
-        val iv = encryptedData.copyOfRange(0, 12) // GCM IV is 12 bytes
-        val encrypted = encryptedData.copyOfRange(12, encryptedData.size)
-        
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
-        cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
-        
-        return cipher.doFinal(encrypted)
+    fun decrypt(alias: String, encryptedData: ByteArray): Result<ByteArray> {
+        return try {
+            if (encryptedData.size < 12) {
+                return Result.failure(IllegalArgumentException("Encrypted data too short"))
+            }
+            
+            val secretKey = getOrCreateSecretKey(alias)
+            val iv = encryptedData.copyOfRange(0, 12)
+            val encrypted = encryptedData.copyOfRange(12, encryptedData.size)
+            
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
+            cipher.init(Cipher.DECRYPT_MODE, secretKey, spec)
+            
+            Result.success(cipher.doFinal(encrypted))
+        } catch (e: Exception) {
+            SecureLogger.e(TAG, "Decryption failed for alias: $alias", e)
+            Result.failure(e)
+        }
     }
     
     /**
@@ -106,10 +133,12 @@ class AndroidKeystoreWrapper @Inject constructor(
      */
     fun storeIdentityKeyPair(alias: String, identityKeyPair: IdentityKeyPair) {
         val serialized = identityKeyPair.serialize()
-        val encrypted = encrypt(alias, serialized)
-        val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-
-        prefs.edit { putString(alias, encoded) }
+        encrypt(alias, serialized).onSuccess { encrypted ->
+            val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+            prefs.edit { putString(alias, encoded) }
+        }.onFailure { e ->
+            SecureLogger.e(TAG, "Failed to store identity key pair for alias: $alias", e)
+        }
     }
     
     /**
@@ -118,9 +147,10 @@ class AndroidKeystoreWrapper @Inject constructor(
     fun getIdentityKeyPair(alias: String): IdentityKeyPair? {
         val encoded = prefs.getString(alias, null) ?: return null
         val encrypted = Base64.decode(encoded, Base64.NO_WRAP)
-        val decrypted = decrypt(alias, encrypted)
         
-        return IdentityKeyPair(decrypted)
+        return decrypt(alias, encrypted).getOrNull()?.let { decrypted ->
+            IdentityKeyPair(decrypted)
+        }
     }
     
     /**
@@ -141,10 +171,12 @@ class AndroidKeystoreWrapper @Inject constructor(
      * Store encrypted string
      */
     fun storeEncryptedString(alias: String, key: String, value: String) {
-        val encrypted = encrypt(alias, value.toByteArray())
-        val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-
-        prefs.edit { putString(key, encoded) }
+        encrypt(alias, value.toByteArray()).onSuccess { encrypted ->
+            val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+            prefs.edit { putString(key, encoded) }
+        }.onFailure { e ->
+            SecureLogger.e(TAG, "Failed to store encrypted string for key: $key", e)
+        }
     }
     
     /**
@@ -153,9 +185,8 @@ class AndroidKeystoreWrapper @Inject constructor(
     fun getEncryptedString(alias: String, key: String): String? {
         val encoded = prefs.getString(key, null) ?: return null
         val encrypted = Base64.decode(encoded, Base64.NO_WRAP)
-        val decrypted = decrypt(alias, encrypted)
         
-        return String(decrypted)
+        return decrypt(alias, encrypted).getOrNull()?.let { String(it) }
     }
     
     /**
@@ -172,24 +203,29 @@ class AndroidKeystoreWrapper @Inject constructor(
         prefs.edit { remove(key) }
     }
     
+    private val clearMutex = Mutex()
+
     /**
      * Clear all stored data
      */
-    fun clearAll() {
-        // Snapshot the alias list before deletion to prevent ConcurrentModificationException
-        // during iteration. Both operations are performed under synchronized to maintain
-        // atomicity and prevent race conditions between SharedPreferences and Keystore clearing.
-        synchronized(this) {
-            prefs.edit { clear() }
-
-            val aliases = keyStore.aliases().toList()
-            aliases.forEach { alias ->
-                try {
-                    keyStore.deleteEntry(alias)
-                } catch (e: Exception) {
-                    // Log but continue – we want to delete as many entries as possible
-                    android.util.Log.w("AndroidKeystoreWrapper", "Failed to delete keystore entry: $alias", e)
+    suspend fun clearAll() {
+        clearMutex.withLock {
+            try {
+                prefs.edit { clear() }
+    
+                val aliases = keyStore.aliases().toList()
+                aliases.forEach { alias ->
+                    try {
+                        keyStore.deleteEntry(alias)
+                    } catch (e: Exception) {
+                        SecureLogger.w(TAG, "Failed to delete keystore entry: $alias", e)
+                    }
                 }
+                
+                SecureLogger.d(TAG, "All keystore data cleared")
+            } catch (e: Exception) {
+                SecureLogger.e(TAG, "Error clearing keystore", e)
+                throw e
             }
         }
     }

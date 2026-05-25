@@ -45,6 +45,14 @@ interface SignalSessionDao {
     
     @Query("DELETE FROM signal_sessions")
     suspend fun clearAll()
+
+    @Transaction
+    @Query("DELETE FROM signal_sessions WHERE address IN (:addresses)")
+    suspend fun batchDeleteSessions(addresses: List<String>)
+
+    @Transaction
+    @Query("DELETE FROM signal_sessions WHERE updatedAt < :timestamp")
+    suspend fun deleteOldSessions(timestamp: Long): Int
 }
 
 /**

@@ -76,7 +76,8 @@ class AuthViewModel @Inject constructor(
     private val completeProfileSetup: CompleteProfileSetupUseCase,
     private val signOutUseCase: SignOutUseCase,
     private val accountRepository: AccountRepository,
-    private val pushTokenRegistrar: PushTokenRegistrar
+    private val pushTokenRegistrar: PushTokenRegistrar,
+    private val credentialEncoder: CredentialEncoder
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
@@ -297,7 +298,7 @@ class AuthViewModel @Inject constructor(
             }
 
             // ✅ SECURITY: Use CredentialEncoder for delimiter-free encoding
-            val credential = CredentialEncoder.encode(email, password)
+            val credential = credentialEncoder.encode(email, password)
 
             accountRepository.addSession(
                 AccountSession(

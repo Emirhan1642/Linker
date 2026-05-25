@@ -17,7 +17,8 @@ import javax.inject.Singleton
 @Singleton
 class LinkRepositoryImpl @Inject constructor(
     private val linkDao: LinkDao,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : LinkRepository {
 
     // Helper to resolve a single UserEntity into a domain User
@@ -70,24 +71,65 @@ class LinkRepositoryImpl @Inject constructor(
         mediaLocalPaths: List<String>,
         location: String?
     ): Result<Link> = safeCall {
-        /**
-         * MEDIA UPLOAD PIPELINE NOT IMPLEMENTED
-         * 
-         * Required implementation:
-         * 1. Create CloudinaryUploadWorker for background upload
-         * 2. Queue media files for upload via WorkManager
-         * 3. Wait for upload completion and get URLs
-         * 4. POST link data with media URLs to Supabase
-         * 5. Sync to local database
-         * 
-         * This is a complex feature requiring:
-         * - WorkManager integration
-         * - Cloudinary SDK setup
-         * - Progress tracking
-         * - Retry logic
-         * - Network error handling
-         */
-        throw NotImplementedError("Media upload pipeline not yet implemented. Use text-only links for now.")
+        val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            ?: throw IllegalStateException("Not authenticated")
+        
+        val linkId = java.util.UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+
+        // Local placeholder for immediate UI feedback
+        val placeholderMedia = mediaLocalPaths.map { "placeholder://$it" }
+
+        val mappedLinkType = when(linkType) {
+            LinkType.FEED -> com.linker.app.data.local.entity.LinkType.FEED
+            LinkType.VIDEO -> com.linker.app.data.local.entity.LinkType.VIDEO
+            LinkType.REEL -> com.linker.app.data.local.entity.LinkType.REEL
+        }
+
+        val entity = com.linker.app.data.local.entity.LinkEntity(
+            linkId = linkId,
+            authorId = currentUserId,
+            linkType = mappedLinkType,
+            description = description,
+            mediaUrls = placeholderMedia,
+            thumbnailUrl = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) "placeholder" else null,
+            videoDuration = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) 15 else null,
+            location = location,
+            likesCount = 0,
+            commentsCount = 0,
+            sharesCount = 0,
+            relinksCount = 0,
+            savesCount = 0,
+            viewsCount = 0,
+            isLiked = false,
+            isSaved = false,
+            isRelinked = false,
+            createdAt = now,
+            updatedAt = now,
+            lastSyncedAt = now
+        )
+
+        linkDao.insertLink(entity)
+
+        if (mediaLocalPaths.isNotEmpty()) {
+            val workData = androidx.work.workDataOf(
+                "targetId" to linkId,
+                "targetType" to "LINK",
+                "mediaLocalPaths" to mediaLocalPaths.toTypedArray()
+            )
+            val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.linker.app.core.work.CloudinaryUploadWorker>()
+                .setInputData(workData)
+                .setConstraints(
+                    androidx.work.Constraints.Builder()
+                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                        .build()
+                )
+                .build()
+            
+            androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+        }
+
+        entity.toDomain(resolveAuthor(currentUserId))
     }
 
     override suspend fun deleteLink(linkId: String): Result<Unit> = safeCall {

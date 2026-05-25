@@ -1,6 +1,6 @@
 package com.linker.app.data.ble
 
-import android.util.Log
+import com.linker.app.core.util.SecureLogger as Log
 import com.linker.app.core.config.OfflineMessagingConfig
 import com.linker.app.data.connectivity.ConnectivityMonitor
 import com.linker.app.data.connectivity.ConnectivityState
@@ -38,10 +38,13 @@ class MessageBatcher @Inject constructor(
     private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
     private var flushJob: Job? = null
 
+    @Volatile
     private var onBatchReady: ((List<BLEPacket>) -> Unit)? = null
     
     // Adaptive batch parameters
+    @Volatile
     private var currentBatchSize = OfflineMessagingConfig.MESSAGE_BATCH_SIZE
+    @Volatile
     private var currentBatchTimeout = OfflineMessagingConfig.MESSAGE_BATCH_TIMEOUT_MS
     
     companion object {
@@ -160,10 +163,13 @@ class MessageBatcher @Inject constructor(
 
         if (batch.isNotEmpty()) {
             Log.d(TAG, "Flushing batch of ${batch.size} messages")
-            if (onBatchReady == null) {
-                Log.w(TAG, "onBatchReady callback is null – ${batch.size} messages will be dropped!")
+            val callback = onBatchReady
+            if (callback == null) {
+                Log.w(TAG, "onBatchReady callback is null – restoring ${batch.size} messages to queue!")
+                batch.forEach { messageQueue.offer(it) }
+                return
             }
-            onBatchReady?.invoke(batch)
+            callback.invoke(batch)
         }
     }
     
@@ -197,15 +203,15 @@ class MessageBatcher @Inject constructor(
     }
     
     /**
-     * Clear all pending messages and cancel the internal coroutine scope.
+     * Clean up resources and cancel the internal coroutine scope.
      * 
      * Call this when the batcher is no longer needed to prevent coroutine leaks.
      */
-    fun clear() {
+    fun shutdown() {
         flushJob?.cancel()
         flushJob = null
         messageQueue.clear()
         coroutineScope.cancel()
-        Log.d(TAG, "Cleared message batch and cancelled coroutine scope")
+        Log.d(TAG, "Shutdown message batcher and cancelled coroutine scope")
     }
 }

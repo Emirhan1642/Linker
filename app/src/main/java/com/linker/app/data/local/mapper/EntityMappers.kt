@@ -13,6 +13,10 @@ import com.linker.app.domain.model.StoryMediaType
 
 // ── UserEntity ↔ User ─────────────────────────────────────────────────────────
 
+/**
+ * Convert UserEntity to domain User model
+ * @return User domain model
+ */
 fun UserEntity.toDomain(): User = User(
     userId            = userId,
     username          = username,
@@ -37,6 +41,10 @@ fun UserEntity.toDomain(): User = User(
     updatedAt         = updatedAt
 )
 
+/**
+ * Convert domain User to UserEntity for database storage
+ * @return UserEntity with current timestamp as lastSyncedAt
+ */
 fun User.toEntity(): UserEntity = UserEntity(
     userId            = userId,
     username          = username,
@@ -100,13 +108,13 @@ fun LinkEntity.toDomain(author: User?): Link {
     )
 }
 
-fun com.linker.app.data.local.entity.LinkType.toDomain(): LinkType = when (this) {
+inline fun com.linker.app.data.local.entity.LinkType.toDomain(): LinkType = when (this) {
     com.linker.app.data.local.entity.LinkType.FEED  -> LinkType.FEED
     com.linker.app.data.local.entity.LinkType.VIDEO -> LinkType.VIDEO
     com.linker.app.data.local.entity.LinkType.REEL  -> LinkType.REEL
 }
 
-fun LinkType.toEntity(): com.linker.app.data.local.entity.LinkType = when (this) {
+inline fun LinkType.toEntity(): com.linker.app.data.local.entity.LinkType = when (this) {
     LinkType.FEED  -> com.linker.app.data.local.entity.LinkType.FEED
     LinkType.VIDEO -> com.linker.app.data.local.entity.LinkType.VIDEO
     LinkType.REEL  -> com.linker.app.data.local.entity.LinkType.REEL
@@ -152,10 +160,28 @@ fun StoryEntity.toDomain(author: User?): Story {
     )
 }
 
-fun com.linker.app.data.local.entity.StoryMediaType.toDomain(): StoryMediaType = when (this) {
+inline fun com.linker.app.data.local.entity.StoryMediaType.toDomain(): StoryMediaType = when (this) {
     com.linker.app.data.local.entity.StoryMediaType.IMAGE -> StoryMediaType.IMAGE
     com.linker.app.data.local.entity.StoryMediaType.VIDEO -> StoryMediaType.VIDEO
 }
+
+fun Story.toEntity(): StoryEntity = StoryEntity(
+    storyId = storyId,
+    authorId = author.userId,
+    mediaUrl = mediaUrl,
+    mediaType = when (mediaType) {
+        StoryMediaType.IMAGE -> com.linker.app.data.local.entity.StoryMediaType.IMAGE
+        StoryMediaType.VIDEO -> com.linker.app.data.local.entity.StoryMediaType.VIDEO
+    },
+    thumbnailUrl = thumbnailUrl,
+    duration = duration,
+    caption = caption,
+    viewsCount = viewsCount,
+    isViewed = isViewed,
+    createdAt = createdAt,
+    expiresAt = expiresAt,
+    lastSyncedAt = System.currentTimeMillis()
+)
 
 // ── NoteEntity ↔ Note ─────────────────────────────────────────────────────────
 
@@ -187,27 +213,94 @@ fun NoteEntity.toDomain(author: User?): Note {
     )
 }
 
-fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this) {
+inline fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this) {
     com.linker.app.data.local.entity.NoteType.TEXT      -> NoteType.TEXT
     com.linker.app.data.local.entity.NoteType.MUSIC     -> NoteType.MUSIC
     com.linker.app.data.local.entity.NoteType.COUNTDOWN -> NoteType.COUNTDOWN
 }
 
-// ── ChatEntity ↔ Chat / MessageEntity ↔ Message ───────────────────────────────
-
-fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat = Chat(
-    chatId = chatId, chatType = chatType.toDomain(), chatName = chatName,
-    chatImageUrl = chatImageUrl, participants = participants, lastMessage = lastMessage,
-    unreadCount = unreadCount, isPinned = isPinned, isMuted = isMuted,
-    isArchived = isArchived, isBlocked = isBlocked, isFavorited = isFavorited, theme = theme, createdAt = createdAt, updatedAt = updatedAt,
-    groupAdminIds = emptyList(),
-    groupCreatedBy = null
+fun Note.toEntity(): NoteEntity = NoteEntity(
+    noteId = noteId,
+    authorId = author.userId,
+    noteType = when (noteType) {
+        NoteType.TEXT -> com.linker.app.data.local.entity.NoteType.TEXT
+        NoteType.MUSIC -> com.linker.app.data.local.entity.NoteType.MUSIC
+        NoteType.COUNTDOWN -> com.linker.app.data.local.entity.NoteType.COUNTDOWN
+    },
+    content = content,
+    musicTrackId = musicTrackId,
+    musicTrackName = musicTrackName,
+    musicArtistName = musicArtistName,
+    musicAlbumArt = musicAlbumArt,
+    countdownTargetTime = countdownTargetTime,
+    countdownTitle = countdownTitle,
+    backgroundColor = backgroundColor,
+    textColor = textColor,
+    createdAt = createdAt,
+    expiresAt = expiresAt,
+    lastSyncedAt = System.currentTimeMillis()
 )
 
-fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this) {
+// ── ChatEntity ↔ Chat / MessageEntity ↔ Message ───────────────────────────────
+
+fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat {
+    val adminIds = if (chatType == com.linker.app.data.local.entity.ChatType.GROUP) {
+        participantIds.take(1)
+    } else {
+        emptyList()
+    }
+    
+    return Chat(
+        chatId = chatId, chatType = chatType.toDomain(), chatName = chatName,
+        chatImageUrl = chatImageUrl, participants = participants, lastMessage = lastMessage,
+        unreadCount = unreadCount, isPinned = isPinned, isMuted = isMuted,
+        isArchived = isArchived, isBlocked = isBlocked, isFavorited = isFavorited, theme = theme, createdAt = createdAt, updatedAt = updatedAt,
+        groupAdminIds = adminIds,
+        groupCreatedBy = adminIds.firstOrNull()
+    )
+}
+
+inline fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this) {
     com.linker.app.data.local.entity.ChatType.PRIVATE -> ChatType.PRIVATE
     com.linker.app.data.local.entity.ChatType.GROUP   -> ChatType.GROUP
 }
+
+fun Chat.toEntity(): ChatEntity = ChatEntity(
+    chatId = chatId,
+    chatType = when (chatType) {
+        ChatType.PRIVATE -> com.linker.app.data.local.entity.ChatType.PRIVATE
+        ChatType.GROUP   -> com.linker.app.data.local.entity.ChatType.GROUP
+    },
+    chatName = chatName,
+    chatImageUrl = chatImageUrl,
+    participantIds = participants.map { it.userId },
+    lastMessageId = lastMessage?.messageId,
+    lastMessageText = lastMessage?.content ?: lastMessage?.let { 
+        when (it.messageType) {
+            MessageType.IMAGE -> "📷 Image"
+            MessageType.VIDEO -> "🎥 Video"
+            MessageType.GIF -> "GIF"
+            MessageType.LINK -> "🔗 Link"
+            MessageType.AUDIO -> "🎵 Audio"
+            MessageType.FILE -> "📄 File"
+            MessageType.LOCATION -> "📍 Location"
+            MessageType.CONTACT -> "👤 Contact"
+            MessageType.STICKER -> "Sticker"
+            else -> "Message"
+        }
+    },
+    lastMessageAt = lastMessage?.createdAt,
+    unreadCount = unreadCount,
+    isPinned = isPinned,
+    isMuted = isMuted,
+    isArchived = isArchived,
+    isBlocked = isBlocked,
+    isFavorited = isFavorited,
+    theme = theme,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    lastSyncedAt = System.currentTimeMillis()
+)
 
 /**
  * Convert MessageEntity to domain Message model.
@@ -215,10 +308,10 @@ fun com.linker.app.data.local.entity.ChatType.toDomain(): ChatType = when (this)
  * 
  * @param sender Message sender (nullable)
  * @param sharedLink Shared link if message type is LINK
- * @param replyToMessage Original message if this is a reply
+ * @param replyToMessage Lightweight reference to the original message if this is a reply
  * @return Message domain model
  */
-fun MessageEntity.toDomain(sender: User?, sharedLink: Link? = null, replyToMessage: Message? = null): Message {
+fun MessageEntity.toDomain(sender: User?, sharedLink: Link? = null, replyToMessage: MessageReference? = null): Message {
     val safeSender = sender ?: User.deletedUser(senderId)
     
     return Message(
@@ -247,7 +340,7 @@ fun MessageEntity.toDomain(sender: User?, sharedLink: Link? = null, replyToMessa
     )
 }
 
-fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when (this) {
+inline fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when (this) {
     com.linker.app.data.local.entity.MessageType.TEXT  -> MessageType.TEXT
     com.linker.app.data.local.entity.MessageType.IMAGE -> MessageType.IMAGE
     com.linker.app.data.local.entity.MessageType.VIDEO -> MessageType.VIDEO
@@ -260,7 +353,7 @@ fun com.linker.app.data.local.entity.MessageType.toDomain(): MessageType = when 
     com.linker.app.data.local.entity.MessageType.STICKER -> MessageType.STICKER
 }
 
-fun com.linker.app.data.local.entity.MessageStatus.toDomain(): MessageStatus = when (this) {
+inline fun com.linker.app.data.local.entity.MessageStatus.toDomain(): MessageStatus = when (this) {
     com.linker.app.data.local.entity.MessageStatus.SENDING   -> MessageStatus.SENDING
     com.linker.app.data.local.entity.MessageStatus.SENT      -> MessageStatus.SENT
     com.linker.app.data.local.entity.MessageStatus.DELIVERED -> MessageStatus.DELIVERED
@@ -268,19 +361,62 @@ fun com.linker.app.data.local.entity.MessageStatus.toDomain(): MessageStatus = w
     com.linker.app.data.local.entity.MessageStatus.FAILED    -> MessageStatus.FAILED
 }
 
-fun com.linker.app.data.local.entity.DeliveryMethod.toDomain(): DeliveryMethod = when (this) {
+inline fun com.linker.app.data.local.entity.DeliveryMethod.toDomain(): DeliveryMethod = when (this) {
     com.linker.app.data.local.entity.DeliveryMethod.ONLINE      -> DeliveryMethod.ONLINE
     com.linker.app.data.local.entity.DeliveryMethod.BLE         -> DeliveryMethod.BLE
     com.linker.app.data.local.entity.DeliveryMethod.WIFI_DIRECT -> DeliveryMethod.WIFI_DIRECT
 }
 
-fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = when (this) {
+inline fun MessageStatus.toEntity(): com.linker.app.data.local.entity.MessageStatus = when (this) {
     MessageStatus.SENDING   -> com.linker.app.data.local.entity.MessageStatus.SENDING
     MessageStatus.SENT      -> com.linker.app.data.local.entity.MessageStatus.SENT
     MessageStatus.DELIVERED -> com.linker.app.data.local.entity.MessageStatus.DELIVERED
     MessageStatus.READ      -> com.linker.app.data.local.entity.MessageStatus.READ
     MessageStatus.FAILED    -> com.linker.app.data.local.entity.MessageStatus.FAILED
 }
+
+fun Message.toEntity(): MessageEntity = MessageEntity(
+    messageId = messageId,
+    chatId = chatId,
+    senderId = sender.userId,
+    messageType = when (messageType) {
+        MessageType.TEXT -> com.linker.app.data.local.entity.MessageType.TEXT
+        MessageType.IMAGE -> com.linker.app.data.local.entity.MessageType.IMAGE
+        MessageType.VIDEO -> com.linker.app.data.local.entity.MessageType.VIDEO
+        MessageType.GIF -> com.linker.app.data.local.entity.MessageType.GIF
+        MessageType.LINK -> com.linker.app.data.local.entity.MessageType.LINK
+        MessageType.AUDIO -> com.linker.app.data.local.entity.MessageType.AUDIO
+        MessageType.FILE -> com.linker.app.data.local.entity.MessageType.FILE
+        MessageType.LOCATION -> com.linker.app.data.local.entity.MessageType.LOCATION
+        MessageType.CONTACT -> com.linker.app.data.local.entity.MessageType.CONTACT
+        MessageType.STICKER -> com.linker.app.data.local.entity.MessageType.STICKER
+    },
+    content = content,
+    mediaUrl = mediaUrl,
+    thumbnailUrl = thumbnailUrl,
+    mediaWidth = mediaWidth,
+    mediaHeight = mediaHeight,
+    mediaDuration = mediaDuration,
+    sharedLinkId = sharedLink?.linkId,
+    replyToMessageId = replyToMessage?.messageId,
+    forwardedFromMessageId = null,
+    reactions = reactions,
+    isEdited = isEdited,
+    isDeleted = isDeleted,
+    deletedForEveryone = deletedForEveryone,
+    messageStatus = messageStatus.toEntity(),
+    deliveryMethod = when (deliveryMethod) {
+        DeliveryMethod.ONLINE -> com.linker.app.data.local.entity.DeliveryMethod.ONLINE
+        DeliveryMethod.BLE -> com.linker.app.data.local.entity.DeliveryMethod.BLE
+        DeliveryMethod.WIFI_DIRECT -> com.linker.app.data.local.entity.DeliveryMethod.WIFI_DIRECT
+    },
+    encryptedContent = null,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    deliveredAt = deliveredAt,
+    readAt = readAt,
+    lastSyncedAt = System.currentTimeMillis()
+)
 
 // ── Comment / Notification ────────────────────────────────────────────────────
 
@@ -336,7 +472,7 @@ fun NotificationEntity.toDomain(actor: User?): Notification {
     )
 }
 
-fun com.linker.app.data.local.entity.NotificationType.toDomain(): NotificationType = when (this) {
+inline fun com.linker.app.data.local.entity.NotificationType.toDomain(): NotificationType = when (this) {
     com.linker.app.data.local.entity.NotificationType.LIKE       -> NotificationType.LIKE
     com.linker.app.data.local.entity.NotificationType.COMMENT    -> NotificationType.COMMENT
     com.linker.app.data.local.entity.NotificationType.REPLY      -> NotificationType.REPLY
@@ -347,3 +483,45 @@ fun com.linker.app.data.local.entity.NotificationType.toDomain(): NotificationTy
     com.linker.app.data.local.entity.NotificationType.STORY_VIEW -> NotificationType.STORY_VIEW
     com.linker.app.data.local.entity.NotificationType.LIVE       -> NotificationType.LIVE
 }
+
+fun Comment.toEntity(): CommentEntity = CommentEntity(
+    commentId = commentId,
+    linkId = linkId,
+    authorId = author.userId,
+    content = content,
+    gifUrl = gifUrl,
+    parentCommentId = parentCommentId,
+    likesCount = likesCount,
+    repliesCount = repliesCount,
+    isLiked = isLiked,
+    isPinned = isPinned,
+    isEdited = isEdited,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    lastSyncedAt = System.currentTimeMillis()
+)
+
+fun Notification.toEntity(): NotificationEntity = NotificationEntity(
+    notificationId = notificationId,
+    notificationType = when (notificationType) {
+        NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
+        NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
+        NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
+        NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
+        NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
+        NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
+        NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
+        NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
+        NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
+    },
+    actorId = actor.userId,
+    targetEntityId = targetEntityId,
+    targetEntityType = targetEntityType,
+    title = title,
+    message = message,
+    imageUrl = imageUrl,
+    actionUrl = actionUrl,
+    isRead = isRead,
+    createdAt = createdAt,
+    lastSyncedAt = System.currentTimeMillis()
+)
