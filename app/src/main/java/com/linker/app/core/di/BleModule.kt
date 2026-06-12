@@ -73,17 +73,17 @@ abstract class BleModule {
             try {
                 // Validate configuration
                 require(OfflineMessagingConfig.MAX_BLE_CONNECTIONS > 0) {
-                    "BLE max connections must be positive, got: \${OfflineMessagingConfig.MAX_BLE_CONNECTIONS}"
+                    "BLE max connections must be positive, got: ${OfflineMessagingConfig.MAX_BLE_CONNECTIONS}"
                 }
                 require(OfflineMessagingConfig.BLE_CONNECTION_TIMEOUT_MS > 0) {
-                    "BLE connection timeout must be positive, got: \${OfflineMessagingConfig.BLE_CONNECTION_TIMEOUT_MS}"
+                    "BLE connection timeout must be positive, got: ${OfflineMessagingConfig.BLE_CONNECTION_TIMEOUT_MS}"
                 }
                 
                 val pool = BLEConnectionPool()
                 
                 android.util.Log.d(
                     "BleModule",
-                    "BLE Connection Pool initialized: maxConnections=\${OfflineMessagingConfig.MAX_BLE_CONNECTIONS}, timeout=\${OfflineMessagingConfig.BLE_CONNECTION_TIMEOUT_MS}ms"
+                    "BLE Connection Pool initialized: maxConnections=${OfflineMessagingConfig.MAX_BLE_CONNECTIONS}, timeout=${OfflineMessagingConfig.BLE_CONNECTION_TIMEOUT_MS}ms"
                 )
                 
                 return pool
@@ -119,10 +119,10 @@ abstract class BleModule {
             try {
                 // Validate configuration
                 require(OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS > 0) {
-                    "Fragment timeout must be positive, got: \${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}"
+                    "Fragment timeout must be positive, got: ${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}"
                 }
                 require(OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS >= 60_000) {
-                    "Fragment timeout too short (min 60s), got: \${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}ms"
+                    "Fragment timeout too short (min 60s), got: ${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}ms"
                 }
                 
                 val manager = FragmentManager(
@@ -132,7 +132,7 @@ abstract class BleModule {
                 
                 android.util.Log.d(
                     "BleModule",
-                    "FragmentManager initialized: timeout=\${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}ms"
+                    "FragmentManager initialized: timeout=${OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS}ms"
                 )
                 
                 return manager

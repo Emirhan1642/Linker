@@ -25,6 +25,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.linker.app.domain.model.UserMetrics
+import com.linker.app.domain.model.UserPrivacy
+import com.linker.app.domain.model.UserRelationship
 
 @Singleton
 class AuthRepositoryImpl @Inject constructor(
@@ -52,10 +55,11 @@ class AuthRepositoryImpl @Inject constructor(
         replay = 1
     )
 
-    override suspend fun getCurrentUser(): User? =
+    override suspend fun getCurrentUser(): Result<User?> = safeCall {
         firebaseAuth.currentUser?.let {
             userDao.getUserById(it.uid)?.toDomain() ?: it.toLocalUser()
         }
+    }
 
     private val userCacheMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -67,9 +71,11 @@ class AuthRepositoryImpl @Inject constructor(
             
             val user = firebaseUser.toLocalUser()
             
+            val entity = user.toEntity()
             userCacheMutex.withLock {
-                userDao.insertUser(user.toEntity())
+                userDao.insertUser(entity)
             }
+            syncUserToFirestore(entity)
             user
         } catch (e: com.google.firebase.auth.FirebaseAuthException) {
             throw when (e.errorCode) {
@@ -88,9 +94,11 @@ class AuthRepositoryImpl @Inject constructor(
             val result = firebaseAuth.signInWithEmailAndPassword(email, password).await()
             val firebaseUser = result.user ?: throw AuthError.SignInFailed("Email")
             val user = firebaseUser.toLocalUser()
+            val entity = user.toEntity()
             userCacheMutex.withLock {
-                userDao.insertUser(user.toEntity())
+                userDao.insertUser(entity)
             }
+            syncUserToFirestore(entity)
             user
         } catch (e: com.google.firebase.auth.FirebaseAuthException) {
             throw when (e.errorCode) {
@@ -110,9 +118,11 @@ class AuthRepositoryImpl @Inject constructor(
             val result = firebaseAuth.createUserWithEmailAndPassword(email, password).await()
             val firebaseUser = result.user ?: throw AuthError.AccountCreationFailed()
             val user = firebaseUser.toLocalUser()
+            val entity = user.toEntity()
             userCacheMutex.withLock {
-                userDao.insertUser(user.toEntity())
+                userDao.insertUser(entity)
             }
+            syncUserToFirestore(entity)
             user
         } catch (e: com.google.firebase.auth.FirebaseAuthException) {
             throw when (e.errorCode) {
@@ -140,7 +150,9 @@ class AuthRepositoryImpl @Inject constructor(
         val result = firebaseAuth.signInWithCredential(credential).await()
         val firebaseUser = result.user ?: throw Exception("Phone sign-in failed")
         val user = firebaseUser.toLocalUser()
-        userDao.insertUser(user.toEntity())
+        val entity = user.toEntity()
+        userDao.insertUser(entity)
+        syncUserToFirestore(entity)
         user
     }
 
@@ -158,8 +170,8 @@ class AuthRepositoryImpl @Inject constructor(
         displayName: String,
         profileImageLocalPath: String?
     ): Result<User> = safeCall {
-        if (!username.matches(Regex("^[a-zA-Z0-9_]{3,20}$"))) {
-            throw IllegalArgumentException("Username must be 3-20 alphanumeric characters")
+        if (!username.matches(Regex("^[a-zA-Z0-9_.]{3,20}$"))) {
+            throw IllegalArgumentException("Username must be 3-20 alphanumeric characters, dots or underscores")
         }
         
         val existingUser = firestore.collection("users")
@@ -240,45 +252,67 @@ class AuthRepositoryImpl @Inject constructor(
     // ── Private helpers ────────────────────────────────────────────────────
 
     private fun com.google.firebase.auth.FirebaseUser.toLocalUser(): User = User(
-        userId         = uid,
-        username       = email?.substringBefore('@') ?: uid.take(8),
-        displayName    = displayName ?: email?.substringBefore('@') ?: "New User",
-        email          = email,
-        phoneNumber    = phoneNumber,
-        bio            = null,
+        userId          = uid,
+        username        = email?.substringBefore('@') ?: uid.take(8),
+        displayName     = displayName ?: email?.substringBefore('@') ?: "New User",
+        _email          = email,
+        _phoneNumber    = phoneNumber,
+        bio             = null,
         profileImageUrl = photoUrl?.toString(),
-        coverImageUrl  = null,
-        isVerified     = false,
-        followersCount = 0,
-        followingCount = 0,
-        likesCount     = 0,
-        isFollowing    = false,
-        isFollowedBy   = false,
-        isBlocked      = false,
-        isMuted        = false,
-        createdAt      = System.currentTimeMillis(),
-        updatedAt      = System.currentTimeMillis()
+        coverImageUrl   = null,
+        isVerified      = false,
+        relationship    = UserRelationship(),
+        privacy         = UserPrivacy(),
+        metrics         = UserMetrics(),
+        createdAt       = System.currentTimeMillis(),
+        updatedAt       = System.currentTimeMillis()
     )
 
     private fun User.toEntity(): UserEntity = UserEntity(
-        userId         = userId,
-        username       = username,
-        displayName    = displayName,
-        email          = email,
-        phoneNumber    = phoneNumber,
-        bio            = bio,
-        profileImageUrl = profileImageUrl,
-        coverImageUrl  = coverImageUrl,
-        isVerified     = isVerified,
-        followersCount = followersCount,
-        followingCount = followingCount,
-        likesCount     = likesCount,
-        isFollowing    = isFollowing,
-        isFollowedBy   = isFollowedBy,
-        isBlocked      = isBlocked,
-        isMuted        = isMuted,
-        createdAt      = createdAt,
-        updatedAt      = updatedAt,
-        lastSyncedAt   = System.currentTimeMillis()
+        userId            = userId,
+        username          = username,
+        displayName       = displayName,
+        email             = getEmail(),
+        phoneNumber       = getPhoneNumber(),
+        bio               = bio,
+        profileImageUrl   = profileImageUrl,
+        coverImageUrl     = coverImageUrl,
+        isVerified        = isVerified,
+        followersCount    = metrics.followersCount,
+        followingCount    = metrics.followingCount,
+        likesCount        = metrics.likesCount,
+        isFollowing       = relationship.isFollowing,
+        isFollowedBy      = relationship.isFollowedBy,
+        isBlocked         = relationship.isBlocked,
+        isMuted           = relationship.isMuted,
+        isPrivate         = privacy.isPrivate,
+        followRequestSent = relationship.followRequestSent,
+        hideFollowLists   = privacy.hideFollowLists,
+        createdAt         = createdAt,
+        updatedAt         = updatedAt,
+        lastSyncedAt      = System.currentTimeMillis()
     )
+
+    private suspend fun syncUserToFirestore(userEntity: UserEntity) {
+        try {
+            val userMap = mapOf(
+                "userId" to userEntity.userId,
+                "username" to userEntity.username,
+                "displayName" to userEntity.displayName,
+                "email" to userEntity.email,
+                "phoneNumber" to userEntity.phoneNumber,
+                "bio" to userEntity.bio,
+                "profileImageUrl" to userEntity.profileImageUrl,
+                "coverImageUrl" to userEntity.coverImageUrl,
+                "createdAt" to userEntity.createdAt,
+                "updatedAt" to System.currentTimeMillis()
+            ).filterValues { it != null }
+
+            firestore.collection("users").document(userEntity.userId)
+                .set(userMap, com.google.firebase.firestore.SetOptions.merge())
+                .await()
+        } catch (e: Exception) {
+            android.util.Log.e("AuthRepositoryImpl", "Failed to sync user to Firestore", e)
+        }
+    }
 }

@@ -18,27 +18,33 @@ import com.linker.app.domain.model.StoryMediaType
  * @return User domain model
  */
 fun UserEntity.toDomain(): User = User(
-    userId            = userId,
-    username          = username,
-    displayName       = displayName,
-    email             = email,
-    phoneNumber       = phoneNumber,
-    bio               = bio,
-    profileImageUrl   = profileImageUrl,
-    coverImageUrl     = coverImageUrl,
-    isVerified        = isVerified,
-    followersCount    = followersCount,
-    followingCount    = followingCount,
-    likesCount        = likesCount,
-    isFollowing       = isFollowing,
-    isFollowedBy      = isFollowedBy,
-    isBlocked         = isBlocked,
-    isMuted           = isMuted,
-    isPrivate         = isPrivate,
-    followRequestSent = followRequestSent,
-    hideFollowLists   = hideFollowLists,
-    createdAt         = createdAt,
-    updatedAt         = updatedAt
+    userId       = userId,
+    username     = username,
+    displayName  = displayName,
+    _email       = email,
+    _phoneNumber = phoneNumber,
+    bio          = bio,
+    profileImageUrl = profileImageUrl,
+    coverImageUrl   = coverImageUrl,
+    isVerified   = isVerified,
+    relationship = UserRelationship(
+        isFollowing       = isFollowing,
+        isFollowedBy      = isFollowedBy,
+        isBlocked         = isBlocked,
+        isMuted           = isMuted,
+        followRequestSent = followRequestSent
+    ),
+    privacy = UserPrivacy(
+        isPrivate       = isPrivate,
+        hideFollowLists = hideFollowLists
+    ),
+    metrics = UserMetrics(
+        followersCount = followersCount,
+        followingCount = followingCount,
+        likesCount     = likesCount
+    ),
+    createdAt = createdAt,
+    updatedAt = updatedAt
 )
 
 /**
@@ -49,22 +55,22 @@ fun User.toEntity(): UserEntity = UserEntity(
     userId            = userId,
     username          = username,
     displayName       = displayName,
-    email             = email,
-    phoneNumber       = phoneNumber,
+    email             = getEmail(),
+    phoneNumber       = getPhoneNumber(),
     bio               = bio,
     profileImageUrl   = profileImageUrl,
     coverImageUrl     = coverImageUrl,
     isVerified        = isVerified,
-    followersCount    = followersCount,
-    followingCount    = followingCount,
-    likesCount        = likesCount,
-    isFollowing       = isFollowing,
-    isFollowedBy      = isFollowedBy,
-    isBlocked         = isBlocked,
-    isMuted           = isMuted,
-    isPrivate         = isPrivate,
-    followRequestSent = followRequestSent,
-    hideFollowLists   = hideFollowLists,
+    followersCount    = metrics.followersCount,
+    followingCount    = metrics.followingCount,
+    likesCount        = metrics.likesCount,
+    isFollowing       = relationship.isFollowing,
+    isFollowedBy      = relationship.isFollowedBy,
+    isBlocked         = relationship.isBlocked,
+    isMuted           = relationship.isMuted,
+    isPrivate         = privacy.isPrivate,
+    followRequestSent = relationship.followRequestSent,
+    hideFollowLists   = privacy.hideFollowLists,
     createdAt         = createdAt,
     updatedAt         = updatedAt,
     lastSyncedAt      = System.currentTimeMillis()
@@ -82,29 +88,55 @@ fun User.toEntity(): UserEntity = UserEntity(
 fun LinkEntity.toDomain(author: User?): Link {
     val safeAuthor = author ?: User.deletedUser(authorId)
     
+    // Convert legacy flat media structure to MediaItem sealed class
+    val mediaItems = if (mediaUrls.isNotEmpty()) {
+        mediaUrls.mapIndexed { index, url ->
+            if (videoDuration != null && index == 0) {
+                // First item is a video
+                MediaItem.Video(
+                    url = url,
+                    aspectRatio = aspectRatio,
+                    thumbnailUrl = thumbnailUrl,
+                    duration = videoDuration,
+                    width = null,
+                    height = null
+                )
+            } else {
+                // Image item
+                MediaItem.Image(
+                    url = url,
+                    aspectRatio = aspectRatio,
+                    width = null,
+                    height = null
+                )
+            }
+        }
+    } else {
+        emptyList()
+    }
+    
     return Link(
-        linkId        = linkId, 
-        author        = safeAuthor, 
-        linkType      = linkType.toDomain(),
-        description   = description, 
-        mediaUrls     = mediaUrls, 
-        thumbnailUrl  = thumbnailUrl,
-        videoDuration = videoDuration, 
-        aspectRatio   = aspectRatio,
-        likesCount    = likesCount, 
-        commentsCount = commentsCount,
-        sharesCount   = sharesCount, 
-        relinksCount  = relinksCount,
-        savesCount    = savesCount, 
-        viewsCount    = viewsCount,
-        isLiked       = isLiked, 
-        isSaved       = isSaved, 
-        isRelinked    = isRelinked,
-        location      = location, 
-        hashtags      = hashtags, 
-        mentions      = mentions,
-        createdAt     = createdAt, 
-        updatedAt     = updatedAt
+        linkId      = linkId,
+        author      = LinkAuthor.from(safeAuthor),
+        linkType    = linkType.toDomain(),
+        description = description,
+        mediaItems  = mediaItems,
+        engagement  = EngagementMetrics(
+            likesCount    = likesCount,
+            commentsCount = commentsCount,
+            sharesCount   = sharesCount,
+            relinksCount  = relinksCount,
+            savesCount    = savesCount,
+            viewsCount    = viewsCount,
+            isLiked       = isLiked,
+            isSaved       = isSaved,
+            isRelinked    = isRelinked
+        ),
+        location  = location,
+        hashtags  = hashtags,
+        mentions  = mentions,
+        createdAt = createdAt,
+        updatedAt = updatedAt
     )
 }
 
@@ -120,18 +152,39 @@ inline fun LinkType.toEntity(): com.linker.app.data.local.entity.LinkType = when
     LinkType.REEL  -> com.linker.app.data.local.entity.LinkType.REEL
 }
 
-fun Link.toEntity(): LinkEntity = LinkEntity(
-    linkId = linkId, authorId = author.userId, linkType = linkType.toEntity(),
-    description = description, mediaUrls = mediaUrls, thumbnailUrl = thumbnailUrl,
-    videoDuration = videoDuration, aspectRatio = aspectRatio,
-    likesCount = likesCount, commentsCount = commentsCount,
-    sharesCount = sharesCount, relinksCount = relinksCount,
-    savesCount = savesCount, viewsCount = viewsCount,
-    isLiked = isLiked, isSaved = isSaved, isRelinked = isRelinked,
-    location = location, hashtags = hashtags, mentions = mentions,
-    createdAt = createdAt, updatedAt = updatedAt,
-    lastSyncedAt = System.currentTimeMillis()
-)
+fun Link.toEntity(): LinkEntity {
+    // Extract legacy flat structure from MediaItem sealed class
+    val mediaUrls = mediaItems.map { it.url }
+    val thumbnailUrl = mediaItems.filterIsInstance<MediaItem.Video>().firstOrNull()?.thumbnailUrl
+    val videoDuration = mediaItems.filterIsInstance<MediaItem.Video>().firstOrNull()?.duration
+    val aspectRatio = mediaItems.firstOrNull()?.aspectRatio
+    
+    return LinkEntity(
+        linkId = linkId,
+        authorId = author.userId,
+        linkType = linkType.toEntity(),
+        description = description,
+        mediaUrls = mediaUrls,
+        thumbnailUrl = thumbnailUrl,
+        videoDuration = videoDuration,
+        aspectRatio = aspectRatio,
+        likesCount = engagement.likesCount,
+        commentsCount = engagement.commentsCount,
+        sharesCount = engagement.sharesCount,
+        relinksCount = engagement.relinksCount,
+        savesCount = engagement.savesCount,
+        viewsCount = engagement.viewsCount,
+        isLiked = engagement.isLiked,
+        isSaved = engagement.isSaved,
+        isRelinked = engagement.isRelinked,
+        location = location,
+        hashtags = hashtags,
+        mentions = mentions,
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+}
 
 // ── StoryEntity ↔ Story ───────────────────────────────────────────────────────
 
@@ -146,17 +199,17 @@ fun StoryEntity.toDomain(author: User?): Story {
     val safeAuthor = author ?: User.deletedUser(authorId)
     
     return Story(
-        storyId     = storyId, 
-        author      = safeAuthor, 
-        mediaUrl    = mediaUrl,
-        mediaType   = mediaType.toDomain(), 
+        storyId      = storyId,
+        author       = StoryAuthor.from(safeAuthor),
+        mediaUrl     = mediaUrl,
+        mediaType    = mediaType.toDomain(),
         thumbnailUrl = thumbnailUrl,
-        duration    = duration, 
-        caption     = caption, 
-        viewsCount  = viewsCount,
-        isViewed    = isViewed, 
-        createdAt   = createdAt, 
-        expiresAt   = expiresAt
+        duration     = duration,
+        caption      = caption,
+        viewsCount   = viewsCount,
+        isViewed     = isViewed,
+        createdAt    = createdAt,
+        expiresAt    = expiresAt
     )
 }
 
@@ -186,31 +239,51 @@ fun Story.toEntity(): StoryEntity = StoryEntity(
 // ── NoteEntity ↔ Note ─────────────────────────────────────────────────────────
 
 /**
- * Convert NoteEntity to domain Note model.
+ * Convert NoteEntity to domain Note model (sealed class).
  * If author is null, creates a placeholder deleted user.
  * 
  * @param author Author user (nullable)
- * @return Note domain model
+ * @return Note domain model (Text, Music, or Countdown)
  */
 fun NoteEntity.toDomain(author: User?): Note {
     val safeAuthor = author ?: User.deletedUser(authorId)
+    val noteAuthor = NoteAuthor.from(safeAuthor)
     
-    return Note(
-        noteId              = noteId, 
-        author              = safeAuthor, 
-        noteType            = noteType.toDomain(),
-        content             = content, 
-        musicTrackId        = musicTrackId, 
-        musicTrackName      = musicTrackName,
-        musicArtistName     = musicArtistName, 
-        musicAlbumArt       = musicAlbumArt,
-        countdownTargetTime = countdownTargetTime, 
-        countdownTitle      = countdownTitle,
-        backgroundColor     = backgroundColor, 
-        textColor           = textColor,
-        createdAt           = createdAt, 
-        expiresAt           = expiresAt
-    )
+    return when (noteType.toDomain()) {
+        NoteType.TEXT -> Note.Text(
+            noteId = noteId,
+            author = noteAuthor,
+            content = content,
+            backgroundColor = backgroundColor,
+            textColor = textColor,
+            createdAt = createdAt,
+            expiresAt = expiresAt
+        )
+        NoteType.MUSIC -> Note.Music(
+            noteId = noteId,
+            author = noteAuthor,
+            content = content,
+            musicTrackId = musicTrackId ?: "",
+            musicTrackName = musicTrackName ?: "",
+            musicArtistName = musicArtistName ?: "",
+            musicAlbumArt = musicAlbumArt,
+            backgroundColor = backgroundColor,
+            textColor = textColor,
+            createdAt = createdAt,
+            expiresAt = expiresAt
+        )
+        NoteType.COUNTDOWN -> Note.Countdown(
+            noteId = noteId,
+            author = noteAuthor,
+            content = content,
+            countdownTargetTime = countdownTargetTime ?: 0L,
+            countdownTitle = countdownTitle ?: "",
+            backgroundColor = backgroundColor,
+            textColor = textColor,
+            createdAt = createdAt,
+            expiresAt = expiresAt
+        )
+    }
 }
 
 inline fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when (this) {
@@ -219,27 +292,59 @@ inline fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when
     com.linker.app.data.local.entity.NoteType.COUNTDOWN -> NoteType.COUNTDOWN
 }
 
-fun Note.toEntity(): NoteEntity = NoteEntity(
-    noteId = noteId,
-    authorId = author.userId,
-    noteType = when (noteType) {
-        NoteType.TEXT -> com.linker.app.data.local.entity.NoteType.TEXT
-        NoteType.MUSIC -> com.linker.app.data.local.entity.NoteType.MUSIC
-        NoteType.COUNTDOWN -> com.linker.app.data.local.entity.NoteType.COUNTDOWN
-    },
-    content = content,
-    musicTrackId = musicTrackId,
-    musicTrackName = musicTrackName,
-    musicArtistName = musicArtistName,
-    musicAlbumArt = musicAlbumArt,
-    countdownTargetTime = countdownTargetTime,
-    countdownTitle = countdownTitle,
-    backgroundColor = backgroundColor,
-    textColor = textColor,
-    createdAt = createdAt,
-    expiresAt = expiresAt,
-    lastSyncedAt = System.currentTimeMillis()
-)
+fun Note.toEntity(): NoteEntity = when (this) {
+    is Note.Text -> NoteEntity(
+        noteId = noteId,
+        authorId = author.userId,
+        noteType = com.linker.app.data.local.entity.NoteType.TEXT,
+        content = content,
+        musicTrackId = null,
+        musicTrackName = null,
+        musicArtistName = null,
+        musicAlbumArt = null,
+        countdownTargetTime = null,
+        countdownTitle = null,
+        backgroundColor = backgroundColor,
+        textColor = textColor,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+    is Note.Music -> NoteEntity(
+        noteId = noteId,
+        authorId = author.userId,
+        noteType = com.linker.app.data.local.entity.NoteType.MUSIC,
+        content = content,
+        musicTrackId = musicTrackId,
+        musicTrackName = musicTrackName,
+        musicArtistName = musicArtistName,
+        musicAlbumArt = musicAlbumArt,
+        countdownTargetTime = null,
+        countdownTitle = null,
+        backgroundColor = backgroundColor,
+        textColor = textColor,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+    is Note.Countdown -> NoteEntity(
+        noteId = noteId,
+        authorId = author.userId,
+        noteType = com.linker.app.data.local.entity.NoteType.COUNTDOWN,
+        content = content,
+        musicTrackId = null,
+        musicTrackName = null,
+        musicArtistName = null,
+        musicAlbumArt = null,
+        countdownTargetTime = countdownTargetTime,
+        countdownTitle = countdownTitle,
+        backgroundColor = backgroundColor,
+        textColor = textColor,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+}
 
 // ── ChatEntity ↔ Chat / MessageEntity ↔ Message ───────────────────────────────
 
@@ -251,12 +356,23 @@ fun ChatEntity.toDomain(participants: List<User>, lastMessage: Message?): Chat {
     }
     
     return Chat(
-        chatId = chatId, chatType = chatType.toDomain(), chatName = chatName,
-        chatImageUrl = chatImageUrl, participants = participants, lastMessage = lastMessage,
-        unreadCount = unreadCount, isPinned = isPinned, isMuted = isMuted,
-        isArchived = isArchived, isBlocked = isBlocked, isFavorited = isFavorited, theme = theme, createdAt = createdAt, updatedAt = updatedAt,
-        groupAdminIds = adminIds,
-        groupCreatedBy = adminIds.firstOrNull()
+        chatId           = chatId,
+        chatType         = chatType.toDomain(),
+        chatName         = chatName,
+        chatImageUrl     = chatImageUrl,
+        participants     = participants,
+        lastMessage      = lastMessage,
+        unreadCount      = unreadCount,
+        isPinned         = isPinned,
+        isMuted          = isMuted,
+        isArchived       = isArchived,
+        isBlocked        = isBlocked,
+        isFavorited      = isFavorited,
+        theme            = theme,
+        createdAt        = createdAt,
+        updatedAt        = updatedAt,
+        groupAdminIds    = adminIds,
+        groupCreatedBy   = adminIds.firstOrNull()
     )
 }
 
@@ -315,28 +431,28 @@ fun MessageEntity.toDomain(sender: User?, sharedLink: Link? = null, replyToMessa
     val safeSender = sender ?: User.deletedUser(senderId)
     
     return Message(
-        messageId           = messageId, 
-        chatId              = chatId, 
-        sender              = safeSender,
-        messageType         = messageType.toDomain(), 
-        content             = content,
-        mediaUrl            = mediaUrl, 
-        thumbnailUrl        = thumbnailUrl,
-        mediaWidth          = mediaWidth, 
-        mediaHeight         = mediaHeight, 
-        mediaDuration       = mediaDuration,
-        sharedLink          = sharedLink, 
-        replyToMessage      = replyToMessage, 
-        reactions           = reactions,
-        isEdited            = isEdited, 
-        isDeleted           = isDeleted, 
-        deletedForEveryone  = deletedForEveryone,
-        messageStatus       = messageStatus.toDomain(), 
-        deliveryMethod      = deliveryMethod.toDomain(),
-        createdAt           = createdAt, 
-        updatedAt           = updatedAt, 
-        deliveredAt         = deliveredAt, 
-        readAt              = readAt
+        messageId          = messageId,
+        chatId             = chatId,
+        sender             = UserReference.from(safeSender),
+        messageType        = messageType.toDomain(),
+        content            = content,
+        mediaUrl           = mediaUrl,
+        thumbnailUrl       = thumbnailUrl,
+        mediaWidth         = mediaWidth,
+        mediaHeight        = mediaHeight,
+        mediaDuration      = mediaDuration,
+        sharedLink         = sharedLink,
+        replyToMessage     = replyToMessage,
+        reactions          = reactions,
+        isEdited           = isEdited,
+        isDeleted          = isDeleted,
+        deletedForEveryone = deletedForEveryone,
+        messageStatus      = messageStatus.toDomain(),
+        deliveryMethod     = deliveryMethod.toDomain(),
+        createdAt          = createdAt,
+        updatedAt          = updatedAt,
+        deliveredAt        = deliveredAt,
+        readAt             = readAt
     )
 }
 
@@ -431,18 +547,18 @@ fun CommentEntity.toDomain(author: User?): Comment {
     val safeAuthor = author ?: User.deletedUser(authorId ?: "unknown")
     
     return Comment(
-        commentId       = commentId, 
-        linkId          = linkId, 
-        author          = safeAuthor, 
+        commentId       = commentId,
+        linkId          = linkId,
+        author          = CommentAuthor.from(safeAuthor),
         content         = content,
-        gifUrl          = gifUrl, 
-        parentCommentId = parentCommentId, 
+        gifUrl          = gifUrl,
+        parentCommentId = parentCommentId,
         likesCount      = likesCount,
-        repliesCount    = repliesCount, 
-        isLiked         = isLiked, 
+        repliesCount    = repliesCount,
+        isLiked         = isLiked,
         isPinned        = isPinned,
-        isEdited        = isEdited, 
-        createdAt       = createdAt, 
+        isEdited        = isEdited,
+        createdAt       = createdAt,
         updatedAt       = updatedAt
     )
 }
@@ -457,17 +573,23 @@ fun CommentEntity.toDomain(author: User?): Comment {
 fun NotificationEntity.toDomain(actor: User?): Notification {
     val safeActor = actor ?: User.deletedUser(actorId)
     
+    // Convert legacy string-based target to sealed class
+    val target = NotificationTarget.fromLegacy(
+        entityType = targetEntityType,
+        entityId = targetEntityId,
+        secondaryId = null // Could be extracted from actionUrl if needed
+    )
+    
     return Notification(
-        notificationId   = notificationId, 
+        notificationId   = notificationId,
         notificationType = notificationType.toDomain(),
-        actor            = safeActor, 
-        targetEntityId   = targetEntityId, 
-        targetEntityType = targetEntityType,
-        title            = title, 
-        message          = message, 
-        imageUrl         = imageUrl, 
+        actor            = NotificationActor.from(safeActor),
+        target           = target,
+        title            = title,
+        message          = message,
+        imageUrl         = imageUrl,
         actionUrl        = actionUrl,
-        isRead           = isRead, 
+        isRead           = isRead,
         createdAt        = createdAt
     )
 }
@@ -501,27 +623,39 @@ fun Comment.toEntity(): CommentEntity = CommentEntity(
     lastSyncedAt = System.currentTimeMillis()
 )
 
-fun Notification.toEntity(): NotificationEntity = NotificationEntity(
-    notificationId = notificationId,
-    notificationType = when (notificationType) {
-        NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
-        NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
-        NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
-        NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
-        NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
-        NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
-        NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
-        NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
-        NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
-    },
-    actorId = actor.userId,
-    targetEntityId = targetEntityId,
-    targetEntityType = targetEntityType,
-    title = title,
-    message = message,
-    imageUrl = imageUrl,
-    actionUrl = actionUrl,
-    isRead = isRead,
-    createdAt = createdAt,
-    lastSyncedAt = System.currentTimeMillis()
-)
+fun Notification.toEntity(): NotificationEntity {
+    // Convert sealed class target back to legacy string-based format
+    val (entityType, entityId) = when (target) {
+        is NotificationTarget.LinkTarget -> "link" to target.linkId
+        is NotificationTarget.CommentTarget -> "comment" to target.commentId
+        is NotificationTarget.UserTarget -> "user" to target.userId
+        is NotificationTarget.StoryTarget -> "story" to target.storyId
+        is NotificationTarget.MessageTarget -> "message" to target.messageId
+        is NotificationTarget.NoTarget -> null to null
+    }
+    
+    return NotificationEntity(
+        notificationId = notificationId,
+        notificationType = when (notificationType) {
+            NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
+            NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
+            NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
+            NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
+            NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
+            NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
+            NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
+            NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
+            NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
+        },
+        actorId = actor.userId,
+        targetEntityId = entityId,
+        targetEntityType = entityType,
+        title = title,
+        message = message,
+        imageUrl = imageUrl,
+        actionUrl = actionUrl,
+        isRead = isRead,
+        createdAt = createdAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+}

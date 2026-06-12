@@ -39,8 +39,8 @@ data class UserEntity(
     init {
         require(userId.isNotBlank()) { "User ID cannot be blank" }
         require(username.isNotBlank()) { "Username cannot be blank" }
-        require(username.matches(Regex("^[a-zA-Z0-9_]{3,20}$"))) {
-            "Username must be 3-20 characters, alphanumeric and underscore only"
+        require(username.matches(Regex("^[a-zA-Z0-9_.]{3,20}$"))) {
+            "Username must be 3-20 characters, alphanumeric, dot, and underscore only"
         }
         require(displayName.isNotBlank()) { "Display name cannot be blank" }
         require(displayName.length <= MAX_DISPLAY_NAME_LENGTH) { "Display name too long" }

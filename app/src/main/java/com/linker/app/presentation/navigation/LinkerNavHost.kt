@@ -3,13 +3,13 @@ package com.linker.app.presentation.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import com.google.firebase.auth.FirebaseAuth
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.linker.app.presentation.components.BottomNavItem
 import com.linker.app.presentation.screens.accountcenter.AccountCenterScreen
+import com.linker.app.presentation.screens.followlist.FollowListType
 import com.linker.app.presentation.screens.auth.AuthScreen
 import com.linker.app.presentation.screens.chat.ChatInfoScreen
 import com.linker.app.presentation.screens.chat.ChatListScreen
@@ -28,6 +28,7 @@ import com.linker.app.presentation.screens.userprofile.UserProfileScreen
 @Composable
 fun LinkerNavHost(
     modifier: Modifier = Modifier,
+    currentUserId: String?,
     initialChatId: String? = null,
     onChatDeepLinkHandled: () -> Unit = {}
 ) {
@@ -91,8 +92,7 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateBottomNav = onNavigateBottomNav,
                 onNavigateToUserProfile = { userId ->
-                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
-                    if (userId == myUid) {
+                    if (userId == currentUserId) {
                         navController.navigate(Route.Profile) {
                             popUpTo(Route.Home) { saveState = true }
                             launchSingleTop = true; restoreState = true
@@ -134,8 +134,7 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToInfo = { navController.navigate(Route.ChatInfo(route.chatId)) },
                 onNavigateToUserProfile = { userId ->
-                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
-                    if (userId == myUid) {
+                    if (userId == currentUserId) {
                         navController.navigate(Route.Profile) { launchSingleTop = true }
                     } else {
                         navController.navigate(Route.UserProfile(userId))
@@ -150,8 +149,7 @@ fun LinkerNavHost(
                 chatId = route.chatId,
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToUserProfile = { userId ->
-                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
-                    if (userId == myUid) {
+                    if (userId == currentUserId) {
                         navController.navigate(Route.Profile) { launchSingleTop = true }
                     } else {
                         navController.navigate(Route.UserProfile(userId))
@@ -172,18 +170,17 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryViewer("my_id")) },
                 // followers/following sayısı 0 ise FollowList'e gitme
                 onNavigateToFollowers = { uid ->
-                    navController.navigate(Route.FollowList(uid, "FOLLOWERS"))
+                    navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS))
                 },
                 onNavigateToFollowing = { uid ->
-                    navController.navigate(Route.FollowList(uid, "FOLLOWING"))
+                    navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING))
                 }
             )
         }
 
         composable<Route.UserProfile> { backStackEntry ->
             val route = backStackEntry.toRoute<Route.UserProfile>()
-            val myUid = FirebaseAuth.getInstance().currentUser?.uid
-            if (route.userId == myUid) {
+            if (route.userId == currentUserId) {
                 navController.navigate(Route.Profile) {
                     popUpTo(Route.UserProfile(route.userId)) { inclusive = true }
                     launchSingleTop = true
@@ -193,10 +190,10 @@ fun LinkerNavHost(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToChat = { userId -> navController.navigate(Route.ChatDetail(userId)) },
                     onNavigateToFollowers = { uid ->
-                        navController.navigate(Route.FollowList(uid, "FOLLOWERS"))
+                        navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS))
                     },
                     onNavigateToFollowing = { uid ->
-                        navController.navigate(Route.FollowList(uid, "FOLLOWING"))
+                        navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING))
                     }
                 )
             }
@@ -206,8 +203,7 @@ fun LinkerNavHost(
             FollowListScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToUserProfile = { userId ->
-                    val myUid = FirebaseAuth.getInstance().currentUser?.uid
-                    if (userId == myUid) {
+                    if (userId == currentUserId) {
                         navController.navigate(Route.Profile) { launchSingleTop = true }
                     } else {
                         navController.navigate(Route.UserProfile(userId))
@@ -221,8 +217,8 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToAccountCenter = { navController.navigate(Route.AccountCenter) },
                 onNavigateToPendingRequests = {
-                    val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return@SettingsScreen
-                    navController.navigate(Route.FollowList(uid, "PENDING_REQUESTS"))
+                    val uid = currentUserId ?: return@SettingsScreen
+                    navController.navigate(Route.FollowList(uid, FollowListType.PENDING_REQUESTS))
                 },
                 onNavigateToOfflineMessaging = { navController.navigate(Route.OfflineMessagingSettings) }
             )
@@ -242,7 +238,7 @@ fun LinkerNavHost(
                     // Home'a git, tüm backstack'i temizle — ProfileViewModel yeni
                     // AccountCenter hesabını AuthStateListener sayesinde otomatik yükleyecek
                     navController.navigate(Route.Home) {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(navController.graph.id) { inclusive = true }
                         launchSingleTop = true
                     }
                 }

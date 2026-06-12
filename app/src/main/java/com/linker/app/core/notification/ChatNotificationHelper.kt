@@ -11,7 +11,7 @@ import com.linker.app.R
 
 object ChatNotificationHelper {
     
-    fun channelIdForAccount(recipientUid: String): String = "linker_messages_\$recipientUid"
+    fun channelIdForAccount(recipientUid: String): String = "linker_messages_$recipientUid"
 
     fun buildChatNotification(
         context: Context,
@@ -153,7 +153,7 @@ object ChatNotificationHelper {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOnlyAlertOnce(true)
-            .setGroup("linker_chat_\${chatId}_\${targetAccountUid}")
+            .setGroup("linker_chat_${chatId}_${targetAccountUid}")
             .setGroupSummary(false)
             .addAction(replyAction)
             .addAction(likeAction)

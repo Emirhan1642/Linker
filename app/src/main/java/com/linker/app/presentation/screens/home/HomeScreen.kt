@@ -20,11 +20,17 @@ import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.res.painterResource
 import com.linker.app.R
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +40,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -42,6 +50,8 @@ import com.linker.app.presentation.components.BottomNavItem
 import com.linker.app.presentation.components.LinkerBottomNavigationBar
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.LightGray
+import com.linker.app.presentation.theme.DarkGray
+import com.linker.app.presentation.theme.LightPurple
 import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
@@ -53,6 +63,26 @@ fun HomeScreen(
 ) {
     var topTab by remember { mutableStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 10 }) // 10 fake items
+    
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            // Optionally log or handle permission result
+        }
+    )
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val permissionCheckResult = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+            if (permissionCheckResult != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     Scaffold(
         containerColor = Black, // Full black for edge to edge videos
@@ -67,6 +97,7 @@ fun HomeScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(top = paddingValues.calculateTopPadding(), bottom = 0.dp) // paddingValues from Scaffold
         ) {
             // Background / Video Player
             VerticalPager(
@@ -104,7 +135,7 @@ fun FeedItemView(page: Int) {
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFE9B584).copy(alpha = 0.5f), 
+                            Color(0xFFE9B584).copy(alpha = 0.5f), // Placeholder theme logic would be required for this
                             Color.Transparent, 
                             Black.copy(alpha = 0.8f)
                         )
@@ -139,7 +170,7 @@ fun TopPillTabs(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(32.dp))
-            .background(Color(0xFF242424))
+            .background(DarkGray)
             .border(2.dp, LinkerAngularGradient, RoundedCornerShape(32.dp))
             .padding(horizontal = 10.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceBetween
@@ -163,12 +194,12 @@ fun PillTab(
             Icon(
                 painter = painterResource(id = if (isSelected) selectedIcon else icon),
                 contentDescription = title,
-                tint = if (isSelected) Color(0xFF7C79CA) else TextHint,
+                tint = if (isSelected) LightPurple else TextHint,
                 modifier = Modifier.size(24.dp)
             )
             Text(
                 text = title,
-                color = if (isSelected) Color(0xFF7C79CA) else TextHint,
+                color = if (isSelected) LightPurple else TextHint,
                 fontSize = 10.sp,
                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
             )

@@ -24,14 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -52,19 +48,18 @@ import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.R
-import com.linker.app.domain.model.MessageStatus
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.screens.chat.components.ChatBubble
 import com.linker.app.presentation.screens.chat.components.ChatHeader
 import com.linker.app.presentation.screens.chat.components.ChatInputBar
@@ -72,6 +67,9 @@ import com.linker.app.presentation.screens.chat.components.ChatProfileHeader
 import com.linker.app.presentation.screens.chat.components.MessageContextMenu
 import com.linker.app.presentation.screens.chat.components.MessageInfoBottomSheet
 import com.linker.app.presentation.screens.chat.components.ReplyPreviewHologram
+import com.linker.app.presentation.screens.chat.components.ReactionSummaryRow
+import com.linker.app.presentation.screens.chat.components.ReactionsBottomSheet
+import com.linker.app.presentation.screens.chat.components.SeenByBottomSheet
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import com.linker.app.core.util.formatRelativeTime
@@ -79,20 +77,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.widget.Toast
 
-// Data classes imported directly from ChatViewModel
-import com.linker.app.presentation.screens.chat.MessageUiModel
-import com.linker.app.presentation.screens.chat.ReplyInfo
-import com.linker.app.presentation.screens.chat.ReactionUserInfo
-import com.linker.app.presentation.screens.chat.MessageInfoState
-import com.linker.app.presentation.screens.chat.ReadReceiptInfo as ReadReceipt
-import com.linker.app.presentation.screens.chat.ParticipantReceiptInfo as DeliveryReceipt
-import com.linker.app.presentation.screens.chat.ReplyPreview
-import com.linker.app.presentation.screens.chat.MessageItem
-
-/**
- * Main chat message screen - Refactored to use smaller components
- * Original file was 1313 lines, now simplified using component separation
- */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatMessageScreen(
@@ -191,122 +175,19 @@ fun ChatMessageScreen(
 
     // Reactions Sheet
     if (showReactionsSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showReactionsSheet = false },
-            containerColor = Color(0xFF1C1C20)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text("Reactions", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                if (messageReactionsState.isLoading) {
-                    CircularProgressIndicator(color = TextSecondary, modifier = Modifier.size(20.dp))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().height(250.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        items(messageReactionsState.reactions.size) { index ->
-                            val reaction = messageReactionsState.reactions[index]
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                LinkerAvatar(
-                                    imageUrl = reaction.avatarUrl,
-                                    size = 40.dp,
-                                    hasStory = false,
-                                    onClick = { 
-                                        if (reaction.userId.isNotBlank()) {
-                                            onNavigateToUserProfile(reaction.userId)
-                                            showReactionsSheet = false
-                                        }
-                                    }
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = reaction.userName,
-                                    color = TextPrimary,
-                                    fontSize = 16.sp,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = reaction.emoji,
-                                    fontSize = 24.sp
-                                )
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
+        ReactionsBottomSheet(
+            state = messageReactionsState,
+            onDismiss = { showReactionsSheet = false },
+            onNavigateToUserProfile = onNavigateToUserProfile
+        )
     }
 
+    // SeenBy Sheet
     if (showSeenBySheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showSeenBySheet = false },
-            containerColor = Color(0xFF1C1C20)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Seen by",
-                    color = TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (seenByUsersForSheet.isEmpty()) {
-                    Text(
-                        text = "No viewers yet",
-                        color = TextSecondary,
-                        fontSize = 14.sp
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(300.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(seenByUsersForSheet) { viewer ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                LinkerAvatar(
-                                    imageUrl = viewer.avatarUrl,
-                                    size = 40.dp,
-                                    hasStory = false
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = viewer.displayName,
-                                        color = TextPrimary,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                    Text(
-                                        text = formatSeenLabel(viewer.seenAt),
-                                        color = TextSecondary,
-                                        fontSize = 12.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-        }
+        SeenByBottomSheet(
+            seenByUsers = seenByUsersForSheet,
+            onDismiss = { showSeenBySheet = false }
+        )
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -336,7 +217,6 @@ fun ChatMessageScreen(
             containerColor = Color.Transparent,
             bottomBar = {
                 if (!uiState.canSendMessages) {
-                    // Group restriction: only admins can send messages
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -347,7 +227,7 @@ fun ChatMessageScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "Only admins can send messages",
+                            text = stringResource(R.string.chat_msg_admins_only),
                             color = TextSecondary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
@@ -358,12 +238,14 @@ fun ChatMessageScreen(
                         text = messageText,
                         onTextChange = { messageText = it },
                         replyPreview = replyToMessage?.let { msg ->
-                            val senderName = if (msg.isSelf) "You" else {
+                            val senderName = if (msg.isSelf) {
+                                stringResource(R.string.chat_msg_you)
+                            } else {
                                 if (uiState.isGroupChat) msg.senderDisplayName else uiState.recipientName
                             }
                             ReplyPreview(
                                 senderName = senderName,
-                                previewText = msg.content ?: "[Media]",
+                                previewText = msg.content ?: stringResource(R.string.chat_msg_media_placeholder),
                                 isSelf = msg.isSelf
                             )
                         },
@@ -386,7 +268,6 @@ fun ChatMessageScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // Header
                 ChatHeader(
                     recipientName = uiState.recipientName,
                     recipientUsername = uiState.recipientUsername.takeIf { it.isNotBlank() },
@@ -423,20 +304,18 @@ fun ChatMessageScreen(
                                     modifier = Modifier.fillMaxWidth().height(100.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text("Send a message to start the conversation!", color = TextSecondary, fontSize = 14.sp)
+                                    Text(
+                                        stringResource(R.string.chat_msg_empty_state),
+                                        color = TextSecondary,
+                                        fontSize = 14.sp
+                                    )
                                 }
                             }
                         }
 
-                        // No filtering - show all messages
-                        // Deleted messages will show appropriate text
                         val visibleMessages = uiState.messages
 
                         itemsIndexed(visibleMessages) { index, msg ->
-                            val prevIsSelf = if (index > 0) visibleMessages[index - 1].isSelf else !msg.isSelf
-                            val nextIsSelf = if (index < visibleMessages.size - 1) visibleMessages[index + 1].isSelf else !msg.isSelf
-
-                            // Reply preview if exists
                             val repliedIndex = msg.replyToMessageId?.let { id ->
                                 visibleMessages.indexOfFirst { it.messageId == id }
                             } ?: -1
@@ -445,19 +324,19 @@ fun ChatMessageScreen(
                                 val preview = if (repliedIndex >= 0) {
                                     val replied = visibleMessages[repliedIndex]
                                     val repliedName = if (replied.isSelf) {
-                                        "You"
+                                        stringResource(R.string.chat_msg_you)
                                     } else {
                                         if (uiState.isGroupChat) replied.senderDisplayName else uiState.recipientName
                                     }
                                     ReplyPreview(
                                         senderName = repliedName,
-                                        previewText = replied.content ?: "[Media]",
+                                        previewText = replied.content ?: stringResource(R.string.chat_msg_media_placeholder),
                                         isSelf = replied.isSelf
                                     )
                                 } else {
                                     ReplyPreview(
-                                        senderName = "Replied message",
-                                        previewText = "[Previous message]",
+                                        senderName = stringResource(R.string.chat_msg_replied_title),
+                                        previewText = stringResource(R.string.chat_msg_previous_msg),
                                         isSelf = false
                                     )
                                 }
@@ -467,12 +346,9 @@ fun ChatMessageScreen(
                                     alpha = 0.7f,
                                     onClick = if (repliedIndex >= 0) {
                                         {
-                                            // Scroll to replied message
                                             coroutineScope.launch {
                                                 listState.animateScrollToItem(repliedIndex)
-                                                // Highlight the message
                                                 highlightMessageId = msg.replyToMessageId
-                                                // Remove highlight after 2 seconds
                                                 kotlinx.coroutines.delay(2000)
                                                 highlightMessageId = null
                                             }
@@ -482,7 +358,6 @@ fun ChatMessageScreen(
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
 
-                            // Message row with avatar for group chat
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = if (msg.isSelf) Arrangement.End else Arrangement.Start,
@@ -492,7 +367,7 @@ fun ChatMessageScreen(
                                     LinkerAvatar(
                                         imageUrl = msg.senderAvatarUrl,
                                         size = 36.dp,
-                                        hasStory = false,
+                                        storyState = StoryState.NONE,
                                         onClick = {
                                             if (msg.senderId.isNotBlank()) {
                                                 onNavigateToUserProfile(msg.senderId)
@@ -502,27 +377,13 @@ fun ChatMessageScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
 
-                                // Chat Bubble
                                 ChatBubble(
                                     message = MessageItem(
-                                        text = if (msg.isDeleted) {
-                                            // Generate deleted message text dynamically
-                                            when {
-                                                // I deleted my own message (for me or for everyone)
-                                                msg.isSelf -> "You deleted this message"
-                                                // I deleted other's message (for me only)
-                                                !msg.isSelf && !msg.deletedForEveryone -> "You deleted this message"
-                                                // Other deleted their own message (for everyone)
-                                                !msg.isSelf && msg.deletedForEveryone -> "This message was deleted"
-                                                else -> msg.content ?: ""
-                                            }
-                                        } else {
-                                            msg.content ?: ""
-                                        },
+                                        text = msg.displayContent,
                                         isSelf = msg.isSelf,
                                         status = msg.status,
-                                        prevIsSelf = prevIsSelf,
-                                        nextIsSelf = nextIsSelf,
+                                        prevIsSelf = msg.prevIsSelf,
+                                        nextIsSelf = msg.nextIsSelf,
                                         isDeleted = msg.isDeleted
                                     ),
                                     coroutineScope = coroutineScope,
@@ -547,15 +408,13 @@ fun ChatMessageScreen(
                                 )
                             }
 
-                            // Reaction summary
-                            val reactionSummary = buildReactionSummary(msg.reactions)
-                            if (reactionSummary.isNotEmpty()) {
+                            if (msg.formattedReactions.isNotEmpty()) {
                                 Box(
                                     modifier = Modifier.fillMaxWidth(),
                                     contentAlignment = if (msg.isSelf) Alignment.CenterEnd else Alignment.CenterStart
                                 ) {
                                     ReactionSummaryRow(
-                                        emojis = reactionSummary,
+                                        emojis = msg.formattedReactions,
                                         modifier = Modifier.clickable {
                                             reactionsMessageId = msg.messageId
                                             viewModel.loadMessageReactions(msg.messageId, msg.reactions)
@@ -565,8 +424,7 @@ fun ChatMessageScreen(
                                 }
                             }
 
-                            // Seen indicator for last self message
-                            val isLastSelfMessage = msg.isSelf && uiState.messages.drop(index + 1).none { it.isSelf }
+                            val isLastSelfMessage = msg.isSelf && visibleMessages.drop(index + 1).none { it.isSelf }
                             if (isLastSelfMessage && msg.readAt != null) {
                                 if (uiState.isGroupChat && msg.seenByUsers.isNotEmpty()) {
                                     Row(
@@ -581,15 +439,14 @@ fun ChatMessageScreen(
                                                 modifier = Modifier
                                                     .offset(x = if (viewerIndex == 0) 0.dp else (-8).dp)
                                                     .clickable {
-                                                        selectedMessage = msg
-                                                        viewModel.loadMessageInfo(msg.messageId)
-                                                        showMessageInfo = true
+                                                        seenByUsersForSheet = msg.seenByUsers
+                                                        showSeenBySheet = true
                                                     }
                                             ) {
                                                 LinkerAvatar(
                                                     imageUrl = viewer.avatarUrl,
                                                     size = 18.dp,
-                                                    hasStory = false
+                                                    storyState = StoryState.NONE
                                                 )
                                             }
                                         }
@@ -608,7 +465,6 @@ fun ChatMessageScreen(
                             }
                         }
 
-                        // Sending indicator
                         if (uiState.isSending) {
                             item {
                                 Box(
@@ -624,7 +480,6 @@ fun ChatMessageScreen(
                             }
                         }
 
-                        // Error message
                         if (uiState.sendError != null) {
                             item {
                                 uiState.sendError?.let { error ->
@@ -647,22 +502,22 @@ fun ChatMessageScreen(
             }
         }
 
-        // Context Menu
         if (showContextMenu) {
             val message = selectedMessage
             val bounds = selectedMessageBounds
+            val forwardComingSoon = stringResource(R.string.chat_msg_forward_coming_soon)
             if (message != null && bounds != null) {
                 val constraints = this.constraints
                 MessageContextMenu(
                     message = message,
                     messageBounds = bounds,
-                screenWidth = constraints.maxWidth.toFloat(),
-                screenHeight = constraints.maxHeight.toFloat(),
-                quickReactions = quickReactions,
-                onDismiss = {
-                    showContextMenu = false
-                    showEmojiPicker = false
-                },
+                    screenWidth = constraints.maxWidth.toFloat(),
+                    screenHeight = constraints.maxHeight.toFloat(),
+                    quickReactions = quickReactions,
+                    onDismiss = {
+                        showContextMenu = false
+                        showEmojiPicker = false
+                    },
                     onReply = {
                         replyToMessage = message
                         showContextMenu = false
@@ -674,7 +529,7 @@ fun ChatMessageScreen(
                         showContextMenu = false 
                     },
                     onForward = {
-                        Toast.makeText(context, "Forward feature coming soon!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, forwardComingSoon, Toast.LENGTH_SHORT).show()
                         showContextMenu = false 
                     },
                     onInfo = {
@@ -707,39 +562,8 @@ fun ChatMessageScreen(
     }
 }
 
-private fun buildReactionSummary(reactions: Map<String, String>): List<String> {
-    return reactions.values.groupBy { it }
-        .map { (emoji, list) -> if (list.size > 1) "$emoji ${list.size}" else emoji }
-        .take(3)
-}
-
-@Composable
-fun ReactionSummaryRow(
-    emojis: List<String>,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF2C2C2E)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            emojis.forEach { emoji ->
-                Text(
-                    text = emoji,
-                    fontSize = 14.sp
-                )
-            }
-        }
-    }
-}
-
 private fun formatSeenLabel(timestamp: Long): String {
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
+    val diff = System.currentTimeMillis() - timestamp
     val days = diff / 86_400_000L
     return when {
         diff < 60_000L -> "Just seen"

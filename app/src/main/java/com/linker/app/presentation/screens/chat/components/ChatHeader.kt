@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,11 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.theme.TextPrimary
 
 /**
@@ -50,7 +53,7 @@ fun ChatHeader(
         IconButton(onClick = onNavigateBack) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_arrow_left_01_outline),
-                contentDescription = "Back",
+                contentDescription = stringResource(id = R.string.action_back),
                 tint = TextPrimary,
                 modifier = Modifier.size(30.dp)
             )
@@ -60,7 +63,7 @@ fun ChatHeader(
             modifier = Modifier
                 .weight(0.9f)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF262626))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable { onNavigateToInfo() }
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -68,7 +71,7 @@ fun ChatHeader(
             LinkerAvatar(
                 imageUrl = recipientImageUrl,
                 size = 36.dp,
-                hasStory = false,
+                storyState = StoryState.NONE,
                 onClick = {}
             )
             Spacer(modifier = Modifier.width(12.dp))
@@ -101,7 +104,7 @@ fun ChatProfileHeader(
         LinkerAvatar(
             imageUrl = recipientImageUrl,
             size = 120.dp,
-            hasStory = false
+            storyState = StoryState.NONE
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
@@ -110,10 +113,10 @@ fun ChatProfileHeader(
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold
         )
-        if (!recipientUsername.isNullOrBlank()) {
+        recipientUsername?.takeIf { it.isNotBlank() }?.let { username ->
             Text(
-                text = "@$recipientUsername",
-                color = Color.Gray,
+                text = "@$username",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 14.sp
             )
         }

@@ -10,6 +10,8 @@ import com.linker.app.data.local.dao.UserDao
 import com.linker.app.data.local.entity.NotificationEntity
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.Notification
+import com.linker.app.domain.model.NotificationActor
+import com.linker.app.domain.model.NotificationTarget
 import com.linker.app.domain.repository.NotificationRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -35,9 +37,9 @@ class NotificationRepositoryImpl @Inject constructor(
     private fun notificationsRef() =
         firestore.collection("users").document(currentUserId).collection("notifications")
 
-    override fun observeNotifications(): Flow<List<Notification>> = callbackFlow {
+    override fun observeNotifications(): Flow<Result<List<Notification>>> = callbackFlow {
         if (currentUserId.isBlank()) {
-            trySend(emptyList())
+            trySend(Result.Success(emptyList()))
             awaitClose { }
             return@callbackFlow
         }
@@ -46,7 +48,7 @@ class NotificationRepositoryImpl @Inject constructor(
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList())
+                    trySend(Result.Success(emptyList()))
                     return@addSnapshotListener
                 }
                 val notifications = snapshot?.documents?.mapNotNull { doc ->
@@ -55,6 +57,16 @@ class NotificationRepositoryImpl @Inject constructor(
 
                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                     val entities = notifications.map { notification ->
+                        // Extract targetEntityId and targetEntityType from sealed class
+                        val (targetEntityId, targetEntityType) = when (val target = notification.target) {
+                            is NotificationTarget.LinkTarget -> target.linkId to "LINK"
+                            is NotificationTarget.CommentTarget -> target.commentId to "COMMENT"
+                            is NotificationTarget.StoryTarget -> target.storyId to "STORY"
+                            is NotificationTarget.UserTarget -> target.userId to "USER"
+                            is NotificationTarget.MessageTarget -> target.messageId to "MESSAGE"
+                            NotificationTarget.NoTarget -> null to null
+                        }
+                        
                         NotificationEntity(
                             notificationId = notification.notificationId,
                             notificationType = when (notification.notificationType) {
@@ -69,8 +81,8 @@ class NotificationRepositoryImpl @Inject constructor(
                                 com.linker.app.domain.model.NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
                             },
                             actorId = notification.actor.userId,
-                            targetEntityId = notification.targetEntityId,
-                            targetEntityType = notification.targetEntityType,
+                            targetEntityId = targetEntityId,
+                            targetEntityType = targetEntityType,
                             title = notification.title,
                             message = notification.message,
                             imageUrl = notification.imageUrl,
@@ -82,14 +94,14 @@ class NotificationRepositoryImpl @Inject constructor(
                     entities.forEach { notificationDao.insertNotification(it) }
                 }
 
-                trySend(notifications)
+                trySend(Result.Success(notifications))
             }
         awaitClose { listener.remove() }
     }
 
-    override fun observeUnreadCount(): Flow<Int> = callbackFlow {
+    override fun observeUnreadCount(): Flow<Result<Int>> = callbackFlow {
         if (currentUserId.isBlank()) {
-            trySend(0)
+            trySend(Result.Success(0))
             awaitClose { }
             return@callbackFlow
         }
@@ -98,10 +110,10 @@ class NotificationRepositoryImpl @Inject constructor(
             .whereEqualTo("isRead", false)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(0)
+                    trySend(Result.Success(0))
                     return@addSnapshotListener
                 }
-                trySend(snapshot?.size() ?: 0)
+                trySend(Result.Success(snapshot?.size() ?: 0))
             }
         awaitClose { listener.remove() }
     }
@@ -143,34 +155,50 @@ class NotificationRepositoryImpl @Inject constructor(
         notificationDao.deleteAllNotifications()
     }
 
-    override suspend fun insertNotification(notification: NotificationEntity) {
-        notificationDao.insertNotification(notification)
+    override suspend fun insertNotification(notification: Notification): Result<Unit> = safeCall {
+        val (targetEntityId, targetEntityType) = when (val target = notification.target) {
+            is NotificationTarget.LinkTarget -> target.linkId to "LINK"
+            is NotificationTarget.CommentTarget -> target.commentId to "COMMENT"
+            is NotificationTarget.StoryTarget -> target.storyId to "STORY"
+            is NotificationTarget.UserTarget -> target.userId to "USER"
+            is NotificationTarget.MessageTarget -> target.messageId to "MESSAGE"
+            NotificationTarget.NoTarget -> null to null
+        }
+        
+        val localNotification = com.linker.app.data.local.entity.NotificationEntity(
+            notificationId = notification.notificationId,
+            notificationType = when (notification.notificationType) {
+                com.linker.app.domain.model.NotificationType.LIKE -> com.linker.app.data.local.entity.NotificationType.LIKE
+                com.linker.app.domain.model.NotificationType.COMMENT -> com.linker.app.data.local.entity.NotificationType.COMMENT
+                com.linker.app.domain.model.NotificationType.REPLY -> com.linker.app.data.local.entity.NotificationType.REPLY
+                com.linker.app.domain.model.NotificationType.FOLLOW -> com.linker.app.data.local.entity.NotificationType.FOLLOW
+                com.linker.app.domain.model.NotificationType.MENTION -> com.linker.app.data.local.entity.NotificationType.MENTION
+                com.linker.app.domain.model.NotificationType.RELINK -> com.linker.app.data.local.entity.NotificationType.RELINK
+                com.linker.app.domain.model.NotificationType.MESSAGE -> com.linker.app.data.local.entity.NotificationType.MESSAGE
+                com.linker.app.domain.model.NotificationType.STORY_VIEW -> com.linker.app.data.local.entity.NotificationType.STORY_VIEW
+                com.linker.app.domain.model.NotificationType.LIVE -> com.linker.app.data.local.entity.NotificationType.LIVE
+            },
+            actorId = notification.actor.userId,
+            targetEntityId = targetEntityId,
+            targetEntityType = targetEntityType,
+            title = notification.title,
+            message = notification.message,
+            imageUrl = notification.imageUrl,
+            actionUrl = notification.actionUrl,
+            isRead = notification.isRead,
+            createdAt = notification.createdAt
+        )
+        notificationDao.insertNotification(localNotification)
     }
 
     private fun mapToNotificationSync(notificationId: String, data: Map<String, Any?>): Notification {
         val actorId = data["senderId"] as? String ?: data["actorId"] as? String ?: ""
-        val actor = com.linker.app.domain.model.User(
+        val actor = NotificationActor(
             userId = actorId,
             username = "",
             displayName = "",
-            email = null,
-            phoneNumber = null,
-            bio = null,
             profileImageUrl = null,
-            coverImageUrl = null,
-            isVerified = false,
-            followersCount = 0,
-            followingCount = 0,
-            likesCount = 0,
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            isPrivate = false,
-            followRequestSent = false,
-            hideFollowLists = false,
-            createdAt = 0L,
-            updatedAt = 0L
+            isVerified = false
         )
 
         val typeStr = data["type"] as? String ?: "MESSAGE"
@@ -179,13 +207,20 @@ class NotificationRepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             com.linker.app.domain.model.NotificationType.MESSAGE
         }
+        
+        // Convert legacy string-based target to sealed class
+        val targetEntityId = data["messageId"] as? String ?: data["targetEntityId"] as? String
+        val targetEntityType = data["targetEntityType"] as? String
+        val target = NotificationTarget.fromLegacy(
+            entityType = targetEntityType,
+            entityId = targetEntityId
+        )
 
         return Notification(
             notificationId = notificationId,
             notificationType = notificationType,
             actor = actor,
-            targetEntityId = data["messageId"] as? String ?: data["targetEntityId"] as? String,
-            targetEntityType = data["targetEntityType"] as? String,
+            target = target,
             title = data["title"] as? String ?: "",
             message = data["body"] as? String ?: data["message"] as? String ?: "",
             imageUrl = null,
@@ -198,7 +233,14 @@ class NotificationRepositoryImpl @Inject constructor(
     private suspend fun mapToNotification(notificationId: String, data: Map<String, Any?>): Notification {
         val actorId = data["senderId"] as? String ?: data["actorId"] as? String ?: ""
         val actorEntity = userDao.getUserById(actorId)
-        val actor = actorEntity?.toDomain() ?: com.linker.app.domain.model.createUserStub(actorId)
+        val actor = actorEntity?.toDomain()?.let { NotificationActor.from(it) }
+            ?: NotificationActor(
+                userId = actorId,
+                username = "",
+                displayName = "",
+                profileImageUrl = null,
+                isVerified = false
+            )
 
         val typeStr = data["type"] as? String ?: "MESSAGE"
         val notificationType = try {
@@ -206,13 +248,20 @@ class NotificationRepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             com.linker.app.domain.model.NotificationType.MESSAGE
         }
+        
+        // Convert legacy string-based target to sealed class
+        val targetEntityId = data["messageId"] as? String ?: data["targetEntityId"] as? String
+        val targetEntityType = data["targetEntityType"] as? String
+        val target = NotificationTarget.fromLegacy(
+            entityType = targetEntityType,
+            entityId = targetEntityId
+        )
 
         return Notification(
             notificationId = notificationId,
             notificationType = notificationType,
             actor = actor,
-            targetEntityId = data["messageId"] as? String ?: data["targetEntityId"] as? String,
-            targetEntityType = data["targetEntityType"] as? String,
+            target = target,
             title = data["title"] as? String ?: "",
             message = data["body"] as? String ?: data["message"] as? String ?: "",
             imageUrl = null,

@@ -190,9 +190,9 @@ class NearbyConnectionsManagerImpl @Inject constructor(
     }
 
     private suspend fun getCurrentUserId(): Result<String> {
-        val userId = accountRepository.getActiveUid()
-        return if (userId != null) {
-            Result.success(userId)
+        val userIdResult = accountRepository.getActiveUid()
+        return if (userIdResult is com.linker.app.core.util.Result.Success) {
+            Result.success(userIdResult.data)
         } else {
             android.util.Log.e(TAG, "User not logged in")
             Result.failure(NearbyConnectionException.NotLoggedInException())

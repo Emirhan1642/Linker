@@ -38,31 +38,34 @@ fun EmojiPickerPanel(
     var selectedCategory by remember { mutableStateOf(EmojiCategory.SMILEYS) }
     
     val panelHeight = 320.dp
-    val panelHeightPx = with(androidx.compose.ui.platform.LocalDensity.current) { panelHeight.toPx() }
-    val paddingPx = with(androidx.compose.ui.platform.LocalDensity.current) { 8.dp.toPx() }
-    
-    // Calculate position: above or below emoji bar, avoiding message bubble
-    val spaceAbove = emojiBarY - paddingPx
-    val spaceBelow = screenHeight - emojiBarY - emojiBarHeight - paddingPx
-    
-    // Check if placing above would overlap with message
-    val panelAboveY = emojiBarY - panelHeightPx - paddingPx
-    val wouldOverlapMessage = panelAboveY < messageBounds.bottom + paddingPx
-    
-    val panelY = if (spaceAbove >= panelHeightPx && !wouldOverlapMessage) {
-        // Enough space above and won't overlap message
-        panelAboveY
-    } else if (spaceBelow >= panelHeightPx) {
-        // Enough space below, place below emoji bar
-        emojiBarY + emojiBarHeight + paddingPx
-    } else {
-        // Not enough space either way, prefer below if message is above emoji bar
-        if (messageBounds.bottom < emojiBarY) {
-            // Message is above, place picker below
-            (emojiBarY + emojiBarHeight + paddingPx).coerceAtMost(screenHeight - panelHeightPx - paddingPx)
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val panelY = remember(emojiBarY, emojiBarHeight, screenHeight, messageBounds, density) {
+        val panelHeightPx = with(density) { panelHeight.toPx() }
+        val paddingPx = with(density) { 8.dp.toPx() }
+        
+        // Calculate position: above or below emoji bar, avoiding message bubble
+        val spaceAbove = emojiBarY - paddingPx
+        val spaceBelow = screenHeight - emojiBarY - emojiBarHeight - paddingPx
+        
+        // Check if placing above would overlap with message
+        val panelAboveY = emojiBarY - panelHeightPx - paddingPx
+        val wouldOverlapMessage = panelAboveY < messageBounds.bottom + paddingPx
+        
+        if (spaceAbove >= panelHeightPx && !wouldOverlapMessage) {
+            // Enough space above and won't overlap message
+            panelAboveY
+        } else if (spaceBelow >= panelHeightPx) {
+            // Enough space below, place below emoji bar
+            emojiBarY + emojiBarHeight + paddingPx
         } else {
-            // Message is below or overlapping, place picker above and clamp
-            panelAboveY.coerceAtLeast(paddingPx)
+            // Not enough space either way, prefer below if message is above emoji bar
+            if (messageBounds.bottom < emojiBarY) {
+                // Message is above, place picker below
+                (emojiBarY + emojiBarHeight + paddingPx).coerceAtMost(screenHeight - panelHeightPx - paddingPx)
+            } else {
+                // Message is below or overlapping, place picker above and clamp
+                panelAboveY.coerceAtLeast(paddingPx)
+            }
         }
     }
     
@@ -72,7 +75,7 @@ fun EmojiPickerPanel(
             .width(with(androidx.compose.ui.platform.LocalDensity.current) { emojiBarWidth.toDp() })
             .height(panelHeight)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xFF1F1F23))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
     ) {
         Column(
             modifier = Modifier.fillMaxSize()
@@ -98,7 +101,7 @@ fun EmojiPickerPanel(
                                 .padding(vertical = 6.dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    if (selectedCategory == category) Color(0xFF2E2E32)
+                                    if (selectedCategory == category) MaterialTheme.colorScheme.surfaceVariant
                                     else Color.Transparent
                                 )
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -113,7 +116,7 @@ fun EmojiPickerPanel(
                 }
             }
             
-            HorizontalDivider(color = Color(0xFF2E2E32), thickness = 1.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
             
             // Emoji grid
             LazyVerticalGrid(

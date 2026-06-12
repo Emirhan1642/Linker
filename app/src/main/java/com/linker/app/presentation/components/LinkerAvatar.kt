@@ -29,22 +29,24 @@ import com.linker.app.presentation.theme.TextPrimary
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 
 enum class StoryState { NONE, UNSEEN, SEEN }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LinkerAvatar(
-    imageUrl: String?, // Would use Coil AsyncImage in a real app, currently fallback to Icon
+    imageUrl: String?,
     size: Dp = 56.dp,
-    hasStory: Boolean = false, // Deprecated, use storyState
     storyState: StoryState = StoryState.NONE,
     isOnline: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val effectiveStoryState = if (hasStory) StoryState.UNSEEN else storyState
+    val effectiveStoryState = storyState
 
     val clickModifier = if (onClick != null || onLongClick != null) {
         Modifier.combinedClickable(
@@ -54,6 +56,11 @@ fun LinkerAvatar(
     } else {
         Modifier
     }
+    
+    val unseenBorderWidth = (size.value / 20).dp
+    val seenBorderWidth = (size.value / 25).dp
+    val avatarPadding = if (effectiveStoryState == StoryState.NONE) 0.dp else (size.value / 15).dp
+    val onlineIndicatorSize = size * 0.25f
 
     Box(
         modifier = modifier
@@ -68,12 +75,12 @@ fun LinkerAvatar(
                 .matchParentSize()
                 .then(
                     when (effectiveStoryState) {
-                        StoryState.UNSEEN -> Modifier.border(width = (size/20).value.dp, LinkerAngularGradient, CircleShape)
-                        StoryState.SEEN -> Modifier.border(width = (size/25).value.dp, SolidColor(Color.White), CircleShape)
+                        StoryState.UNSEEN -> Modifier.border(width = unseenBorderWidth, LinkerAngularGradient, CircleShape)
+                        StoryState.SEEN -> Modifier.border(width = seenBorderWidth, SolidColor(Color.White), CircleShape)
                         StoryState.NONE -> Modifier
                     }
                 )
-                .padding(if (effectiveStoryState == StoryState.NONE) 0.dp else (size/15).value.dp)
+                .padding(avatarPadding)
         ) {
             // Actual Avatar
             Box(
@@ -84,23 +91,14 @@ fun LinkerAvatar(
                 contentAlignment = Alignment.Center
             ) {
                 if (imageUrl != null) {
-                    /**
-                     * AVATAR IMAGE LOADING:
-                     * Replace with Coil AsyncImage once profile images are implemented:
-                     * 
-                     * AsyncImage(
-                     *     model = imageUrl,
-                     *     contentDescription = "Avatar",
-                     *     contentScale = ContentScale.Crop,
-                     *     modifier = Modifier.matchParentSize(),
-                     *     placeholder = painterResource(R.drawable.ic_person_placeholder),
-                     *     error = painterResource(R.drawable.ic_person_placeholder)
-                     * )
-                     */
-                    Icon(
-                        imageVector = Icons.Default.Person,
+                    val placeholderPainter = rememberVectorPainter(Icons.Default.Person)
+                    AsyncImage(
+                        model = imageUrl,
                         contentDescription = "Avatar",
-                        modifier = Modifier.matchParentSize()
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.matchParentSize(),
+                        placeholder = placeholderPainter,
+                        error = placeholderPainter
                     )
                 } else {
                     Icon(
@@ -116,7 +114,7 @@ fun LinkerAvatar(
         if (isOnline) {
             Box(
                 modifier = Modifier
-                    .size(size * 0.25f)
+                    .size(onlineIndicatorSize)
                     .clip(CircleShape)
                     .background(Color.Black) // Inner spacing
                     .padding(2.dp)

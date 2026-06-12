@@ -106,7 +106,8 @@ class MessageReactionRepositoryImpl @Inject constructor(
                 userId = userId,
                 userName = displayName,
                 avatarUrl = null,
-                emoji = emoji
+                emoji = emoji,
+                timestamp = System.currentTimeMillis()
             )
         }
     }

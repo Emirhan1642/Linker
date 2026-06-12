@@ -52,8 +52,8 @@ fun AccountCenterScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Black)
-            // Scaffold yok — status bar padding manuel
-            .statusBarsPadding()
+            // Scaffold yok — system bar padding manuel
+            .systemBarsPadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -128,6 +128,9 @@ fun AccountCenterScreen(
             if (uiState.sessions.isEmpty()) {
                 EmptyState(onAddAccount = onNavigateToAuth)
             } else {
+                val sortedSessions = remember(uiState.sessions) {
+                    uiState.sessions.sortedByDescending { it.lastUsedAt }
+                }
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -136,7 +139,7 @@ fun AccountCenterScreen(
                     contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     items(
-                        items = uiState.sessions.sortedByDescending { it.lastUsedAt },
+                        items = sortedSessions,
                         key = { it.uid }
                     ) { session ->
                         AccountCard(
@@ -179,7 +182,7 @@ fun AccountCenterScreen(
         // ── Error snackbar ────────────────────────────────────────────────────
         uiState.switchError?.let { error ->
             Snackbar(
-                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
                 action = {
                     TextButton(onClick = { viewModel.dismissError() }) {
                         Text("Dismiss", color = AccentGreen)

@@ -121,7 +121,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
 
             
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to log boot event: \${e.message}")
+            Log.w(TAG, "Failed to log boot event: ${e.message}")
         }
     }
 
@@ -134,12 +134,12 @@ class BootCompletedReceiver : BroadcastReceiver() {
         
         while (attempt < maxRetries) {
             try {
-                Log.d(TAG, "Attempting to start service (attempt \${attempt + 1}/\$maxRetries)")
+                Log.d(TAG, "Attempting to start service (attempt ${attempt + 1}/$maxRetries)")
                 
                 val started = serviceManager.startService()
                 
                 if (started) {
-                    Log.d(TAG, "Service started successfully on attempt \${attempt + 1}")
+                    Log.d(TAG, "Service started successfully on attempt ${attempt + 1}")
                     return true
                 }
                 
@@ -147,19 +147,19 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 
             } catch (e: Exception) {
                 lastException = e
-                Log.w(TAG, "Service start failed on attempt \${attempt + 1}: \${e.message}")
+                Log.w(TAG, "Service start failed on attempt ${attempt + 1}: ${e.message}")
             }
             
             attempt++
             
             if (attempt < maxRetries) {
                 val delayMs = 1000L * (1 shl (attempt - 1))
-                Log.d(TAG, "Waiting \${delayMs}ms before retry...")
+                Log.d(TAG, "Waiting ${delayMs}ms before retry...")
                 delay(delayMs)
             }
         }
         
-        Log.e(TAG, "Failed to start service after \$maxRetries attempts", lastException)
+        Log.e(TAG, "Failed to start service after $maxRetries attempts", lastException)
         return false
     }
 
@@ -215,7 +215,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
         }
         
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) {
-            Log.d(TAG, "Ignoring non-boot action: \${intent.action}")
+            Log.d(TAG, "Ignoring non-boot action: ${intent.action}")
             return
         }
         
@@ -287,7 +287,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 }
                 
             } catch (e: Exception) {
-                Log.e(TAG, "Error starting service on boot: \${e.message}", e)
+                Log.e(TAG, "Error starting service on boot: ${e.message}", e)
             } finally {
                 pendingResult.finish()
             }

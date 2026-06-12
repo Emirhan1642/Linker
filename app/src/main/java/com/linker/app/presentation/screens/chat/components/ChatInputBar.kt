@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,7 +58,7 @@ fun ChatInputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(Color(0xFF1C1C20))
+            .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .navigationBarsPadding()
             .imePadding()
@@ -80,7 +82,7 @@ fun ChatInputBar(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF2A2A2E))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 BasicTextField(
@@ -94,10 +96,10 @@ fun ChatInputBar(
                         fontSize = 15.sp
                     ),
                     decorationBox = { innerTextField ->
-                        Box {
+                        Box(contentAlignment = Alignment.CenterStart) {
                             if (text.isEmpty()) {
                                 Text(
-                                    text = "Message...",
+                                    text = stringResource(id = R.string.hint_message),
                                     color = TextHint,
                                     fontSize = 15.sp
                                 )
@@ -114,7 +116,7 @@ fun ChatInputBar(
                     .size(44.dp)
                     .clip(RoundedCornerShape(22.dp))
                     .background(
-                        if (text.isNotBlank() && !isSending) Color(0xFF007E8E) else Color(0xFF3A3A3E)
+                        if (text.isNotBlank() && !isSending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                     )
                     .clickable(enabled = text.isNotBlank() && !isSending) { onSend() },
                 contentAlignment = Alignment.Center
@@ -122,14 +124,14 @@ fun ChatInputBar(
                 if (isSending) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_ai_send_message_outline),
-                        contentDescription = "Send",
-                        tint = if (text.isNotBlank()) Color.White else TextSecondary,
+                        contentDescription = stringResource(id = R.string.action_send),
+                        tint = if (text.isNotBlank()) MaterialTheme.colorScheme.onPrimary else TextSecondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -148,7 +150,7 @@ fun ReplyPreviewBar(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF2A2A2E))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 6.dp, vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -158,7 +160,7 @@ fun ReplyPreviewBar(
                 .width(3.dp)
                 .height(32.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(if (preview.isSelf) Color(0xFF007E8E) else Color(0xFFFFA726))
+                .background(if (preview.isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary)
         )
 
         Spacer(modifier = Modifier.width(8.dp))
@@ -166,7 +168,7 @@ fun ReplyPreviewBar(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = preview.senderName,
-                color = if (preview.isSelf) Color(0xFF007E8E) else Color(0xFFFFA726),
+                color = if (preview.isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
             )
@@ -181,7 +183,7 @@ fun ReplyPreviewBar(
         IconButton(onClick = onCancel) {
             Icon(
                 painter = painterResource(id = R.drawable.ic_close_circle_outline),
-                contentDescription = "Cancel reply",
+                contentDescription = stringResource(id = R.string.action_cancel_reply),
                 tint = TextSecondary,
                 modifier = Modifier.size(18.dp)
             )

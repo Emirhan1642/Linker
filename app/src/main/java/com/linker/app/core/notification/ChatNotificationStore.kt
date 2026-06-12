@@ -119,30 +119,30 @@ object ChatNotificationStore {
         message: String,
         isGroupChat: Boolean = false
     ) {
-        NotificationLogger.d("addIncoming: notificationId=\$notificationId, chatId=\$chatId")
+        NotificationLogger.d("addIncoming: notificationId=$notificationId, chatId=$chatId")
         val state = getOrCreate(notificationId, recipientUid, chatId, isGroupChat)
         if (message.isNotBlank() && !state.messages.contains(message)) {
             state.addMessage(message)
-            NotificationLogger.d("Message added. Total messages: \${state.messages.size}")
+            NotificationLogger.d("Message added. Total messages: ${state.messages.size}")
             saveToPrefs()
         } else if (message.isNotBlank()) {
-            NotificationLogger.w("Duplicate message ignored: \$message")
+            NotificationLogger.w("Duplicate message ignored: $message")
         }
     }
 
     fun addOutgoing(notificationId: Int, message: String) {
-        NotificationLogger.d("addOutgoing: notificationId=\$notificationId")
+        NotificationLogger.d("addOutgoing: notificationId=$notificationId")
         val state = store[notificationId]
         if (state == null) {
-            NotificationLogger.w("addOutgoing: State not found for notificationId=\$notificationId.")
+            NotificationLogger.w("addOutgoing: State not found for notificationId=$notificationId.")
         } else {
-            val formattedMessage = "Siz: \$message"
+            val formattedMessage = "Siz: $message"
             if (!state.messages.contains(formattedMessage)) {
                 state.addMessage(formattedMessage)
-                NotificationLogger.d("Outgoing message added. Total messages: \${state.messages.size}")
+                NotificationLogger.d("Outgoing message added. Total messages: ${state.messages.size}")
                 saveToPrefs()
             } else {
-                NotificationLogger.w("Duplicate outgoing message ignored: \$formattedMessage")
+                NotificationLogger.w("Duplicate outgoing message ignored: $formattedMessage")
             }
         }
     }

@@ -2,8 +2,8 @@ package com.linker.app.presentation.screens.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.core.util.Result
+import com.linker.app.data.repository.SearchHistoryRepository
 import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -14,6 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
@@ -41,29 +43,26 @@ class SearchViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
-    private val currentUid: String
-        get() = FirebaseAuth.getInstance().currentUser?.uid ?: "anonymous"
-
-    private var recentSearchesJob: Job? = null
+    // UID değiştiğinde arama geçmişi otomatik yenilenir.
+    private var currentUid: String = "anonymous"
 
     init {
-        startListeningRecentSearches()
+        viewModelScope.launch {
+            userRepository.observeCurrentUser().collectLatest { userResult ->
+                val newUid = (userResult as? Result.Success)?.data?.userId ?: "anonymous"
+                if (newUid != currentUid) {
+                    currentUid = newUid
+                    _uiState.update { SearchUiState() }
+                    startListeningRecentSearches()
+                }
+            }
+        }
         observeQueryChanges()
     }
 
-    /**
-     * Hesap değişiminde çağrılır:
-     * 1. Önceki arama geçmişi flow'unu durdur
-     * 2. Query ve sonuçları temizle
-     * 3. Yeni UID ile arama geçmişini dinlemeye başla
-     */
-    fun onAccountChanged() {
-        // Önce state'i temizle — eski hesabın aramasını gösterme
-        _uiState.update { SearchUiState() }
-        startListeningRecentSearches()
-    }
+    private var recentSearchesJob: Job? = null
 
-    fun startListeningRecentSearches() {
+    private fun startListeningRecentSearches() {
         recentSearchesJob?.cancel()
         recentSearchesJob = viewModelScope.launch {
             searchHistoryRepository.getRecentSearches(currentUid).collectLatest { recents ->
@@ -119,7 +118,7 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isSearching = true, error = null) }
             when (val result = userRepository.searchUsers(query)) {
-                is Result.Success -> _uiState.update { it.copy(searchResults = result.data, isSearching = false) }
+                is Result.Success -> _uiState.update { it.copy(searchResults = result.data.users, isSearching = false) }
                 is Result.Error   -> _uiState.update { it.copy(isSearching = false, error = result.message) }
                 is Result.Loading -> {}
             }
@@ -133,16 +132,24 @@ class SearchViewModel @Inject constructor(
             val current = _uiState.value.searchResults.firstOrNull { it.userId == user.userId } ?: user
 
             val optimistic = when {
-                current.isFollowing -> current.copy(isFollowing = false, followRequestSent = false)
-                current.followRequestSent -> current.copy(followRequestSent = false, isFollowing = false)
-                current.isPrivate -> current.copy(followRequestSent = true, isFollowing = false)
-                else -> current.copy(isFollowing = true, followRequestSent = false)
+                current.relationship.isFollowing -> current.copy(
+                    relationship = current.relationship.copy(isFollowing = false, followRequestSent = false)
+                )
+                current.relationship.followRequestSent -> current.copy(
+                    relationship = current.relationship.copy(followRequestSent = false, isFollowing = false)
+                )
+                current.privacy.isPrivate -> current.copy(
+                    relationship = current.relationship.copy(followRequestSent = true, isFollowing = false)
+                )
+                else -> current.copy(
+                    relationship = current.relationship.copy(isFollowing = true, followRequestSent = false)
+                )
             }
             updateUserInResults(optimistic)
 
             val result = when {
-                current.isFollowing -> userRepository.unfollowUser(current.userId)
-                current.followRequestSent -> userRepository.cancelFollowRequest(current.userId)
+                current.relationship.isFollowing -> userRepository.unfollowUser(current.userId)
+                current.relationship.followRequestSent -> userRepository.cancelFollowRequest(current.userId)
                 else -> userRepository.followUser(current.userId)
             }
 

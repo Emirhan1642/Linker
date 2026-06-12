@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.linker.app.R
 import com.linker.app.domain.model.MessageDeliveryStatus
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.screens.chat.MessageInfoState
 import com.linker.app.presentation.screens.chat.ReactionUserInfo
 import com.linker.app.presentation.screens.chat.ReadReceiptInfo
@@ -62,7 +65,7 @@ fun MessageInfoBottomSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF1C1C20)
+        containerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(
             modifier = modifier
@@ -71,7 +74,7 @@ fun MessageInfoBottomSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Message Info",
+                text = stringResource(id = R.string.title_message_info),
                 color = TextPrimary,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold
@@ -160,15 +163,15 @@ fun ReplyPreviewHologram(
     onClick: (() -> Unit)? = null
 ) {
     val contentAlignment = if (alignEnd) Alignment.CenterEnd else Alignment.CenterStart
-    val backgroundColor = if (preview.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
+    val backgroundColor = if (preview.isSelf) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
 
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = contentAlignment
     ){
         Text(
-            text = preview.senderName + " replied to " + preview.senderName,
-            color = Color(0x88FFFFFF),
+            text = stringResource(id = R.string.msg_replied_to, preview.senderName, preview.senderName),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             fontSize = 10.sp,
             maxLines = 1,
         )
@@ -216,7 +219,7 @@ fun DeliveryInfoSection(
 ) {
     // Sent time
     InfoRow(
-        label = "Sent",
+        label = stringResource(id = R.string.status_sent),
         value = formatRelativeTime(state.sentAt),
         iconRes = R.drawable.ic_forward_outline
     )
@@ -224,7 +227,7 @@ fun DeliveryInfoSection(
     // Delivered info
     if (state.deliveredReceipts.isNotEmpty()) {
         Text(
-            text = "Delivered to",
+            text = stringResource(id = R.string.delivered_to),
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
@@ -242,7 +245,7 @@ fun DeliveryInfoSection(
         }
     } else if (state.deliveredAt != null) {
         InfoRow(
-            label = "Delivered",
+            label = stringResource(id = R.string.status_delivered),
             value = formatRelativeTime(state.deliveredAt),
             iconRes = R.drawable.ic_box_search_outline
         )
@@ -250,12 +253,10 @@ fun DeliveryInfoSection(
 
     // Read info
     if (state.readAt != null) {
-        if (isGroupChat && state.readReceipts.isNotEmpty()) {
-            // Group chat: show "Seen by" section below
-        } else if (!isGroupChat) {
+        if (!isGroupChat) {
             // Direct chat: show simple "Seen" info
             InfoRow(
-                label = "Seen",
+                label = stringResource(id = R.string.status_seen),
                 value = formatRelativeTime(state.readAt),
                 iconRes = R.drawable.ic_forward_bold
             )
@@ -265,7 +266,7 @@ fun DeliveryInfoSection(
     // Failed info
     if (state.failedAt != null) {
         InfoRow(
-            label = "Failed",
+            label = stringResource(id = R.string.status_failed),
             value = formatRelativeTime(state.failedAt),
             iconRes = R.drawable.ic_cloud_cross_outline
         )
@@ -274,7 +275,7 @@ fun DeliveryInfoSection(
     // Read receipts for group chat
     if (isGroupChat && state.readReceipts.isNotEmpty()) {
         Text(
-            text = "Seen By",
+            text = stringResource(id = R.string.seen_by),
             color = TextPrimary,
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
@@ -300,7 +301,7 @@ fun RepliesSection(
     onNavigateToUserProfile: (String) -> Unit
 ) {
     Text(
-        text = "Replies",
+        text = stringResource(id = R.string.replies),
         color = TextPrimary,
         fontSize = 14.sp,
         fontWeight = FontWeight.SemiBold,
@@ -318,7 +319,7 @@ fun RepliesSection(
             LinkerAvatar(
                 imageUrl = reply.avatarUrl,
                 size = 40.dp,
-                hasStory = false,
+                storyState = StoryState.NONE,
                 onClick = {
                     if (reply.senderId.isNotBlank()) {
                         onNavigateToUserProfile(reply.senderId)
@@ -354,7 +355,7 @@ fun ReceiptParticipantRow(
         LinkerAvatar(
             imageUrl = avatarUrl,
             size = 32.dp,
-            hasStory = false,
+            storyState = StoryState.NONE,
             onClick = onAvatarClick
         )
         Spacer(modifier = Modifier.width(12.dp))
@@ -421,7 +422,7 @@ fun ReactionSummarySection(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF2A2A2E))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
                     .clickable { onEmojiClick(emojiText) }
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {

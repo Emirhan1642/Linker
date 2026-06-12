@@ -23,11 +23,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.R
+import com.linker.app.core.util.FormatUtil.formatStat
 import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.User
 import com.linker.app.presentation.components.BottomNavItem
@@ -50,18 +51,9 @@ fun ProfileScreen(
     var selectedTab by remember { mutableStateOf(0) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
 
-    // Hesap değişimi tespiti: ekran göründüğünde UID değiştiyse ViewModel'i yenile.
-    // getCurrentUser() artık AuthStateListener kullandığından Firestore listener
-    // otomatik güncellenir; biz sadece UI state'i temizliyoruz.
-    val trackedUid = remember { mutableStateOf(FirebaseAuth.getInstance().currentUser?.uid) }
-    LaunchedEffect(Unit) {
-        val freshUid = FirebaseAuth.getInstance().currentUser?.uid
-        if (freshUid != trackedUid.value) {
-            trackedUid.value = freshUid
-            selectedTab = 0
-            showFullScreenAvatar = false
-            viewModel.refreshForAccountChange()
-        }
+    LaunchedEffect(uiState.user?.userId) {
+        selectedTab = 0
+        showFullScreenAvatar = false
     }
 
     val currentLinks = uiState.relinkedPosts
@@ -115,7 +107,7 @@ fun ProfileScreen(
                     if (currentLinks.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
                             Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                                Text("No Links yet", color = TextSecondary)
+                                Text(stringResource(R.string.profile_no_links), color = TextSecondary)
                             }
                         }
                     } else {
@@ -125,7 +117,7 @@ fun ProfileScreen(
                 } else {
                     item(span = StaggeredGridItemSpan.FullLine) {
                         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            Text("No Relink yet", color = TextSecondary)
+                            Text(stringResource(R.string.profile_no_relink), color = TextSecondary)
                         }
                     }
                 }
@@ -155,9 +147,9 @@ fun ProfileScreen(
                     Text("@${uiState.user?.username ?: "username"}", color = TextSecondary, fontSize = 18.sp)
                     Spacer(modifier = Modifier.height(20.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(30.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AvatarAction(R.drawable.ic_export_circle_01_outline, "Share") { showFullScreenAvatar = false }
-                        AvatarAction(R.drawable.ic_close_circle_outline, "Block") { showFullScreenAvatar = false }
-                        AvatarAction(R.drawable.ic_enhance_user_ai_outline, "Follow") { showFullScreenAvatar = false }
+                        AvatarAction(R.drawable.ic_export_circle_01_outline, stringResource(R.string.profile_action_share)) { showFullScreenAvatar = false }
+                        AvatarAction(R.drawable.ic_close_circle_outline, stringResource(R.string.profile_action_block)) { showFullScreenAvatar = false }
+                        AvatarAction(R.drawable.ic_enhance_user_ai_outline, stringResource(R.string.follow_status_follow)) { showFullScreenAvatar = false }
                     }
                 }
             }
@@ -209,16 +201,16 @@ fun ProfileHeader(
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onFollowersClick)) {
-                Text(formatStat(user?.followersCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Followers", color = TextPrimary, fontSize = 14.sp)
+                Text(formatStat(user?.metrics?.followersCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.followers), color = TextPrimary, fontSize = 14.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onFollowingClick)) {
-                Text(formatStat(user?.followingCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Following", color = TextPrimary, fontSize = 14.sp)
+                Text(formatStat(user?.metrics?.followingCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.following), color = TextPrimary, fontSize = 14.sp)
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(formatStat(user?.likesCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Likes", color = TextPrimary, fontSize = 14.sp)
+                Text(formatStat(user?.metrics?.likesCount ?: 0), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.profile_likes), color = TextPrimary, fontSize = 14.sp)
             }
         }
 
@@ -230,14 +222,14 @@ fun ProfileHeader(
                 modifier = Modifier.weight(1f).height(50.dp).padding(end = 5.dp, start = 40.dp)) {
                 Icon(painterResource(R.drawable.ic_user_edit_outline), null, tint = TextPrimary, modifier = Modifier.size(40.dp))
                 Spacer(modifier = Modifier.width(10.dp))
-                Text("Edit", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.profile_action_edit), fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
             }
             Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB15879)),
                 shape = RoundedCornerShape(25.dp),
                 modifier = Modifier.weight(1f).height(50.dp).padding(start = 5.dp, end = 40.dp)) {
                 Icon(painterResource(R.drawable.ic_export_circle_01_outline), null, tint = TextPrimary, modifier = Modifier.size(40.dp))
                 Spacer(modifier = Modifier.width(10.dp))
-                Text("Share", fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.profile_action_share), fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
             }
         }
 
@@ -247,7 +239,7 @@ fun ProfileHeader(
             val isFeed = selectedTab == 0
             IconButton(onClick = { onTabSelected(0) }, modifier = Modifier.weight(1f)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(painterResource(R.drawable.ic_gallery_outline), "Feed",
+                    Icon(painterResource(R.drawable.ic_gallery_outline), stringResource(R.string.profile_tab_feed),
                         tint = if (isFeed) TextPrimary else TextSecondary, modifier = Modifier.size(30.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Box(modifier = Modifier.height(2.dp).width(48.dp).background(if (isFeed) TextPrimary else Color.Transparent))
@@ -256,7 +248,7 @@ fun ProfileHeader(
             val isShorts = selectedTab == 1
             IconButton(onClick = { onTabSelected(1) }, modifier = Modifier.weight(1f)) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(painterResource(R.drawable.ic_play_add_outline), "Shorts",
+                    Icon(painterResource(R.drawable.ic_play_add_outline), stringResource(R.string.profile_tab_shorts),
                         tint = if (isShorts) TextPrimary else TextSecondary, modifier = Modifier.size(30.dp))
                     Spacer(modifier = Modifier.height(8.dp))
                     Box(modifier = Modifier.height(2.dp).width(48.dp).background(if (isShorts) TextPrimary else Color.Transparent))
@@ -277,7 +269,8 @@ fun StatItem(value: String, label: String) {
 
 @Composable
 fun ProfilePostItem(post: Link) {
-    Box(modifier = Modifier.fillMaxWidth().aspectRatio(post.aspectRatio ?: 1f).clip(RoundedCornerShape(10.dp)).background(DarkGray)) {
+    val aspectRatio = post.primaryMedia.aspectRatio ?: 1f
+    Box(modifier = Modifier.fillMaxWidth().aspectRatio(aspectRatio).clip(RoundedCornerShape(10.dp)).background(DarkGray)) {
         Box(modifier = Modifier.fillMaxSize().background(
             Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)), startY = 100f)))
         Row(modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -288,7 +281,7 @@ fun ProfilePostItem(post: Link) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(painterResource(R.drawable.ic_heart_bold), null, tint = Color.White, modifier = Modifier.size(12.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(formatStat(post.likesCount), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(formatStat(post.engagement.likesCount), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
         Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
@@ -296,10 +289,4 @@ fun ProfilePostItem(post: Link) {
                 fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
-}
-
-fun formatStat(value: Int): String = when {
-    value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000.0)
-    value >= 1_000     -> String.format("%.1fK", value / 1_000.0)
-    else               -> value.toString()
 }

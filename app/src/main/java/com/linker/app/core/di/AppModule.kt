@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig
 import com.linker.app.core.util.SystemTimeProvider
@@ -66,7 +67,12 @@ object AppModule {
                 "Firebase not properly initialized"
             }
             
-            return FirebaseAuth.getInstance()
+            val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+            try {
+                return FirebaseAuth.getInstance()
+            } finally {
+                android.os.StrictMode.setThreadPolicy(oldPolicy)
+            }
         } catch (e: IllegalStateException) {
             android.util.Log.e("AppModule", "Firebase Auth initialization failed", e)
             throw IllegalStateException(
@@ -96,19 +102,26 @@ object AppModule {
                 "Firebase not properly initialized"
             }
             
-            val firestore = FirebaseFirestore.getInstance()
-            
-            // Configure Firestore with offline persistence
-            val settings = FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)  // Enable offline persistence
-                .setCacheSizeBytes(FirebaseFirestoreSettings.CACHE_SIZE_UNLIMITED)  // Unlimited cache
-                .build()
-            
-            firestore.firestoreSettings = settings
-            
-            android.util.Log.d("AppModule", "Firestore configured with offline persistence")
-            
-            return firestore
+            val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+            try {
+                val firestore = FirebaseFirestore.getInstance()
+                
+                val settings = FirebaseFirestoreSettings.Builder()
+                    .setLocalCacheSettings(
+                        PersistentCacheSettings.newBuilder()
+                            .setSizeBytes(100L * 1024L * 1024L) // 100 MB
+                            .build()
+                    )
+                    .build()
+                
+                firestore.firestoreSettings = settings
+                
+                android.util.Log.d("AppModule", "Firestore configured with offline persistence")
+                
+                return firestore
+            } finally {
+                android.os.StrictMode.setThreadPolicy(oldPolicy)
+            }
         } catch (e: IllegalStateException) {
             android.util.Log.e("AppModule", "Firebase Firestore initialization failed", e)
             throw IllegalStateException(
@@ -135,7 +148,12 @@ object AppModule {
                 "Firebase not properly initialized"
             }
             
-            return FirebaseStorage.getInstance()
+            val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+            try {
+                return FirebaseStorage.getInstance()
+            } finally {
+                android.os.StrictMode.setThreadPolicy(oldPolicy)
+            }
         } catch (e: IllegalStateException) {
             android.util.Log.e("AppModule", "Firebase Storage initialization failed", e)
             throw IllegalStateException(
@@ -173,14 +191,19 @@ object AppModule {
                 "Firebase not properly initialized"
             }
             
-            val analytics = com.google.firebase.analytics.FirebaseAnalytics.getInstance(context)
-            
-            // Disable analytics in debug builds (optional)
-            // analytics.setAnalyticsCollectionEnabled(!BuildConfig.DEBUG)
-            
-            android.util.Log.d("AppModule", "Firebase Analytics initialized")
-            
-            return analytics
+            val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+            try {
+                val analytics = com.google.firebase.analytics.FirebaseAnalytics.getInstance(context)
+                
+                // Disable analytics in debug builds (optional)
+                // analytics.setAnalyticsCollectionEnabled(!BuildConfig.DEBUG)
+                
+                android.util.Log.d("AppModule", "Firebase Analytics initialized")
+                
+                return analytics
+            } finally {
+                android.os.StrictMode.setThreadPolicy(oldPolicy)
+            }
         } catch (e: IllegalStateException) {
             android.util.Log.e("AppModule", "Firebase Analytics initialization failed", e)
             throw IllegalStateException(
@@ -217,7 +240,12 @@ object AppModule {
                 "Firebase not properly initialized"
             }
             
-            return FirebaseRemoteConfig.getInstance()
+            val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+            try {
+                return FirebaseRemoteConfig.getInstance()
+            } finally {
+                android.os.StrictMode.setThreadPolicy(oldPolicy)
+            }
         } catch (e: IllegalStateException) {
             android.util.Log.e("AppModule", "Firebase Remote Config initialization failed", e)
             throw IllegalStateException(

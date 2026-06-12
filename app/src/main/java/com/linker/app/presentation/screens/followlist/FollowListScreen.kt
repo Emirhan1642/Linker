@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,10 +34,10 @@ fun FollowListScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     val title = when (uiState.listType) {
-        FollowListType.FOLLOWERS        -> "Followers"
-        FollowListType.FOLLOWING        -> "Following"
-        FollowListType.PENDING_REQUESTS -> "Follow Requests"
-        FollowListType.SENT_REQUESTS    -> "Sent Requests"
+        FollowListType.FOLLOWERS        -> stringResource(R.string.followers)
+        FollowListType.FOLLOWING        -> stringResource(R.string.following)
+        FollowListType.PENDING_REQUESTS -> stringResource(R.string.follow_requests)
+        FollowListType.SENT_REQUESTS    -> stringResource(R.string.sent_requests)
     }
 
     Column(
@@ -51,17 +52,17 @@ fun FollowListScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             IconButton(onClick = onNavigateBack) {
                 Icon(
                     painterResource(R.drawable.ic_arrow_left_01_outline),
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.action_back),
                     tint = TextPrimary,
                     modifier = Modifier.size(28.dp)
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
             Text(title, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         }
 
@@ -92,7 +93,7 @@ fun FollowListScreen(
                 )
 
                 uiState.users.isEmpty() -> Text(
-                    "No users here",
+                    stringResource(R.string.no_users_here),
                     color = TextSecondary,
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -156,13 +157,13 @@ private fun LockedListState(listType: FollowListType, modifier: Modifier = Modif
             )
         }
         Text(
-            "This list is private",
+            stringResource(R.string.list_is_private),
             color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold
         )
         Text(
             when (listType) {
-                FollowListType.FOLLOWERS -> "This account's follower list is not visible"
-                else -> "This account's following list is not visible"
+                FollowListType.FOLLOWERS -> stringResource(R.string.follower_list_not_visible)
+                else -> stringResource(R.string.following_list_not_visible)
             },
             color = TextSecondary, fontSize = 13.sp,
             textAlign = TextAlign.Center, lineHeight = 20.sp
@@ -196,7 +197,7 @@ private fun FollowerRow(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                 modifier = Modifier.height(32.dp)
             ) {
-                Text("Remove", fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.action_remove), fontSize = 12.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -225,7 +226,7 @@ private fun FollowingRow(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                 modifier = Modifier.height(32.dp)
             ) {
-                Text("Unfollow", fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+                Text(stringResource(R.string.action_unfollow), fontSize = 12.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -252,7 +253,7 @@ private fun PendingRequestRow(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                 modifier = Modifier.height(32.dp)
             ) {
-                Text("Accept", fontSize = 12.sp, color = Black, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.action_accept), fontSize = 12.sp, color = Black, fontWeight = FontWeight.SemiBold)
             }
             OutlinedButton(
                 onClick = onDecline,
@@ -260,7 +261,7 @@ private fun PendingRequestRow(
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                 modifier = Modifier.height(32.dp)
             ) {
-                Text("Decline", fontSize = 12.sp, color = TextSecondary)
+                Text(stringResource(R.string.action_decline), fontSize = 12.sp, color = TextSecondary)
             }
         }
     }
@@ -282,7 +283,7 @@ private fun SentRequestRow(user: User, onClick: () -> Unit, onCancel: () -> Unit
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
             modifier = Modifier.height(32.dp)
         ) {
-            Text("Cancel", fontSize = 12.sp, color = TextSecondary)
+            Text(stringResource(R.string.action_cancel), fontSize = 12.sp, color = TextSecondary)
         }
     }
 }

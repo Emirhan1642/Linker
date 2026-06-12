@@ -54,6 +54,10 @@ class ChatViewModel @Inject constructor(
     private val _chatListState = MutableStateFlow(ChatListUiState())
     val chatListState: StateFlow<ChatListUiState> = _chatListState.asStateFlow()
 
+    private val allChatsFlow = MutableStateFlow<List<ChatUiModel>>(emptyList())
+    private val searchQueryFlow = MutableStateFlow("")
+    private val selectedFilterFlow = MutableStateFlow("All")
+
     private val _messageState = MutableStateFlow(ChatMessageUiState())
     val messageState: StateFlow<ChatMessageUiState> = _messageState.asStateFlow()
 
@@ -62,6 +66,7 @@ class ChatViewModel @Inject constructor(
 
     private val _messageReactionsState = MutableStateFlow(MessageReactionsUiState())
     val messageReactionsState: StateFlow<MessageReactionsUiState> = _messageReactionsState.asStateFlow()
+
 
     private val lastMarkedReadAtByChat = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private var chatsJob: Job? = null
@@ -90,54 +95,117 @@ class ChatViewModel @Inject constructor(
     init {
         observeChats()
         observeNotes()
+        observeFilters()
         com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(authListener)
+    }
+
+    private fun observeFilters() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            kotlinx.coroutines.flow.combine(
+                allChatsFlow,
+                searchQueryFlow,
+                selectedFilterFlow
+            ) { chats, query, filter ->
+                val normalizedQuery = query.trim()
+                chats.filter { chat ->
+                    when (filter) {
+                        "Unreads" -> !chat.isArchived && chat.unreadCount > 0
+                        "Favorites" -> !chat.isArchived && chat.isFavorited
+                        "Groups" -> !chat.isArchived && chat.isGroupChat
+                        "Archived" -> chat.isArchived
+                        else -> !chat.isArchived
+                    }
+                }.filter { chat ->
+                    normalizedQuery.isBlank() ||
+                        chat.displayName.contains(normalizedQuery, ignoreCase = true) ||
+                        (chat.lastMessage?.contains(normalizedQuery, ignoreCase = true) == true)
+                }.sortedWith(
+                    if (filter == "All") {
+                        compareByDescending<ChatUiModel> { it.isPinned }
+                            .thenByDescending { it.lastMessageTime }
+                    } else {
+                        compareByDescending { it.lastMessageTime }
+                    }
+                )
+            }.collect { filteredChats ->
+                _chatListState.update { it.copy(chats = filteredChats) }
+            }
+        }
+    }
+
+    fun updateSearchQuery(query: String) {
+        searchQueryFlow.value = query
+        _chatListState.update { it.copy(searchQuery = query) }
+    }
+
+    fun updateSelectedFilter(filter: String) {
+        selectedFilterFlow.value = filter
+        _chatListState.update { it.copy(selectedFilter = filter) }
     }
 
     // ── Chat List ──────────────────────────────────────────────────────────
 
     private fun observeChats() {
-        chatsJob = viewModelScope.launch {
-            observeChatsUseCase().collect { chats ->
-                val uiModels = chats.map { chat ->
-                    val isGroup = chat.chatType == ChatType.GROUP
-                    val otherParticipant = if (!isGroup) {
-                        chat.participants.firstOrNull { it.userId != currentUserId }
-                    } else null
+        chatsJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            observeChatsUseCase().collect { result ->
+                if (result is Result.Success) {
+                    val chats = result.data
+                    val uiModels = chats.map { chat ->
+                        val isGroup = chat.chatType == ChatType.GROUP
+                        val otherParticipant = if (!isGroup) {
+                            chat.participants.firstOrNull { it.userId != currentUserId }
+                        } else null
 
-                    val resolvedName = if (isGroup) {
-                        chat.chatName ?: "Chat"
-                    } else {
-                        val otherId = otherParticipant?.userId
-                        if (!otherId.isNullOrBlank()) {
-                            resolveUserDisplayName(otherId)
+                        val resolvedName = if (isGroup) {
+                            chat.chatName ?: "Chat"
                         } else {
-                            "Chat"
+                            val otherId = otherParticipant?.userId
+                            if (!otherId.isNullOrBlank()) {
+                                resolveUserDisplayName(otherId)
+                            } else {
+                                "Chat"
+                            }
                         }
+
+                        val lastMsgText = chat.lastMessage?.content
+                        val timeFormatted = formatTimestamp(chat.updatedAt)
+
+                        ChatUiModel(
+                            chatId = chat.chatId,
+                            displayName = resolvedName,
+                            imageUrl = if (isGroup) chat.chatImageUrl else otherParticipant?.profileImageUrl,
+                            lastMessage = lastMsgText,
+                            lastMessageTime = chat.updatedAt,
+                            formattedTime = timeFormatted,
+                            unreadCount = chat.unreadCount,
+                            participantIds = chat.participants.map { it.userId },
+                            isGroupChat = isGroup,
+                            isPinned = chat.isPinned,
+                            isFavorited = chat.isFavorited,
+                            isArchived = chat.isArchived,
+                            isMuted = chat.isMuted,
+                            isBlocked = chat.isBlocked
+                        )
                     }
-
-                    val lastMsgText = chat.lastMessage?.content
-
-                    ChatUiModel(
-                        chatId = chat.chatId,
-                        displayName = resolvedName,
-                        imageUrl = if (isGroup) chat.chatImageUrl else otherParticipant?.profileImageUrl,
-                        lastMessage = lastMsgText,
-                        lastMessageTime = chat.updatedAt,
-                        unreadCount = chat.unreadCount,
-                        participantIds = chat.participants.map { it.userId },
-                        isGroupChat = isGroup,
-                        isPinned = chat.isPinned,
-                        isFavorited = chat.isFavorited,
-                        isArchived = chat.isArchived,
-                        isMuted = chat.isMuted,
-                        isBlocked = chat.isBlocked
-                    )
+                    allChatsFlow.value = uiModels
+                    _chatListState.update { it.copy(isLoading = false) }
+                } else if (result is Result.Error) {
+                    _chatListState.update { it.copy(isLoading = false) }
                 }
-                _chatListState.value = _chatListState.value.copy(
-                    isLoading = false,
-                    chats = uiModels
-                )
             }
+        }
+    }
+
+    private fun formatTimestamp(timestamp: Long): String {
+        if (timestamp == 0L) return ""
+        val now = System.currentTimeMillis()
+        val diff = now - timestamp
+        val daysDiff = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(diff)
+        return when {
+            daysDiff == 0L -> java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+            daysDiff == 1L -> "Yesterday"
+            daysDiff < 7 -> java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+            else -> java.text.SimpleDateFormat("dd/MM/yy", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
         }
     }
 
@@ -187,9 +255,20 @@ class ChatViewModel @Inject constructor(
 
     private fun observeNotes() {
         notesJob?.cancel()
-        notesJob = viewModelScope.launch {
-            observeActiveNotesUseCase().collect { notes ->
-                _chatListState.value = _chatListState.value.copy(notes = notes)
+        notesJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            observeActiveNotesUseCase().collect { result ->
+                if (result is Result.Success) {
+                    val allNotes = result.data
+                    val me = currentUserId
+                    val userNote = allNotes.firstOrNull { it.author.userId == me }
+                    val otherNotes = allNotes.filter { it.author.userId != me }
+                    _chatListState.update { 
+                        it.copy(
+                            userNote = userNote,
+                            otherNotes = otherNotes
+                        )
+                    }
+                }
             }
         }
     }
@@ -324,12 +403,31 @@ class ChatViewModel @Inject constructor(
 
             // Observe messages (don't wait for markChatAsRead to complete)
             android.util.Log.d("ChatViewModel", "About to call observeMessagesUseCase for chat: $actualChatId")
-            observeMessagesUseCase(actualChatId).collect { messages ->
-                //android.util.Log.d("ChatViewModel", "Received ${messages.size} messages from observeMessagesUseCase")
-                val uiMessages = coroutineScope {
-                    messages
-                        .map { msg ->
+            observeMessagesUseCase(actualChatId).collect { result ->
+                if (result is Result.Success) {
+                    val messages = result.data
+                    val uiMessages = coroutineScope {
+                        val processed = messages.mapIndexed { index, msg ->
                             async {
+                                val isSelf = msg.sender.userId == currentUserId
+                                val prevIsSelf = if (index > 0) messages[index - 1].sender.userId == currentUserId else !isSelf
+                                val nextIsSelf = if (index < messages.size - 1) messages[index + 1].sender.userId == currentUserId else !isSelf
+                                
+                                val displayContent = if (msg.isDeleted) {
+                                    when {
+                                        isSelf -> "You deleted this message"
+                                        !isSelf && !msg.deletedForEveryone -> "You deleted this message"
+                                        !isSelf && msg.deletedForEveryone -> "This message was deleted"
+                                        else -> msg.content ?: ""
+                                    }
+                                } else {
+                                    msg.content ?: ""
+                                }
+
+                                val formattedReactions = msg.reactions.values.groupBy { it }
+                                    .map { (emoji, list) -> if (list.size > 1) "$emoji ${list.size}" else emoji }
+                                    .take(3)
+
                                 val seenByUsers = msg.readReceipts
                                     .filterKeys { uid -> uid != msg.sender.userId }
                                     .entries
@@ -345,7 +443,7 @@ class ChatViewModel @Inject constructor(
                                 MessageUiModel(
                                     messageId = msg.messageId,
                                     content = msg.content,
-                                    isSelf = msg.sender.userId == currentUserId,
+                                    isSelf = isSelf,
                                     timestamp = msg.createdAt,
                                     status = msg.messageStatus,
                                     replyToMessageId = msg.replyToMessage?.messageId,
@@ -354,33 +452,37 @@ class ChatViewModel @Inject constructor(
                                     readReceipts = msg.readReceipts,
                                     seenByUsers = seenByUsers,
                                     senderId = msg.sender.userId,
-                                    senderDisplayName = if (msg.sender.userId == currentUserId) {
+                                    senderDisplayName = if (isSelf) {
                                         "You"
                                     } else {
                                         msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
                                     },
                                     senderAvatarUrl = msg.sender.profileImageUrl,
                                     isDeleted = msg.isDeleted,
-                                    deletedForEveryone = msg.deletedForEveryone
+                                    deletedForEveryone = msg.deletedForEveryone,
+                                    prevIsSelf = prevIsSelf,
+                                    nextIsSelf = nextIsSelf,
+                                    displayContent = displayContent,
+                                    formattedReactions = formattedReactions
                                 )
                             }
                         }
-                        .awaitAll()
-                }
-                //android.util.Log.d("ChatViewModel", "Converted to ${uiMessages.size} UI messages")
-                _messageState.value = _messageState.value.copy(
-                    isLoading = false,
-                    messages = uiMessages
-                )
+                        processed.awaitAll()
+                    }
+                    _messageState.value = _messageState.value.copy(
+                        isLoading = false,
+                        messages = uiMessages
+                    )
 
-                val latestIncoming = uiMessages
-                    .filter { !it.isSelf }
-                    .maxOfOrNull { it.timestamp } ?: 0L
+                    val latestIncoming = uiMessages
+                        .filter { !it.isSelf }
+                        .maxOfOrNull { it.timestamp } ?: 0L
 
-                val lastMarkedForChat = lastMarkedReadAtByChat[actualChatId] ?: 0L
-                if (latestIncoming > lastMarkedForChat) {
-                    lastMarkedReadAtByChat[actualChatId] = latestIncoming
-                    markChatAsReadUpToUseCase(actualChatId, latestIncoming)
+                    val lastMarkedForChat = lastMarkedReadAtByChat[actualChatId] ?: 0L
+                    if (latestIncoming > lastMarkedForChat) {
+                        lastMarkedReadAtByChat[actualChatId] = latestIncoming
+                        markChatAsReadUpToUseCase(actualChatId, latestIncoming)
+                    }
                 }
             }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -412,20 +514,23 @@ class ChatViewModel @Inject constructor(
                     val replyId = info.message.replyToMessage?.messageId
                     val replyPreview = if (!replyId.isNullOrBlank()) {
                         try {
-                            val replied = getMessageByIdUseCase(replyId)
-                            val repliedSenderId = replied.sender.userId
-                            val name = when {
-                                repliedSenderId.isBlank() -> "User"
-                                repliedSenderId == currentUserId -> "You"
-                                else -> replied.sender.displayName
-                                    .ifBlank { replied.sender.username }
-                                    .ifBlank { resolveUserDisplayName(repliedSenderId) }
-                            }
-                            ReplyPreview(
-                                senderName = name,
-                                previewText = replied.content ?: "[Media]",
-                                isSelf = repliedSenderId == currentUserId
-                            )
+                            val repliedResult = getMessageByIdUseCase(replyId)
+                            if (repliedResult is Result.Success) {
+                                val replied = repliedResult.data
+                                val repliedSenderId = replied.sender.userId
+                                val name = when {
+                                    repliedSenderId.isBlank() -> "User"
+                                    repliedSenderId == currentUserId -> "You"
+                                    else -> replied.sender.displayName
+                                        .ifBlank { replied.sender.username }
+                                        .ifBlank { resolveUserDisplayName(repliedSenderId) }
+                                }
+                                ReplyPreview(
+                                    senderName = name,
+                                    previewText = replied.content ?: "[Media]",
+                                    isSelf = repliedSenderId == currentUserId
+                                )
+                            } else null
                         } catch (_: Exception) {
                             null
                         }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+// Magic numbers replacement
+private const val SWIPE_THRESHOLD = 80f
+private const val MAX_SWIPE_OFFSET = 120f
+private const val HAPTIC_TRIGGER_OFFSET = 30f
 
 /**
  * Message bubble component with swipe-to-reply and long-press actions
@@ -97,8 +104,7 @@ fun ChatBubble(
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        val threshold = 80f
-                        if (swipeOffset.value > threshold) {
+                        if (swipeOffset.value > SWIPE_THRESHOLD) {
                             coroutineScope.launch {
                                 swipeOffset.animateTo(0f, tween(200))
                             }
@@ -111,11 +117,11 @@ fun ChatBubble(
                     },
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
-                        val newValue = (swipeOffset.value + dragAmount).coerceIn(0f, 120f)
+                        val newValue = (swipeOffset.value + dragAmount).coerceIn(0f, MAX_SWIPE_OFFSET)
                         coroutineScope.launch {
                             swipeOffset.snapTo(newValue)
                         }
-                        if (newValue > 30f && newValue - dragAmount <= 30f) {
+                        if (newValue > HAPTIC_TRIGGER_OFFSET && newValue - dragAmount <= HAPTIC_TRIGGER_OFFSET) {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         }
                     }
@@ -144,7 +150,7 @@ fun MessageBubbleContent(
     onBubblePositioned: ((Rect) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bubbleColor = if (message.isSelf) Color(0xFF007E8E) else Color(0xFF2A2A2E)
+    val bubbleColor = if (message.isSelf) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val alignment = if (message.isSelf) Alignment.CenterEnd else Alignment.CenterStart
     
     // Highlight efekti için alpha değerini hesapla (0.5 ile 1.0 arası)
@@ -186,16 +192,6 @@ fun MessageBubbleContent(
                     fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
                 )
             }
-
-//            // Status indicators
-//            Row(
-//                modifier = Modifier.padding(top = 4.dp),
-//                horizontalArrangement = Arrangement.Center
-//            ) {
-//                if (message.isSelf) {
-//                    MessageStatusIcon(status = message.status)
-//                }
-//            }
         }
     }
 }
@@ -213,7 +209,7 @@ fun MessageStatusIcon(status: MessageStatus) {
         MessageStatus.SENT -> {
             Icon(
                 painter = painterResource(id = R.drawable.ic_forward_outline),
-                contentDescription = "Sent",
+                contentDescription = stringResource(id = R.string.msg_status_sent),
                 tint = TextSecondary,
                 modifier = Modifier.size(14.dp)
             )
@@ -221,7 +217,7 @@ fun MessageStatusIcon(status: MessageStatus) {
         MessageStatus.DELIVERED -> {
             Icon(
                 painter = painterResource(id = R.drawable.ic_forward_bold),
-                contentDescription = "Delivered",
+                contentDescription = stringResource(id = R.string.msg_status_delivered),
                 tint = TextSecondary,
                 modifier = Modifier.size(14.dp)
             )
@@ -229,7 +225,7 @@ fun MessageStatusIcon(status: MessageStatus) {
         MessageStatus.READ -> {
             Icon(
                 painter = painterResource(id = R.drawable.ic_archive_book_outline),
-                contentDescription = "Read",
+                contentDescription = stringResource(id = R.string.msg_status_read),
                 tint = AccentGreen,
                 modifier = Modifier.size(14.dp)
             )
@@ -237,8 +233,8 @@ fun MessageStatusIcon(status: MessageStatus) {
         MessageStatus.FAILED -> {
             Icon(
                 painter = painterResource(id = R.drawable.ic_cloud_cross_outline),
-                contentDescription = "Failed",
-                tint = Color(0xFFFF4B4B),
+                contentDescription = stringResource(id = R.string.msg_status_failed),
+                tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(14.dp)
             )
         }

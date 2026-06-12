@@ -108,22 +108,29 @@ object NetworkModule {
     fun provideSupabaseRetrofit(
         okHttpClient: OkHttpClient,
         json: Json,
-        securityManager: SecurityManager
+        securityManager: SecurityManager,
+        supabaseAuthInterceptor: com.linker.app.core.security.SupabaseAuthInterceptor
     ): Retrofit {
-        // ✅ SECURITY FIX: Get URL from encrypted storage instead of BuildConfig
-        val baseUrl = try {
-            when (val result = securityManager.getSupabaseUrl()) {
+        // Priority 1: BuildConfig (compile-time, from local.properties) — always available
+        // Priority 2: SecurityManager encrypted prefs — populated after first Remote Config fetch
+        val baseUrl = when {
+            BuildConfig.SUPABASE_URL.isNotEmpty() -> BuildConfig.SUPABASE_URL
+            else -> when (val result = securityManager.getSupabaseUrl()) {
                 is com.linker.app.core.security.ConfigResult.Success -> result.value
-                is com.linker.app.core.security.ConfigResult.Error -> throw IllegalStateException(result.message, result.cause)
+                is com.linker.app.core.security.ConfigResult.Error -> {
+                    android.util.Log.e("NetworkModule", "Supabase URL unavailable: ${result.message}")
+                    throw IllegalStateException("Supabase URL not configured. Add supabase.url to local.properties")
+                }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("NetworkModule", "Failed to get Supabase URL from SecurityManager", e)
-            throw IllegalStateException("Supabase URL not initialized in SecurityManager", e)
         }
+
+        val clientWithAuth = okHttpClient.newBuilder()
+            .addInterceptor(supabaseAuthInterceptor)
+            .build()
 
         return Retrofit.Builder()
             .baseUrl(baseUrl)
-            .client(okHttpClient)
+            .client(clientWithAuth)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
     }
@@ -136,15 +143,17 @@ object NetworkModule {
         json: Json,
         securityManager: SecurityManager
     ): Retrofit {
-        // ✅ SECURITY FIX: Get cloud name from encrypted storage
-        val cloudName = try {
-            when (val result = securityManager.getCloudinaryCloudName()) {
+        // Priority 1: BuildConfig (compile-time, from local.properties) — always available
+        // Priority 2: SecurityManager encrypted prefs — populated after first Remote Config fetch
+        val cloudName = when {
+            BuildConfig.CLOUDINARY_CLOUD_NAME.isNotEmpty() -> BuildConfig.CLOUDINARY_CLOUD_NAME
+            else -> when (val result = securityManager.getCloudinaryCloudName()) {
                 is com.linker.app.core.security.ConfigResult.Success -> result.value
-                is com.linker.app.core.security.ConfigResult.Error -> throw IllegalStateException(result.message, result.cause)
+                is com.linker.app.core.security.ConfigResult.Error -> {
+                    android.util.Log.e("NetworkModule", "Cloudinary cloud name unavailable: ${result.message}")
+                    throw IllegalStateException("Cloudinary cloud name not configured. Add cloudinary.cloudName to local.properties")
+                }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("NetworkModule", "Failed to get Cloudinary cloud name from SecurityManager", e)
-            throw IllegalStateException("Cloudinary cloud name not initialized in SecurityManager", e)
         }
 
         return Retrofit.Builder()

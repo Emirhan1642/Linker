@@ -13,12 +13,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.R
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.components.LinkerSearchBar
 import com.linker.app.presentation.theme.*
 import kotlinx.coroutines.launch
@@ -64,128 +66,57 @@ fun NewChatScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary)
+                    Icon(
+                        painterResource(R.drawable.ic_arrow_left_01_outline),
+                        contentDescription = "Back",
+                        tint = TextPrimary
+                    )
                 }
                 LinkerSearchBar(
                     query = uiState.query,
                     onQueryChange = suggestViewModel::onQueryChange,
-                    placeholder = "Search people...",
+                    placeholder = stringResource(R.string.new_chat_search_hint),
                     modifier = Modifier.weight(1f)
                 )
             }
 
             if (!showGroupDetails) {
-                Text(
-                    text = if (isGroupMode) "Select members" else "Suggested",
-                    color = TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                Button(
-                    onClick = { isGroupMode = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp)
-                        .fillMaxWidth()
-                ) {
-                    Text("Create a Group", color = Black, fontWeight = FontWeight.SemiBold)
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(bottom = 24.dp)
-                ) {
-                    items(filtered, key = { it.userId }) { user ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (isGroupMode) {
-                                        selectedUsers = if (selectedUsers.contains(user.userId)) {
-                                            selectedUsers - user.userId
-                                        } else {
-                                            selectedUsers + user.userId
-                                        }
-                                    } else {
-                                        coroutineScope.launch {
-                                            val result = viewModel.createPrivateChat(user.userId)
-                                            if (result is com.linker.app.core.util.Result.Success) {
-                                                onNavigateToChat(result.data.chatId)
-                                            }
-                                        }
-                                    }
-                                }
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            LinkerAvatar(imageUrl = user.profileImageUrl, size = 56.dp, hasStory = false)
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(user.displayName, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text("@${user.username}", color = TextSecondary, fontSize = 12.sp)
+                UserSelectionSection(
+                    isGroupMode = isGroupMode,
+                    filteredUsers = filtered,
+                    selectedUsers = selectedUsers,
+                    onToggleGroupMode = { isGroupMode = true },
+                    onUserClick = { user ->
+                        if (isGroupMode) {
+                            selectedUsers = if (selectedUsers.contains(user.userId)) {
+                                selectedUsers - user.userId
+                            } else {
+                                selectedUsers + user.userId
                             }
-                            if (isGroupMode) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (selectedUsers.contains(user.userId)) AccentGreen else Color(0xFF2E2E32)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (selectedUsers.contains(user.userId)) {
-                                        Text("✓", color = Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    }
+                        } else {
+                            coroutineScope.launch {
+                                val result = viewModel.createPrivateChat(user.userId)
+                                if (result is com.linker.app.core.util.Result.Success) {
+                                    onNavigateToChat(result.data.chatId)
                                 }
                             }
                         }
-                    }
-                }
-
-                if (isGroupMode) {
-                    Button(
-                        onClick = { showGroupDetails = true },
-                        enabled = selectedUsers.isNotEmpty(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text("Continue", color = Black, fontWeight = FontWeight.SemiBold)
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
+                    },
+                    onContinueToGroupDetails = { showGroupDetails = true }
+                )
             } else {
-                Text(
-                    text = "Group details",
-                    color = TextPrimary,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-                OutlinedTextField(
-                    value = groupName,
-                    onValueChange = { groupName = it },
-                    label = { Text("Group name") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                    PermissionToggle("Members can edit settings", canEditSettings) { canEditSettings = it }
-                    PermissionToggle("Members can send messages", canSendMessages) { canSendMessages = it }
-                    PermissionToggle("Members can add members", canAddMembers) { canAddMembers = it }
-                    PermissionToggle("Disappearing messages", disappearingMessages) { disappearingMessages = it }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
+                GroupDetailsSection(
+                    groupName = groupName,
+                    onGroupNameChange = { groupName = it },
+                    canEditSettings = canEditSettings,
+                    onCanEditSettingsChange = { canEditSettings = it },
+                    canSendMessages = canSendMessages,
+                    onCanSendMessagesChange = { canSendMessages = it },
+                    canAddMembers = canAddMembers,
+                    onCanAddMembersChange = { canAddMembers = it },
+                    disappearingMessages = disappearingMessages,
+                    onDisappearingMessagesChange = { disappearingMessages = it },
+                    onCreateGroup = {
                         coroutineScope.launch {
                             val permissions = mapOf(
                                 "canEditSettings" to canEditSettings,
@@ -198,17 +129,140 @@ fun NewChatScreen(
                                 onNavigateToChat(result.data.chatId)
                             }
                         }
-                    },
-                    enabled = groupName.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
-                ) {
-                    Text("Create Group", color = Black, fontWeight = FontWeight.SemiBold)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColumnScope.UserSelectionSection(
+    isGroupMode: Boolean,
+    filteredUsers: List<com.linker.app.domain.model.User>,
+    selectedUsers: Set<String>,
+    onToggleGroupMode: () -> Unit,
+    onUserClick: (com.linker.app.domain.model.User) -> Unit,
+    onContinueToGroupDetails: () -> Unit
+) {
+    Text(
+        text = if (isGroupMode) stringResource(R.string.new_chat_select_members) else stringResource(R.string.new_chat_suggested),
+        color = TextPrimary,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+
+    Button(
+        onClick = onToggleGroupMode,
+        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .padding(horizontal = 16.dp)
+            .fillMaxWidth()
+    ) {
+        Text(stringResource(R.string.new_chat_create_group), color = Black, fontWeight = FontWeight.SemiBold)
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    LazyColumn(
+        modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(bottom = 24.dp)
+    ) {
+        items(filteredUsers, key = { it.userId }) { user ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onUserClick(user) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LinkerAvatar(imageUrl = user.profileImageUrl, size = 56.dp, storyState = StoryState.NONE)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(user.displayName, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("@${user.username}", color = TextSecondary, fontSize = 12.sp)
+                }
+                if (isGroupMode) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selectedUsers.contains(user.userId)) AccentGreen else Color(0xFF2E2E32)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (selectedUsers.contains(user.userId)) {
+                            Text("✓", color = Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
         }
+    }
+
+    if (isGroupMode) {
+        Button(
+            onClick = onContinueToGroupDetails,
+            enabled = selectedUsers.isNotEmpty(),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(stringResource(R.string.new_chat_continue), color = Black, fontWeight = FontWeight.SemiBold)
+        }
+    } else {
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun GroupDetailsSection(
+    groupName: String,
+    onGroupNameChange: (String) -> Unit,
+    canEditSettings: Boolean,
+    onCanEditSettingsChange: (Boolean) -> Unit,
+    canSendMessages: Boolean,
+    onCanSendMessagesChange: (Boolean) -> Unit,
+    canAddMembers: Boolean,
+    onCanAddMembersChange: (Boolean) -> Unit,
+    disappearingMessages: Boolean,
+    onDisappearingMessagesChange: (Boolean) -> Unit,
+    onCreateGroup: () -> Unit
+) {
+    Text(
+        text = stringResource(R.string.new_chat_group_details),
+        color = TextPrimary,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+    )
+    OutlinedTextField(
+        value = groupName,
+        onValueChange = onGroupNameChange,
+        label = { Text(stringResource(R.string.new_chat_group_name_hint)) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        PermissionToggle(stringResource(R.string.new_chat_perm_edit_settings), canEditSettings, onCanEditSettingsChange)
+        PermissionToggle(stringResource(R.string.new_chat_perm_send_messages), canSendMessages, onCanSendMessagesChange)
+        PermissionToggle(stringResource(R.string.new_chat_perm_add_members), canAddMembers, onCanAddMembersChange)
+        PermissionToggle(stringResource(R.string.new_chat_perm_disappearing), disappearingMessages, onDisappearingMessagesChange)
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+    Button(
+        onClick = onCreateGroup,
+        enabled = groupName.isNotBlank(),
+        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+    ) {
+        Text(stringResource(R.string.new_chat_create_group_btn), color = Black, fontWeight = FontWeight.SemiBold)
     }
 }
 

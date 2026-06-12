@@ -12,19 +12,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.R
+import com.linker.app.core.util.FormatUtil.formatStat
 import com.linker.app.domain.model.User
 import com.linker.app.presentation.components.BottomNavItem
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.components.LinkerBottomNavigationBar
 import com.linker.app.presentation.components.LinkerSearchBar
 import com.linker.app.presentation.components.StoryState
-import com.linker.app.presentation.screens.profile.formatStat
 import com.linker.app.presentation.theme.*
 
 @Composable
@@ -36,19 +36,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Ekran her göründüğünde aktif UID'yi oku.
-    // Eğer değiştiyse (hesap geçişi) state'i sıfırla ve yeni hesabın
-    // arama geçmişini yükle.
-    val currentUid = remember { mutableStateOf(FirebaseAuth.getInstance().currentUser?.uid) }
-    LaunchedEffect(Unit) {
-        val freshUid = FirebaseAuth.getInstance().currentUser?.uid
-        if (freshUid != currentUid.value) {
-            currentUid.value = freshUid
-            viewModel.onAccountChanged()
-        } else {
-            viewModel.startListeningRecentSearches()
-        }
-    }
+
 
     Scaffold(
         containerColor = Black,
@@ -74,12 +62,12 @@ fun SearchScreen(
             ) {
                 IconButton(onClick = onNavigateBack) {
                     Icon(painterResource(R.drawable.ic_arrow_left_01_outline),
-                        contentDescription = "Back", tint = TextPrimary)
+                        contentDescription = stringResource(R.string.action_back), tint = TextPrimary)
                 }
                 LinkerSearchBar(
                     query = uiState.query,
                     onQueryChange = viewModel::onQueryChange,
-                    placeholder = "Search users, links…",
+                    placeholder = stringResource(R.string.search_placeholder),
                     modifier = Modifier.weight(1f),
                     onSearch = { viewModel.onSearchSubmit() }
                 )
@@ -106,12 +94,12 @@ fun SearchScreen(
                         horizontalArrangement = Arrangement.Center
                     ) {
                         SearchTabItem(
-                            title = "Links",
+                            title = stringResource(R.string.search_tab_links),
                             isSelected = uiState.selectedTab == SearchTab.LINKS,
                             modifier = Modifier.padding(end = 24.dp)
                         ) { viewModel.onTabSelected(SearchTab.LINKS) }
                         SearchTabItem(
-                            title = "Users",
+                            title = stringResource(R.string.search_tab_users),
                             isSelected = uiState.selectedTab == SearchTab.USERS,
                             modifier = Modifier.padding(start = 24.dp)
                         ) { viewModel.onTabSelected(SearchTab.USERS) }
@@ -131,7 +119,7 @@ fun SearchScreen(
                                 modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("No users found for \"${uiState.query}\"",
+                                Text(stringResource(R.string.search_no_users_found, uiState.query),
                                     color = TextSecondary, fontSize = 14.sp)
                             }
 
@@ -148,7 +136,7 @@ fun SearchScreen(
                     } else {
                         Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp),
                             contentAlignment = Alignment.TopCenter) {
-                            Text("Links search coming soon…", color = TextSecondary)
+                            Text(stringResource(R.string.search_links_coming_soon), color = TextSecondary)
                         }
                     }
                 }
@@ -175,8 +163,8 @@ private fun RecentSearchesSection(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Recent Searches", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Clear all", color = TextSecondary, fontSize = 13.sp,
+                    Text(stringResource(R.string.search_recent_searches), color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.search_clear_all), color = TextSecondary, fontSize = 13.sp,
                         modifier = Modifier.clickable { onClearAll() })
                 }
             }
@@ -201,7 +189,7 @@ private fun RecentSearchesSection(
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
                     contentAlignment = Alignment.Center) {
-                    Text("No recent searches", color = TextHint, fontSize = 14.sp)
+                    Text(stringResource(R.string.search_no_recent), color = TextHint, fontSize = 14.sp)
                 }
             }
         }
@@ -233,15 +221,15 @@ fun UserSearchResultItem(
                 }
             }
             Text("@${user.username}", color = TextSecondary, fontSize = 13.sp)
-            Text("${formatStat(user.followersCount)} followers · ${formatStat(user.likesCount)} likes",
+            Text("${formatStat(user.metrics.followersCount)} followers · ${formatStat(user.metrics.likesCount)} likes",
                 color = TextHint, fontSize = 12.sp)
         }
-        val isFollowing = user.isFollowing
-        val isRequested = user.followRequestSent
+        val isFollowing = user.relationship.isFollowing
+        val isRequested = user.relationship.followRequestSent
         val buttonText = when {
-            isFollowing -> "Following"
-            isRequested -> "Requested"
-            else -> "Follow"
+            isFollowing -> stringResource(R.string.follow_status_following)
+            isRequested -> stringResource(R.string.follow_status_requested)
+            else -> stringResource(R.string.follow_status_follow)
         }
         val buttonColor = if (isFollowing || isRequested) LightGray else AccentGreen
         val textColor = if (isFollowing || isRequested) TextPrimary else Black

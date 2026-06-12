@@ -20,7 +20,7 @@ class PushTokenRegistrar @Inject constructor(
         val token = try {
             FirebaseMessaging.getInstance().token.await()
         } catch (e: Exception) {
-            NotificationLogger.w("Failed to fetch FCM token: \${e.message}")
+            NotificationLogger.w("Failed to fetch FCM token: ${e.message}")
             return
         }
         registerToken(userId, token)
@@ -33,7 +33,7 @@ class PushTokenRegistrar @Inject constructor(
 
     private suspend fun registerToken(userId: String, token: String) {
         if (BuildConfig.DEBUG) {
-            NotificationLogger.d("Registering token for user: \${userId.take(8)}...")
+            NotificationLogger.d("Registering token for user: ${userId.take(8)}...")
         }
         
         try {
@@ -48,7 +48,7 @@ class PushTokenRegistrar @Inject constructor(
                 NotificationLogger.d("Token registered successfully")
             } else {
                 val errorBody = response.errorBody()?.string()
-                NotificationLogger.w("Token registration failed: \${response.code()} - \$errorBody")
+                NotificationLogger.w("Token registration failed: ${response.code()} - $errorBody")
             }
         } catch (e: Exception) {
             NotificationLogger.e("Failed to register push token", e)

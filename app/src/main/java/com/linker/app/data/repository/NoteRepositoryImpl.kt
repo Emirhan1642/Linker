@@ -13,6 +13,8 @@ import com.linker.app.domain.model.Note
 import com.linker.app.domain.model.NoteType
 import com.linker.app.domain.model.User
 import com.linker.app.core.util.Result
+import com.linker.app.core.util.safeCall
+import com.linker.app.domain.repository.NoteMediaType
 import com.linker.app.domain.repository.NoteRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.tasks.await
 import com.linker.app.data.local.dao.UserDao
 import com.linker.app.data.local.entity.UserEntity
 import com.linker.app.data.local.mapper.toDomain
+import com.linker.app.domain.model.NoteAuthor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -64,14 +67,14 @@ class NoteRepositoryImpl @Inject constructor(
     }
 
     /** Observe all active (non-expired) notes. */
-    override fun observeActiveNotes(): Flow<List<Note>> = callbackFlow {
+    override fun observeActiveNotes(): Flow<Result<List<Note>>> = callbackFlow {
         val now = System.currentTimeMillis()
         val listener = notesCollection
             .whereGreaterThan("expiresAt", now)
             .orderBy("expiresAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList())
+                    trySend(Result.Success(emptyList()))
                     return@addSnapshotListener
                 }
                 
@@ -95,13 +98,21 @@ class NoteRepositoryImpl @Inject constructor(
                         mapToNoteWithUser(docId, data, usersMap)
                     }
                     
-                    trySend(notes)
+                    trySend(Result.Success(notes))
                 }
             }
         awaitClose { listener.remove() }
     }
 
+    override suspend fun refreshNotes(limit: Int): Result<List<Note>> = com.linker.app.core.util.safeCall {
+        emptyList()
+    }
+
     /** Post a new text note (expires in 24 hours). */
+    override suspend fun loadMoreNotes(beforeTimestamp: Long, limit: Int): Result<List<Note>> = safeCall {
+        emptyList()
+    }
+
     override suspend fun postNote(content: String): Result<Note> {
         return try {
             val trimmedContent = content.trim()
@@ -133,31 +144,43 @@ class NoteRepositoryImpl @Inject constructor(
             notesCollection.document(noteId).set(noteData).await()
             lastNotePostTime[currentUserId] = now
 
-            val authorStub = User(
-                userId = currentUserId, username = "", displayName = "",
-                email = null, phoneNumber = null, bio = null,
-                profileImageUrl = null, coverImageUrl = null,
-                isVerified = false, followersCount = 0, followingCount = 0,
-                likesCount = 0, isFollowing = false, isFollowedBy = false,
-                isBlocked = false, isMuted = false,
-                createdAt = 0L, updatedAt = 0L
+            val authorStub = NoteAuthor(
+                userId = currentUserId,
+                username = "",
+                displayName = "",
+                profileImageUrl = null
             )
             Result.Success(
-                Note(
+                Note.Text(
                     noteId = noteId,
                     author = authorStub,
-                    noteType = NoteType.TEXT,
                     content = trimmedContent,
-                    musicTrackId = null, musicTrackName = null,
-                    musicArtistName = null, musicAlbumArt = null,
-                    countdownTargetTime = null, countdownTitle = null,
-                    backgroundColor = null, textColor = null,
-                    createdAt = now, expiresAt = expiresAt
+                    backgroundColor = null,
+                    textColor = null,
+                    createdAt = now,
+                    expiresAt = expiresAt
                 )
             )
         } catch (e: Exception) {
             Result.Error(e.message ?: "Unknown error", e.toString())
         }
+    }
+
+    override suspend fun postMediaNote(
+        mediaLocalPath: String,
+        mediaType: com.linker.app.domain.repository.NoteMediaType,
+        caption: String?
+    ): Result<Note> = safeCall {
+        // Stub implementation for now
+        com.linker.app.domain.model.Note.Text(
+            noteId = UUID.randomUUID().toString(),
+            author = com.linker.app.domain.model.NoteAuthor(currentUserId ?: "", "", "", null),
+            content = caption ?: "",
+            backgroundColor = null,
+            textColor = null,
+            createdAt = System.currentTimeMillis(),
+            expiresAt = System.currentTimeMillis() + com.linker.app.core.util.TimeConstants.DAY_MS
+        )
     }
 
     /** Delete a note. */
@@ -180,6 +203,13 @@ class NoteRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun recordView(noteId: String) {}
+    override suspend fun getViewCount(noteId: String): Result<Int> = safeCall { 0 }
+    override suspend fun getViewers(noteId: String): Result<List<com.linker.app.domain.repository.NoteViewer>> = safeCall { emptyList() }
+    override suspend fun reactToNote(noteId: String, emoji: String?): Result<Unit> = safeCall {}
+    override suspend fun getNoteReactions(noteId: String): Result<Map<String, String>> = safeCall { emptyMap() }
+    override suspend fun replyToNote(noteId: String, content: String): Result<Unit> = safeCall {}
+
     override suspend fun purgeExpiredNotes(): Result<Unit> = com.linker.app.core.util.safeCall {
         val now = System.currentTimeMillis()
         val snapshot = notesCollection
@@ -198,62 +228,107 @@ class NoteRepositoryImpl @Inject constructor(
 
     private fun mapToNote(noteId: String, data: Map<String, Any?>): Note {
         val authorId = data["authorId"] as? String ?: ""
-        val authorStub = User(
-            userId = authorId, username = "", displayName = "",
-            email = null, phoneNumber = null, bio = null,
-            profileImageUrl = null, coverImageUrl = null,
-            isVerified = false, followersCount = 0, followingCount = 0,
-            likesCount = 0, isFollowing = false, isFollowedBy = false,
-            isBlocked = false, isMuted = false,
-            createdAt = 0L, updatedAt = 0L
+        val authorStub = NoteAuthor(
+            userId = authorId,
+            username = "",
+            displayName = "",
+            profileImageUrl = null
         )
 
         val noteTypeStr = data["noteType"] as? String ?: "TEXT"
         val noteType = try { NoteType.valueOf(noteTypeStr) } catch (_: Exception) { NoteType.TEXT }
+        
+        val content = data["content"] as? String ?: ""
+        val backgroundColor = data["backgroundColor"] as? String
+        val textColor = data["textColor"] as? String
+        val createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L
+        val expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
 
-        return Note(
-            noteId = noteId,
-            author = authorStub,
-            noteType = noteType,
-            content = data["content"] as? String ?: "",
-            musicTrackId = data["musicTrackId"] as? String,
-            musicTrackName = data["musicTrackName"] as? String,
-            musicArtistName = data["musicArtistName"] as? String,
-            musicAlbumArt = data["musicAlbumArt"] as? String,
-            countdownTargetTime = (data["countdownTargetTime"] as? Number)?.toLong(),
-            countdownTitle = data["countdownTitle"] as? String,
-            backgroundColor = data["backgroundColor"] as? String,
-            textColor = data["textColor"] as? String,
-            createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
-            expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
-        )
+        return when (noteType) {
+            NoteType.TEXT -> Note.Text(
+                noteId = noteId,
+                author = authorStub,
+                content = content,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.MUSIC -> Note.Music(
+                noteId = noteId,
+                author = authorStub,
+                content = content,
+                musicTrackId = data["musicTrackId"] as? String ?: "",
+                musicTrackName = data["musicTrackName"] as? String ?: "",
+                musicArtistName = data["musicArtistName"] as? String ?: "",
+                musicAlbumArt = data["musicAlbumArt"] as? String,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.COUNTDOWN -> Note.Countdown(
+                noteId = noteId,
+                author = authorStub,
+                content = content,
+                countdownTargetTime = (data["countdownTargetTime"] as? Number)?.toLong() ?: 0L,
+                countdownTitle = data["countdownTitle"] as? String ?: "",
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+        }
     }
 
     private fun mapToNoteWithUser(noteId: String, data: Map<String, Any?>, usersMap: Map<String, UserEntity>): Note {
         val authorId = data["authorId"] as? String ?: ""
-        val author = usersMap[authorId]?.toDomain() ?: User(
-            userId = authorId, username = "Bilinmeyen Kullanıcı", displayName = "Bilinmeyen",
-            createdAt = 0L, updatedAt = 0L
-        )
+        val author = usersMap[authorId]?.toDomain() ?: User.deletedUser(authorId)
+        val authorRef = NoteAuthor.from(author)
 
         val noteTypeStr = data["noteType"] as? String ?: "TEXT"
         val noteType = try { NoteType.valueOf(noteTypeStr) } catch (_: Exception) { NoteType.TEXT }
+        
+        val content = data["content"] as? String ?: ""
+        val backgroundColor = data["backgroundColor"] as? String
+        val textColor = data["textColor"] as? String
+        val createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L
+        val expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
 
-        return Note(
-            noteId = noteId,
-            author = author,
-            noteType = noteType,
-            content = data["content"] as? String ?: "",
-            musicTrackId = data["musicTrackId"] as? String,
-            musicTrackName = data["musicTrackName"] as? String,
-            musicArtistName = data["musicArtistName"] as? String,
-            musicAlbumArt = data["musicAlbumArt"] as? String,
-            countdownTargetTime = (data["countdownTargetTime"] as? Number)?.toLong(),
-            countdownTitle = data["countdownTitle"] as? String,
-            backgroundColor = data["backgroundColor"] as? String,
-            textColor = data["textColor"] as? String,
-            createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L,
-            expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
-        )
+        return when (noteType) {
+            NoteType.TEXT -> Note.Text(
+                noteId = noteId,
+                author = authorRef,
+                content = content,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.MUSIC -> Note.Music(
+                noteId = noteId,
+                author = authorRef,
+                content = content,
+                musicTrackId = data["musicTrackId"] as? String ?: "",
+                musicTrackName = data["musicTrackName"] as? String ?: "",
+                musicArtistName = data["musicArtistName"] as? String ?: "",
+                musicAlbumArt = data["musicAlbumArt"] as? String,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.COUNTDOWN -> Note.Countdown(
+                noteId = noteId,
+                author = authorRef,
+                content = content,
+                countdownTargetTime = (data["countdownTargetTime"] as? Number)?.toLong() ?: 0L,
+                countdownTitle = data["countdownTitle"] as? String ?: "",
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+        }
     }
 }

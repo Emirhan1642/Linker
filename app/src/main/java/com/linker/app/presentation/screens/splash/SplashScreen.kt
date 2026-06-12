@@ -19,8 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.linker.app.R
 import com.linker.app.presentation.theme.*
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 
 /**
@@ -56,7 +59,7 @@ fun SplashScreen(
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "Linker",
+                text = stringResource(id = R.string.app_name),
                 fontSize = 52.sp,
                 fontWeight = FontWeight.ExtraBold,
                 style = TextStyle(
@@ -68,7 +71,7 @@ fun SplashScreen(
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Connect without limits",
+                text = stringResource(id = R.string.app_slogan),
                 color = TextSecondary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
@@ -78,9 +81,12 @@ fun SplashScreen(
     }
 
     LaunchedEffect(Unit) {
-        delay(2200)
-        // ViewModel, Firestore kontrolü + session kaydını halleder
-        val destination = viewModel.resolveStartDestination()
+        val minDelay = async { delay(1500) } // Minimum 1.5 seconds delay for animation
+        val destinationAsync = async { viewModel.resolveStartDestination() }
+        
+        minDelay.await()
+        val destination = destinationAsync.await()
+        
         if (destination == SplashDestination.HOME) {
             onNavigateToHome()
         } else {

@@ -191,7 +191,7 @@ sealed class Note {
     /**
      * Validates color format (if provided).
      */
-    private fun validateColors() {
+    protected fun validateColors() {
         backgroundColor?.let {
             require(it.matches(COLOR_HEX_REGEX)) {
                 "backgroundColor must be a valid hex color (e.g., #FF5733)"

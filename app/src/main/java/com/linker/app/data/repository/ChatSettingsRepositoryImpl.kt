@@ -31,9 +31,7 @@ class ChatSettingsRepositoryImpl @Inject constructor(
 
     override suspend fun updateChatSettings(
         chatId: String,
-        chatName: String?,
-        chatImageUrl: String?,
-        permissions: Map<String, Any>?
+        update: com.linker.app.domain.repository.ChatSettingsUpdate
     ): Result<Unit> = safeCall {
         val chatDoc = chatsCollection.document(chatId).get().await()
         if (!chatDoc.exists()) throw IllegalArgumentException("Chat not found")
@@ -53,24 +51,24 @@ class ChatSettingsRepositoryImpl @Inject constructor(
             if (!isAdmin) throw SecurityException("Only admins can update group settings")
         }
         
-        if (chatType == "PRIVATE" && (chatName != null || permissions != null)) {
+        if (chatType == "PRIVATE" && (update.chatName != null || update.permissions != null)) {
             throw SecurityException("Cannot set name or permissions for private chats")
         }
         
-        chatName?.let {
+        update.chatName?.let {
             if (it.isBlank() || it.length > 100) throw IllegalArgumentException("Chat name must be 1-100 characters")
         }
 
         val updates = mutableMapOf<String, Any>("updatedAt" to System.currentTimeMillis())
-        chatName?.let { updates["chatName"] = it.trim() }
-        chatImageUrl?.let { updates["chatImageUrl"] = it }
-        permissions?.let { updates["groupPermissions"] = it }
+        update.chatName?.let { updates["chatName"] = it.trim() }
+        update.chatImageUrl?.let { updates["chatImageUrl"] = it }
+        update.permissions?.let { updates["groupPermissions"] = it }
         
         chatsCollection.document(chatId).update(updates).await()
     }
 
-    override suspend fun archiveChat(chatId: String, archive: Boolean): Result<Unit> = safeCall {
-        val field = if (archive) {
+    override suspend fun setArchived(chatId: String, isArchived: Boolean): Result<Unit> = safeCall {
+        val field = if (isArchived) {
             mapOf("archivedBy" to FieldValue.arrayUnion(currentUserId))
         } else {
             mapOf("archivedBy" to FieldValue.arrayRemove(currentUserId))
@@ -78,8 +76,8 @@ class ChatSettingsRepositoryImpl @Inject constructor(
         chatsCollection.document(chatId).update(field).await()
     }
 
-    override suspend fun pinChat(chatId: String, pin: Boolean): Result<Unit> = safeCall {
-        val field = if (pin) {
+    override suspend fun setPinned(chatId: String, isPinned: Boolean): Result<Unit> = safeCall {
+        val field = if (isPinned) {
             mapOf("pinnedBy" to FieldValue.arrayUnion(currentUserId))
         } else {
             mapOf("pinnedBy" to FieldValue.arrayRemove(currentUserId))
@@ -87,8 +85,8 @@ class ChatSettingsRepositoryImpl @Inject constructor(
         chatsCollection.document(chatId).update(field).await()
     }
 
-    override suspend fun muteChat(chatId: String, mute: Boolean): Result<Unit> = safeCall {
-        val field = if (mute) {
+    override suspend fun setMuted(chatId: String, isMuted: Boolean): Result<Unit> = safeCall {
+        val field = if (isMuted) {
             mapOf("mutedBy" to FieldValue.arrayUnion(currentUserId))
         } else {
             mapOf("mutedBy" to FieldValue.arrayRemove(currentUserId))
@@ -96,8 +94,8 @@ class ChatSettingsRepositoryImpl @Inject constructor(
         chatsCollection.document(chatId).update(field).await()
     }
 
-    override suspend fun blockChat(chatId: String, block: Boolean): Result<Unit> = safeCall {
-        val field = if (block) {
+    override suspend fun setBlocked(chatId: String, isBlocked: Boolean): Result<Unit> = safeCall {
+        val field = if (isBlocked) {
             mapOf("blockedBy" to FieldValue.arrayUnion(currentUserId))
         } else {
             mapOf("blockedBy" to FieldValue.arrayRemove(currentUserId))
@@ -162,6 +160,10 @@ class ChatSettingsRepositoryImpl @Inject constructor(
         ).await()
     }
 
+    override suspend fun removeParticipants(chatId: String, userIds: List<String>): Result<Unit> = safeCall {
+        userIds.forEach { removeParticipant(chatId, it) }
+    }
+
     override suspend fun leaveGroupChat(chatId: String): Result<Unit> = safeCall {
         chatsCollection.document(chatId).update(
             mapOf(
@@ -202,5 +204,21 @@ class ChatSettingsRepositoryImpl @Inject constructor(
                 "updatedAt" to System.currentTimeMillis()
             )
         ).await()
+    }
+
+    override suspend fun demoteAdmin(chatId: String, userId: String): Result<Unit> = safeCall {
+        chatsCollection.document(chatId).update(
+            mapOf(
+                "adminIds" to FieldValue.arrayRemove(userId),
+                "updatedAt" to System.currentTimeMillis()
+            )
+        ).await()
+    }
+
+    override suspend fun updateGroupProfile(chatId: String, name: String?, imageUrl: String?): Result<Unit> = safeCall {
+        val updates = mutableMapOf<String, Any>("updatedAt" to System.currentTimeMillis())
+        name?.let { updates["chatName"] = it.trim() }
+        imageUrl?.let { updates["chatImageUrl"] = it }
+        chatsCollection.document(chatId).update(updates).await()
     }
 }

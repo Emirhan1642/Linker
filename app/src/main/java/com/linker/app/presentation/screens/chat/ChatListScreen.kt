@@ -1,6 +1,5 @@
 package com.linker.app.presentation.screens.chat
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import com.linker.app.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,15 +30,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -46,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.linker.app.presentation.components.BottomNavItem
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.components.LinkerBottomNavigationBar
 import com.linker.app.presentation.components.LinkerSearchBar
 import com.linker.app.presentation.theme.AccentGreen
@@ -53,10 +51,6 @@ import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.LightGray
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -68,37 +62,25 @@ fun ChatListScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.chatListState.collectAsState()
-    var searchQuery by remember { mutableStateOf("") }
-    val filters = listOf("All", "Unreads", "Favorites", "Groups", "Archived")
-    var selectedFilter by remember { mutableStateOf("All") }
+    
+    val filters = listOf(
+        stringResource(R.string.chat_list_filter_all),
+        stringResource(R.string.chat_list_filter_unreads),
+        stringResource(R.string.chat_list_filter_favorites),
+        stringResource(R.string.chat_list_filter_groups),
+        stringResource(R.string.chat_list_filter_archived)
+    )
+    val filterKeys = listOf("All", "Unreads", "Favorites", "Groups", "Archived")
+    
     val listState = rememberLazyListState()
+    
+    // Check if scrolled past the first item to show "Locked chats" header
+    // Only derive state from list state changes
     val showLockedHeader by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
         }
     }
-
-    val normalizedQuery = searchQuery.trim()
-    val filteredChats = when (selectedFilter) {
-        "Unreads" -> uiState.chats.filter { !it.isArchived && it.unreadCount > 0 }
-        "Favorites" -> uiState.chats.filter { !it.isArchived && it.isFavorited }
-        "Groups" -> uiState.chats.filter { !it.isArchived && it.isGroupChat }
-        "Archived" -> uiState.chats.filter { it.isArchived }
-        else -> uiState.chats.filter { !it.isArchived }
-    }
-        .filter { chat ->
-            normalizedQuery.isBlank() ||
-                chat.displayName.contains(normalizedQuery, ignoreCase = true) ||
-                (chat.lastMessage?.contains(normalizedQuery, ignoreCase = true) == true)
-        }
-        .sortedWith(
-            if (selectedFilter == "All") {
-                compareByDescending<ChatUiModel> { it.isPinned }
-                    .thenByDescending { it.lastMessageTime }
-            } else {
-                compareByDescending { it.lastMessageTime }
-            }
-        )
 
     Scaffold(
         containerColor = Black,
@@ -123,15 +105,25 @@ fun ChatListScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onNavigateBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                    Icon(
+                        painterResource(R.drawable.ic_arrow_left_01_outline),
+                        contentDescription = stringResource(R.string.action_back),
+                        tint = TextPrimary,
+                        modifier = Modifier.size(30.dp)
+                    )
                 }
                 LinkerSearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
+                    query = uiState.searchQuery,
+                    onQueryChange = viewModel::updateSearchQuery,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { onNavigateToNewChat() }) {
-                    Icon(painterResource(R.drawable.ic_play_add_outline), contentDescription = "Settings", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                IconButton(onClick = onNavigateToNewChat) {
+                    Icon(
+                        painterResource(R.drawable.ic_play_add_outline),
+                        contentDescription = "New Chat",
+                        tint = TextPrimary,
+                        modifier = Modifier.size(30.dp)
+                    )
                 }
             }
 
@@ -141,19 +133,29 @@ fun ChatListScreen(
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                 modifier = Modifier.padding(vertical = 10.dp)
             ) {
-                // Your Note
                 item {
-                    NoteItem(name = "Your Note", question = if (uiState.notes.any { it.author.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }) 
-                        uiState.notes.first { it.author.userId == com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }.content
-                    else "Share a thought...", isSelf = true)
-                }
-                // Other users' notes
-                val otherNotes = uiState.notes.filter { it.author.userId != com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid }
-                items(otherNotes.size) { index ->
-                    val note = otherNotes[index]
+                    val noteContent = when (val userNote = uiState.userNote) {
+                        is com.linker.app.domain.model.Note.Text -> userNote.content
+                        is com.linker.app.domain.model.Note.Music -> userNote.content
+                        is com.linker.app.domain.model.Note.Countdown -> userNote.content
+                        null -> stringResource(R.string.chat_list_share_note)
+                    }
                     NoteItem(
-                        name = note.author.displayName.ifBlank { "User" },
-                        question = note.content
+                        name = stringResource(R.string.chat_list_your_note),
+                        question = noteContent,
+                        isSelf = true
+                    )
+                }
+                items(uiState.otherNotes.size) { index ->
+                    val note = uiState.otherNotes[index]
+                    val noteContent = when (note) {
+                        is com.linker.app.domain.model.Note.Text -> note.content
+                        is com.linker.app.domain.model.Note.Music -> note.content
+                        is com.linker.app.domain.model.Note.Countdown -> note.content
+                    }
+                    NoteItem(
+                        name = note.author.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
+                        question = noteContent
                     )
                 }
             }
@@ -164,14 +166,15 @@ fun ChatListScreen(
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 items(filters.size) { index ->
-                    val filter = filters[index]
-                    val isSelected = filter == selectedFilter
+                    val filterDisplay = filters[index]
+                    val filterKey = filterKeys[index]
+                    val isSelected = filterKey == uiState.selectedFilter
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { selectedFilter = filter }
+                        modifier = Modifier.clickable { viewModel.updateSelectedFilter(filterKey) }
                     ) {
                         Text(
-                            text = filter,
+                            text = filterDisplay,
                             color = if (isSelected) TextPrimary else TextSecondary,
                             fontSize = 17.sp,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
@@ -198,7 +201,7 @@ fun ChatListScreen(
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
                 if (showLockedHeader) {
-                    stickyHeader {
+                    item {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -209,32 +212,41 @@ fun ChatListScreen(
                         ) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_smart_lock_ai_outline),
-                                contentDescription = "Locked chats",
+                                contentDescription = stringResource(R.string.chat_list_locked_chats),
                                 tint = TextPrimary,
                                 modifier = Modifier.size(40.dp)
                             )
                             Spacer(modifier = Modifier.width(20.dp))
-                            Text("Locked chats", color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = stringResource(R.string.chat_list_locked_chats),
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Medium
+                            )
                         }
                     }
                 }
 
-                if (filteredChats.isEmpty() && !uiState.isLoading) {
+                if (uiState.chats.isEmpty() && !uiState.isLoading) {
                     item {
                         Box(
                             modifier = Modifier.fillMaxWidth().height(200.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("No chats yet. Start a conversation!", color = TextSecondary, fontSize = 16.sp)
+                            Text(
+                                text = stringResource(R.string.chat_list_empty_state),
+                                color = TextSecondary,
+                                fontSize = 16.sp
+                            )
                         }
                     }
                 } else {
-                    items(filteredChats.size) { index ->
-                        val chat = filteredChats[index]
+                    items(uiState.chats.size) { index ->
+                        val chat = uiState.chats[index]
                         ChatItem(
                             name = chat.displayName,
-                            message = chat.lastMessage?.ifBlank { null } ?: "Tap to chat",
-                            time = formatTimestamp(chat.lastMessageTime),
+                            message = chat.lastMessage?.ifBlank { null } ?: stringResource(R.string.chat_list_tap_to_chat),
+                            time = chat.formattedTime,
                             unreadCount = chat.unreadCount,
                             isTyping = chat.isTyping,
                             onClick = { onNavigateToChatDetail(chat.chatId) }
@@ -244,7 +256,6 @@ fun ChatListScreen(
             }
         }
     }
-
 }
 
 @Composable
@@ -255,15 +266,13 @@ fun NoteItem(name: String, question: String, isSelf: Boolean = false) {
         modifier = Modifier.width(80.dp)
     ) {
         Box(contentAlignment = Alignment.TopCenter) {
-            // Avatar
             LinkerAvatar(
                 imageUrl = null,
                 size = 80.dp,
-                hasStory = isSelf,
+                storyState = if (isSelf) StoryState.UNSEEN else StoryState.NONE,
                 modifier = Modifier.padding(top = 24.dp),
-                onClick = { android.widget.Toast.makeText(context, "$name notu", android.widget.Toast.LENGTH_SHORT).show() }
+                onClick = { android.widget.Toast.makeText(context, "$name note", android.widget.Toast.LENGTH_SHORT).show() }
             )
-            // Speech Bubble
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(15.dp))
@@ -314,8 +323,8 @@ fun ChatItem(
         LinkerAvatar(
             imageUrl = null,
             size = 60.dp,
-            hasStory = true,
-            onClick = { android.widget.Toast.makeText(context, "$name profili", android.widget.Toast.LENGTH_SHORT).show() }
+            storyState = StoryState.UNSEEN,
+            onClick = { android.widget.Toast.makeText(context, "$name profile", android.widget.Toast.LENGTH_SHORT).show() }
         )
         Spacer(modifier = Modifier.width(20.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -338,26 +347,18 @@ fun ChatItem(
             )
             if (hasUnread) {
                 Spacer(modifier = Modifier.height(4.dp))
+                val unreadText = if (unreadCount == 1) {
+                    stringResource(R.string.chat_list_new_messages_single)
+                } else {
+                    stringResource(R.string.chat_list_new_messages_plural, unreadCount)
+                }
                 Text(
-                    text = if (unreadCount == 1) "1 new message" else "$unreadCount new messages",
+                    text = unreadText,
                     color = AccentGreen,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
-    }
-}
-
-fun formatTimestamp(timestamp: Long): String {
-    if (timestamp == 0L) return ""
-    val now = System.currentTimeMillis()
-    val diff = now - timestamp
-    val daysDiff = TimeUnit.MILLISECONDS.toDays(diff)
-    return when {
-        daysDiff == 0L -> SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timestamp))
-        daysDiff == 1L -> "Yesterday"
-        daysDiff < 7 -> SimpleDateFormat("EEEE", Locale.getDefault()).format(Date(timestamp))
-        else -> SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date(timestamp))
     }
 }

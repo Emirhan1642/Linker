@@ -1,4 +1,4 @@
-package com.linker.app.presentation.screens.story
+﻿package com.linker.app.presentation.screens.story
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextHint
@@ -109,7 +110,7 @@ fun StoryScreen(
                 LinkerAvatar(
                     imageUrl = null,
                     size = 40.dp,
-                    hasStory = false // We just want the white background per design
+                    storyState = StoryState.NONE // We just want the white background per design
                 )
                 
                 Spacer(modifier = Modifier.width(12.dp))

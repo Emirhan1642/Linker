@@ -28,6 +28,7 @@ import javax.inject.Inject
 class NotificationActionReceiver : BroadcastReceiver() {
 
     @Inject lateinit var chatRepository: ChatRepository
+    @Inject lateinit var messageRepository: com.linker.app.domain.repository.MessageRepository
     @Inject lateinit var accountRepository: AccountRepository
     @Inject lateinit var hybridAccountManager: HybridAccountManager
     @Inject lateinit var stateRecovery: NotificationStateRecovery
@@ -41,7 +42,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
         val notificationId = intent.getIntExtra(NotificationConstants.EXTRA_NOTIFICATION_ID, senderId.hashCode())
         val targetAccountUid = intent.getStringExtra(NotificationConstants.EXTRA_TARGET_ACCOUNT_UID).orEmpty()
 
-        NotificationLogger.d("onReceive: action=\${intent.action}, notificationId=\$notificationId, chatId=\$chatId")
+        NotificationLogger.d("onReceive: action=${intent.action}, notificationId=$notificationId, chatId=$chatId")
 
         val pendingResult = goAsync()
         val operationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -79,10 +80,10 @@ class NotificationActionReceiver : BroadcastReceiver() {
             ?.trim()
             ?: return
 
-        val activeUid = accountRepository.getActiveUid()
+        val activeUid = (accountRepository.getActiveUid() as? LinkerResult.Success)?.data
         
         val result = if (activeUid == targetAccountUid) {
-            chatRepository.sendMessage(chatId, MessageType.TEXT, replyText)
+            messageRepository.sendMessage(chatId, MessageType.TEXT, replyText, null, null)
         } else {
             hybridAccountManager.sendMessageFromPassiveAccount(targetAccountUid, chatId, replyText)
         }
@@ -141,7 +142,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 }
             }
             is LinkerResult.Error -> {
-                launchToast(context, "Failed to send message: \${result.message}")
+                launchToast(context, "Failed to send message: ${result.message}")
                 
                 var state = ChatNotificationStore.get(notificationId)
                 if (state == null) {
@@ -190,22 +191,22 @@ class NotificationActionReceiver : BroadcastReceiver() {
         ChatNotificationStore.clear(notificationId)
         NotificationManagerCompat.from(context).cancel(notificationId)
         
-        val activeUid = accountRepository.getActiveUid()
+        val activeUid = (accountRepository.getActiveUid() as? LinkerResult.Success)?.data
         val result = if (activeUid == targetAccountUid) {
-            chatRepository.reactToMessage(messageId, "\uD83D\uDC4D")
+            messageRepository.reactToMessage(messageId, "\uD83D\uDC4D")
         } else {
             hybridAccountManager.reactToMessageFromPassiveAccount(targetAccountUid, chatId, messageId, "\uD83D\uDC4D")
         }
         
         if (result is LinkerResult.Error) {
-            launchToast(context, "Tepki eklenemedi: \${result.message}")
+            launchToast(context, "Tepki eklenemedi: ${result.message}")
         }
     }
 
     private suspend fun handleRead(context: Context, chatId: String, notificationId: Int, targetAccountUid: String) {
-        val activeUid = accountRepository.getActiveUid()
+        val activeUid = (accountRepository.getActiveUid() as? LinkerResult.Success)?.data
         val result = if (activeUid == targetAccountUid) {
-            chatRepository.markChatAsRead(chatId)
+            messageRepository.markChatAsRead(chatId)
         } else {
             hybridAccountManager.markChatAsReadFromPassiveAccount(targetAccountUid, chatId)
         }
@@ -216,7 +217,7 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 NotificationManagerCompat.from(context).cancel(notificationId)
             }
             is LinkerResult.Error -> {
-                launchToast(context, "Failed to mark as read: \${result.message}")
+                launchToast(context, "Failed to mark as read: ${result.message}")
             }
             else -> {}
         }

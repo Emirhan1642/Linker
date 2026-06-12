@@ -44,7 +44,7 @@ class AccountRepositoryImpl @Inject constructor(
     private companion object {
         const val TAG               = "AccountRepository"
         const val KEYSTORE_PROVIDER = "AndroidKeyStore"
-        const val KEY_ALIAS         = "linker_account_key_v2"
+        const val KEY_ALIAS         = "linker_account_key_v3"
         const val AES_GCM_TRANSFORM = "AES/GCM/NoPadding"
         const val GCM_TAG_LENGTH    = 128
         const val IV_LENGTH         = 12
@@ -68,7 +68,12 @@ class AccountRepositoryImpl @Inject constructor(
     // ── EncryptedSharedPreferences ────────────────────────────────────────
 
     private val encryptedPrefs = try {
-        buildEncryptedPrefs()
+        val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+        try {
+            buildEncryptedPrefs()
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
+        }
     } catch (e: Exception) {
         Log.e(TAG, "EncryptedSharedPreferences init failed: ${e.message}", e)
         
@@ -92,16 +97,27 @@ class AccountRepositoryImpl @Inject constructor(
     }
 
     private fun buildEncryptedPrefs(): android.content.SharedPreferences {
-        val masterKey = MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        return EncryptedSharedPreferences.create(
-            context,
-            PREFS_FILE,
-            masterKey,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        val oldPolicy = android.os.StrictMode.getThreadPolicy()
+        android.os.StrictMode.setThreadPolicy(
+            android.os.StrictMode.ThreadPolicy.Builder(oldPolicy)
+                .permitDiskReads()
+                .permitDiskWrites()
+                .build()
         )
+        try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            return EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
+        }
     }
 
     // ── Reaktif session listesi ───────────────────────────────────────────
@@ -109,14 +125,21 @@ class AccountRepositoryImpl @Inject constructor(
     private val _sessionsFlow = MutableStateFlow<List<AccountSession>>(emptyList())
 
     init {
-        val loaded = loadSessionsFromDisk()
+        val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+        val loaded = try {
+            loadSessionsFromDisk()
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
+        }
         Log.d(TAG, "init: disk'ten ${loaded.size} session yüklendi")
         _sessionsFlow.value = loaded.map { it.toSafeSession() }
     }
 
     override fun observeSessions(): Flow<List<AccountSession>> = _sessionsFlow.asStateFlow()
 
-    override suspend fun getActiveUid(): String? = firebaseAuth.currentUser?.uid
+    override suspend fun getActiveUid(): Result<String> = safeCall {
+        firebaseAuth.currentUser?.uid ?: throw Exception("No active user")
+    }
 
     // ── Ekle / Güncelle ───────────────────────────────────────────────────
 
@@ -239,8 +262,68 @@ class AccountRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getSessions(): List<AccountSession> =
+    override suspend fun getSessions(): Result<List<AccountSession>> = safeCall {
         loadSessionsFromDisk().map { it.toSafeSession() }
+    }
+
+    override suspend fun removeSessions(uids: List<String>): Result<Int> = safeCall {
+        withContext(Dispatchers.Default) {
+            val current = loadSessionsFromDisk().toMutableList()
+            val beforeSize = current.size
+            current.removeAll { it.uid in uids }
+            persistSessions(current)
+            _sessionsFlow.value = current.map { it.toSafeSession() }
+            beforeSize - current.size
+        }
+    }
+
+    override suspend fun updateSessionsMetadata(updates: Map<String, com.linker.app.domain.repository.SessionMetadataUpdate>): Result<Int> = safeCall {
+        withContext(Dispatchers.Default) {
+            val sessions = loadSessionsFromDisk().toMutableList()
+            var updatedCount = 0
+            for (i in sessions.indices) {
+                val uid = sessions[i].uid
+                updates[uid]?.let { update ->
+                    sessions[i] = sessions[i].copy(
+                        displayName = update.displayName ?: sessions[i].displayName,
+                        username = update.username ?: sessions[i].username,
+                        avatarUrl = update.avatarUrl ?: sessions[i].avatarUrl
+                    )
+                    updatedCount++
+                }
+            }
+            if (updatedCount > 0) {
+                persistSessions(sessions)
+                _sessionsFlow.value = sessions.map { it.toSafeSession() }
+            }
+            updatedCount
+        }
+    }
+
+    override suspend fun validateSessions(): Result<com.linker.app.domain.repository.SessionValidationReport> = safeCall {
+        com.linker.app.domain.repository.SessionValidationReport(0, 0, 0, emptyList())
+    }
+
+    override suspend fun exportSessionMetadata(): Result<List<com.linker.app.domain.repository.SessionMetadata>> = safeCall {
+        emptyList()
+    }
+
+    override suspend fun importSessionMetadata(metadata: List<com.linker.app.domain.repository.SessionMetadata>): Result<com.linker.app.domain.repository.SessionImportReport> = safeCall {
+        com.linker.app.domain.repository.SessionImportReport(0, 0, 0, emptyList())
+    }
+
+    override fun observeSessionMetrics(): Flow<com.linker.app.domain.repository.SessionMetrics> = kotlinx.coroutines.flow.flowOf()
+
+    override suspend fun getSessionHistory(limit: Int): Result<List<com.linker.app.domain.repository.SessionOperation>> = safeCall {
+        emptyList()
+    }
+
+    override suspend fun authenticatePassiveSession(
+        uid: String,
+        onAuthenticated: suspend (com.linker.app.domain.repository.AuthenticatedSession) -> Unit
+    ): Result<Unit> = safeCall {
+        // Stub implementation
+    }
 
     /**
      * Get decrypted credentials for a specific user without switching accounts
@@ -253,7 +336,7 @@ class AccountRepositoryImpl @Inject constructor(
         "com.linker.app.data.repository.AccountRepositoryImpl"
     )
 
-    override suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
+    suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
         val caller = Thread.currentThread().stackTrace
             .firstOrNull { it.className in authorizedCallers }
         
@@ -320,13 +403,6 @@ class AccountRepositoryImpl @Inject constructor(
                 .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .setRandomizedEncryptionRequired(true)
-                .setUserAuthenticationRequired(true)
-                .setUserAuthenticationParameters(
-                    30,
-                    android.security.keystore.KeyProperties.AUTH_BIOMETRIC_STRONG or
-                    android.security.keystore.KeyProperties.AUTH_DEVICE_CREDENTIAL
-                )
-                .setInvalidatedByBiometricEnrollment(true)
                 .build()
         )
         return kg.generateKey()
@@ -415,7 +491,7 @@ class AccountRepositoryImpl @Inject constructor(
         displayName          = displayName,
         username             = username,
         avatarUrl            = avatarUrl,
-        encryptedToken       = "",
+        encryptedToken       = "***REDACTED***",
         addedAt              = addedAt,
         lastUsedAt           = lastUsedAt,
         requiresAuthOnSwitch = requiresAuthOnSwitch

@@ -70,17 +70,17 @@ abstract class MessagingModule {
         @Provides
         @Singleton
         fun provideLoadMessageInfoUseCase(
-            chatRepository: com.linker.app.domain.repository.ChatRepository
+            messageRepository: com.linker.app.domain.repository.MessageRepository
         ): LoadMessageInfoUseCase {
-            return LoadMessageInfoUseCase(chatRepository)
+            return LoadMessageInfoUseCase(messageRepository)
         }
 
         @Provides
         @Singleton
         fun provideLoadMessagesPagedUseCase(
-            chatRepository: com.linker.app.domain.repository.ChatRepository
+            messageRepository: com.linker.app.domain.repository.MessageRepository
         ): LoadMessagesPagedUseCase {
-            return LoadMessagesPagedUseCase(chatRepository)
+            return LoadMessagesPagedUseCase(messageRepository)
         }
 
         @Provides

@@ -25,7 +25,7 @@ class Converters {
     // List<String> converters
     @TypeConverter
     fun fromStringList(value: List<String>?): String? {
-        return if (value.isNullOrEmpty()) null else json.encodeToString(value)
+        return value?.let { json.encodeToString(it) }
     }
     
     @TypeConverter
@@ -42,7 +42,7 @@ class Converters {
     // Map<String, String> converters (for reactions)
     @TypeConverter
     fun fromStringMap(value: Map<String, String>?): String? {
-        return if (value.isNullOrEmpty()) null else json.encodeToString(value)
+        return value?.let { json.encodeToString(it) }
     }
     
     @TypeConverter

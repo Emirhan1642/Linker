@@ -18,8 +18,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.concurrent.TimeoutException
 import javax.inject.Inject
+import com.linker.app.R
+import com.linker.app.core.util.UiText
 
 /**
  * ViewModel for Offline Messaging Settings Screen
@@ -47,7 +50,7 @@ data class OfflineMessagingSettingsUiState(
     val isTogglingService: Boolean = false,
     val showTtlPicker: Boolean = false,
     val showClearQueueDialog: Boolean = false,
-    val snackbarMessage: String? = null,
+    val snackbarMessage: UiText? = null,
     
     // Permission state
     val showPermissionRationale: Boolean = false,
@@ -200,11 +203,11 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
      * @param skipPermissionCheck If true, skip permission check (used after permissions are granted)
      */
     fun toggleOfflineMessaging(enabled: Boolean, skipPermissionCheck: Boolean = false) {
-        android.util.Log.d("OfflineMessagingVM", "toggleOfflineMessaging called: enabled=$enabled, skipPermissionCheck=$skipPermissionCheck")
+        Timber.d("toggleOfflineMessaging called: enabled=$enabled, skipPermissionCheck=$skipPermissionCheck")
         viewModelScope.launch {
             // Check Bluetooth first
             if (enabled && !bluetoothManager.isBluetoothEnabled()) {
-                android.util.Log.d("OfflineMessagingVM", "Bluetooth is disabled, showing dialog")
+                Timber.d("Bluetooth is disabled, showing dialog")
                 _uiState.update { it.copy(
                     showBluetoothDialog = true
                 )}
@@ -213,7 +216,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             
             // Check permissions
             if (enabled && !skipPermissionCheck && !permissionManager.hasAllPermissions()) {
-                android.util.Log.d("OfflineMessagingVM", "Permissions not granted, showing dialog")
+                Timber.d("Permissions not granted, showing dialog")
                 _uiState.update { it.copy(
                     showPermissionRationale = true,
                     permissionType = "bluetooth"
@@ -221,43 +224,48 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 return@launch
             }
             
-            android.util.Log.d("OfflineMessagingVM", "All checks passed, toggling service")
+            Timber.d("All checks passed, toggling service")
             _uiState.update { it.copy(isTogglingService = true) }
             
             try {
                 if (enabled) {
-                    android.util.Log.d("OfflineMessagingVM", "Calling serviceManager.startService()")
+                    Timber.d("Calling serviceManager.startService()")
                     val started = serviceManager.startService()
-                    android.util.Log.d("OfflineMessagingVM", "serviceManager.startService() returned: $started")
+                    Timber.d("serviceManager.startService() returned: $started")
                     if (started) {
                         _uiState.update { it.copy(
                             isOfflineMessagingEnabled = true,
-                            snackbarMessage = "Offline messaging enabled"
+                            snackbarMessage = UiText.StringResource(R.string.settings_offline_messaging_enabled)
                         )}
                     } else {
                         _uiState.update { it.copy(
-                            snackbarMessage = "Failed to start service"
+                            snackbarMessage = UiText.StringResource(R.string.error_generic)
                         )}
                     }
                 } else {
-                    android.util.Log.d("OfflineMessagingVM", "Calling serviceManager.stopService()")
+                    Timber.d("Calling serviceManager.stopService()")
                     val stopped = serviceManager.stopService()
-                    android.util.Log.d("OfflineMessagingVM", "serviceManager.stopService() returned: $stopped")
+                    Timber.d("serviceManager.stopService() returned: $stopped")
                     if (stopped) {
                         _uiState.update { it.copy(
                             isOfflineMessagingEnabled = false,
-                            snackbarMessage = "Offline messaging disabled"
+                            snackbarMessage = UiText.StringResource(R.string.settings_offline_messaging_disabled)
                         )}
                     } else {
                         _uiState.update { it.copy(
-                            snackbarMessage = "Failed to stop service"
+                            snackbarMessage = UiText.StringResource(R.string.error_generic)
                         )}
                     }
                 }
-            } catch (e: Exception) {
-                android.util.Log.e("OfflineMessagingVM", "Exception in toggleOfflineMessaging: ${e.message}", e)
+            } catch (e: SecurityException) {
+                Timber.e(e, "SecurityException in toggleOfflineMessaging: ${e.message}")
                 _uiState.update { it.copy(
-                    snackbarMessage = "Error: ${e.message}"
+                    snackbarMessage = UiText.DynamicString("Permission denied: ${e.message}")
+                )}
+            } catch (e: Exception) {
+                Timber.e(e, "Exception in toggleOfflineMessaging: ${e.message}")
+                _uiState.update { it.copy(
+                    snackbarMessage = UiText.DynamicString("Error: ${e.message}")
                 )}
             } finally {
                 _uiState.update { it.copy(isTogglingService = false) }
@@ -273,7 +281,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isBleEnabled = enabled) }
             // Save to DataStore
             preferencesRepository.setBleEnabled(enabled).onFailure {
-                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update BLE setting") }
+                _uiState.update { state -> state.copy(snackbarMessage = UiText.StringResource(R.string.error_generic)) }
             }
             
             if (enabled) {
@@ -294,7 +302,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isWifiDirectEnabled = enabled) }
             // Save to DataStore
             preferencesRepository.setWifiDirectEnabled(enabled).onFailure {
-                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Wi-Fi Direct setting") }
+                _uiState.update { state -> state.copy(snackbarMessage = UiText.StringResource(R.string.error_generic)) }
             }
         }
     }
@@ -307,7 +315,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(showNotification = enabled) }
             // Save to DataStore and update service notification
             preferencesRepository.setShowNotification(enabled).onFailure {
-                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Notification setting") }
+                _uiState.update { state -> state.copy(snackbarMessage = UiText.StringResource(R.string.error_generic)) }
             }
         }
     }
@@ -334,11 +342,11 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(
                 maxTtl = ttl,
                 showTtlPicker = false,
-                snackbarMessage = "Maximum hops set to $ttl"
+                snackbarMessage = UiText.DynamicString("Maximum hops set to $ttl")
             )}
             // Save to DataStore
             preferencesRepository.setMaxTtl(ttl).onFailure {
-                _uiState.update { state -> state.copy(snackbarMessage = "Failed to update Max TTL setting") }
+                _uiState.update { state -> state.copy(snackbarMessage = UiText.StringResource(R.string.error_generic)) }
             }
         }
     }
@@ -366,12 +374,12 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 messageQueueProcessor.clearSentMessages()
                 _uiState.update { it.copy(
                     showClearQueueDialog = false,
-                    snackbarMessage = "Message queue cleared"
+                    snackbarMessage = UiText.DynamicString("Message queue cleared")
                 )}
             } catch (e: Exception) {
                 _uiState.update { it.copy(
                     showClearQueueDialog = false,
-                    snackbarMessage = "Error: ${e.message}"
+                    snackbarMessage = UiText.DynamicString("Error: ${e.message}")
                 )}
             }
         }
@@ -412,7 +420,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
     fun onPermissionResult(granted: Boolean, permanentlyDenied: Boolean) {
         if (granted) {
             _uiState.update { it.copy(
-                snackbarMessage = "Permission granted"
+                snackbarMessage = UiText.DynamicString("Permission granted")
             )}
             // Try to enable offline messaging again, skipping permission check
             // since we just granted the permissions
@@ -423,7 +431,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             )}
         } else {
             _uiState.update { it.copy(
-                snackbarMessage = "Permission denied"
+                snackbarMessage = UiText.DynamicString("Permission denied")
             )}
         }
     }
@@ -455,7 +463,7 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
             _uiState.update { it.copy(showPermissionSettings = false) }
         } catch (e: Exception) {
             _uiState.update { it.copy(
-                snackbarMessage = "Failed to open settings"
+                snackbarMessage = UiText.DynamicString("Failed to open settings")
             )}
         }
     }
@@ -477,14 +485,14 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                     showBluetoothDialog = false,
                     showPermissionRationale = true,
                     permissionType = "bluetooth",
-                    snackbarMessage = "Bluetooth permission required"
+                    snackbarMessage = UiText.DynamicString("Bluetooth permission required")
                 )}
                 return@launch
             }
 
             _uiState.update { it.copy(
                 showBluetoothDialog = false,
-                snackbarMessage = "Enabling Bluetooth..."
+                snackbarMessage = UiText.DynamicString("Enabling Bluetooth...")
             )}
 
             val result = bluetoothManager.enableBluetoothWithTimeout()
@@ -492,18 +500,18 @@ class OfflineMessagingSettingsViewModel @Inject constructor(
                 _uiState.update { state ->
                     state.copy(
                         isBluetoothEnabled = true,
-                        snackbarMessage = "Bluetooth enabled"
+                        snackbarMessage = UiText.DynamicString("Bluetooth enabled")
                     )
                 }
                 toggleOfflineMessaging(true, skipPermissionCheck = true)
             }.onFailure { error ->
                 when (error) {
                     is TimeoutException -> {
-                        _uiState.update { it.copy(snackbarMessage = "Opening Bluetooth settings...") }
+                        _uiState.update { it.copy(snackbarMessage = UiText.DynamicString("Opening Bluetooth settings...")) }
                         bluetoothManager.openBluetoothSettings(application)
                     }
                     else -> {
-                        _uiState.update { it.copy(snackbarMessage = "Failed to enable Bluetooth") }
+                        _uiState.update { it.copy(snackbarMessage = UiText.DynamicString("Failed to enable Bluetooth")) }
                     }
                 }
             }

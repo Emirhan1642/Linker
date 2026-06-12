@@ -7,48 +7,71 @@ import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
-// ─── Observe Auth State ────────────────────────────────────────────────────────
-
 class ObserveAuthStateUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     operator fun invoke(): Flow<User?> = authRepository.observeCurrentUser()
 }
 
-// ─── Sign In with Google ───────────────────────────────────────────────────────
-
 class SignInWithGoogleUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
-    suspend operator fun invoke(idToken: String): Result<User> =
-        authRepository.signInWithGoogle(idToken)
+    suspend operator fun invoke(idToken: String): Result<User> {
+        if (idToken.isBlank()) return Result.Error("ID token cannot be empty")
+        return authRepository.signInWithGoogle(idToken)
+    }
 }
-
-// ─── Sign In with Email ────────────────────────────────────────────────────────
 
 class SignInWithEmailUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     suspend operator fun invoke(email: String, password: String): Result<User> {
-        if (email.isBlank() || password.isBlank())
-            return Result.Error("Email and password cannot be empty")
+        if (email.isBlank()) 
+            return Result.Error("Email cannot be empty")
+        if (password.isEmpty()) 
+            return Result.Error("Password cannot be empty")
+        
         return authRepository.signInWithEmail(email, password)
     }
 }
-
-// ─── Create Account with Email ─────────────────────────────────────────────────
 
 class CreateAccountWithEmailUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
     suspend operator fun invoke(email: String, password: String): Result<User> {
-        if (email.isBlank()) return Result.Error("Email cannot be empty")
-        if (password.length < 8) return Result.Error("Password must be at least 8 characters")
+        if (email.isBlank()) 
+            return Result.Error("Email cannot be empty")
+        if (!isValidEmail(email)) 
+            return Result.Error("Invalid email format")
+        
+        val passwordValidation = validatePasswordStrength(password)
+        if (!passwordValidation.isValid) 
+            return Result.Error(passwordValidation.errorMessage)
+        
         return authRepository.createAccountWithEmail(email, password)
     }
+    
+    private fun isValidEmail(email: String): Boolean {
+        return android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+    }
+    
+    private fun validatePasswordStrength(password: String): PasswordValidation {
+        if (password.length < 8) return PasswordValidation(false, "Password must be at least 8 characters")
+        if (password.length > 128) return PasswordValidation(false, "Password must be 128 characters or fewer")
+        if (!password.any { it.isUpperCase() }) return PasswordValidation(false, "Password must contain at least one uppercase letter")
+        if (!password.any { it.isLowerCase() }) return PasswordValidation(false, "Password must contain at least one lowercase letter")
+        if (!password.any { it.isDigit() }) return PasswordValidation(false, "Password must contain at least one digit")
+        if (!password.any { it in "!@#\$%^&*()_+-=[]{}|;:,.<>?" }) return PasswordValidation(false, "Password must contain at least one special character")
+        
+        val commonPasswords = setOf("password", "12345678", "qwerty123", "abc123456")
+        if (commonPasswords.contains(password.lowercase())) {
+            return PasswordValidation(false, "Password is too common")
+        }
+        return PasswordValidation(true, "")
+    }
+    
+    private data class PasswordValidation(val isValid: Boolean, val errorMessage: String)
 }
-
-// ─── Phone OTP ─────────────────────────────────────────────────────────────────
 
 class SendPhoneOtpUseCase @Inject constructor(
     private val authRepository: AuthRepository
@@ -71,8 +94,6 @@ class VerifyPhoneOtpUseCase @Inject constructor(
     }
 }
 
-// ─── Password Reset ────────────────────────────────────────────────────────────
-
 class SendPasswordResetEmailUseCase @Inject constructor(
     private val authRepository: AuthRepository
 ) {
@@ -81,8 +102,6 @@ class SendPasswordResetEmailUseCase @Inject constructor(
         return authRepository.sendPasswordResetEmail(email)
     }
 }
-
-// ─── Profile Setup ─────────────────────────────────────────────────────────────
 
 class CompleteProfileSetupUseCase @Inject constructor(
     private val authRepository: AuthRepository,
@@ -94,13 +113,11 @@ class CompleteProfileSetupUseCase @Inject constructor(
         displayName: String,
         profileImageLocalPath: String?
     ): Result<User> {
-        // Basic validation
         if (username.length < 3)  return Result.Error("Username must be at least 3 characters")
         if (username.length > 30) return Result.Error("Username must be 30 characters or fewer")
-        if (!username.matches(Regex("^[a-zA-Z0-9._]+$")))
+        if (!username.matches(Regex("^[a-zA-Z0-9._]+\$")))
             return Result.Error("Username can only contain letters, numbers, dots, and underscores")
 
-        // Check availability
         val available = userRepository.isUsernameAvailable(username)
         if (available is Result.Success && !available.data)
             return Result.Error("Username '$username' is already taken")
@@ -110,8 +127,6 @@ class CompleteProfileSetupUseCase @Inject constructor(
         )
     }
 }
-
-// ─── Sign Out ──────────────────────────────────────────────────────────────────
 
 class SignOutUseCase @Inject constructor(
     private val authRepository: AuthRepository

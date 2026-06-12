@@ -12,6 +12,8 @@ import com.linker.app.data.local.dao.UserDao
 import com.linker.app.data.local.entity.UserEntity
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.User
+import com.linker.app.domain.model.UserRelationship
+import com.linker.app.domain.repository.PaginatedUsers
 import com.linker.app.domain.repository.UserRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -77,7 +79,21 @@ class UserRepositoryImpl @Inject constructor(
         )
     }
 
-    override fun getCurrentUser(): Flow<User?> = currentUserFlow
+    override fun observeCurrentUser(): Flow<Result<User?>> = currentUserFlow.map { Result.Success(it) }
+
+    override suspend fun getCurrentUser(): Result<User?> = safeCall {
+        val uid = currentUid ?: return@safeCall null
+        val local = userDao.getUserById(uid)
+        if (local != null) return@safeCall local.toDomain()
+        val snap = firestore.collection("users").document(uid).get().await()
+        snap.data?.let { data ->
+            if (snap.exists()) {
+                val entity = mapToEntity(uid, data)
+                userDao.insertUser(entity)
+                entity.toDomain()
+            } else null
+        }
+    }
 
     override suspend fun getUserById(userId: String): Result<User> = safeCall {
         val snap = firestore.collection("users").document(userId).get().await()
@@ -103,7 +119,7 @@ class UserRepositoryImpl @Inject constructor(
         entity.toDomain()
     }
 
-    override suspend fun searchUsers(query: String, limit: Int): Result<List<User>> = safeCall {
+    override suspend fun searchUsers(query: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
         val me = currentUid
         val byUsername = firestore.collection("users")
             .whereGreaterThanOrEqualTo("username", query.lowercase())
@@ -121,7 +137,8 @@ class UserRepositoryImpl @Inject constructor(
         enrichedRemoteEntities.forEach { userDao.insertUser(it) }
         val remoteIds = enrichedRemoteEntities.map { it.userId }.toSet()
         val localOnly = userDao.searchUsers(query, limit).filter { it.userId != me && it.userId !in remoteIds }
-        (enrichedRemoteEntities + localOnly).take(limit).map { it.toDomain() }
+        val users = (enrichedRemoteEntities + localOnly).take(limit).map { it.toDomain() }
+        PaginatedUsers(users = users, nextCursor = null, hasMore = false)
     }
 
     override suspend fun followUser(targetUserId: String): Result<Unit> = safeCall {
@@ -254,20 +271,46 @@ class UserRepositoryImpl @Inject constructor(
         }.await()
     }
 
-    override suspend fun getFollowers(userId: String): Result<List<User>?> = safeCall {
+    override suspend fun removeFollower(userId: String): Result<Unit> = safeCall {
+        val me = currentUid ?: throw Exception("Not logged in")
+        val docId = "${userId}_${me}"
+        val followRef = firestore.collection("follows").document(docId)
+        val meRef = firestore.collection("users").document(me)
+        val targetRef = firestore.collection("users").document(userId)
+
+        firestore.runTransaction { tx ->
+            // All reads first
+            val existing = tx.get(followRef)
+            if (!existing.exists()) return@runTransaction null
+            val status = existing.getString("status") ?: "none"
+            val meSnap = tx.get(meRef)
+            val targetSnap = tx.get(targetRef)
+
+            // Then writes
+            tx.delete(followRef)
+            if (status == "active") {
+                updateCount(tx, targetRef, "followingCount", -1)
+                updateCount(tx, meRef, "followersCount", -1)
+            }
+            null
+        }.await()
+    }
+
+    override suspend fun getFollowers(userId: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
         val me = currentUid
         if (me != null && me != userId) {
             val targetSnap = firestore.collection("users").document(userId).get().await()
             val isPrivate       = targetSnap.getBoolean("isPrivate") ?: false
             val hideFollowLists = targetSnap.getBoolean("hideFollowLists") ?: false
-            if (hideFollowLists) return@safeCall null
+            if (hideFollowLists) throw com.linker.app.domain.repository.UserRepositoryError.PrivateAccountLocked
             if (isPrivate) {
                 val followDoc = firestore.collection("follows").document("${me}_${userId}").get().await()
-                if (!(followDoc.exists() && followDoc.getString("status") == "active")) return@safeCall null
+                if (!(followDoc.exists() && followDoc.getString("status") == "active")) throw com.linker.app.domain.repository.UserRepositoryError.PrivateAccountLocked
             }
         }
         val q = firestore.collection("follows")
-            .whereEqualTo("followedId", userId).whereEqualTo("status", "active").get().await()
+            .whereEqualTo("followedId", userId).whereEqualTo("status", "active")
+            .limit(limit.toLong()).get().await()
         val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followerId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
@@ -275,23 +318,25 @@ class UserRepositoryImpl @Inject constructor(
                 if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
-        batchFetchRelationships(entities).map { it.toDomain() }
+        val users = batchFetchRelationships(entities).map { it.toDomain() }
+        PaginatedUsers(users = users, nextCursor = null, hasMore = false)
     }
 
-    override suspend fun getFollowing(userId: String): Result<List<User>?> = safeCall {
+    override suspend fun getFollowing(userId: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
         val me = currentUid
         if (me != null && me != userId) {
             val targetSnap = firestore.collection("users").document(userId).get().await()
             val isPrivate       = targetSnap.getBoolean("isPrivate") ?: false
             val hideFollowLists = targetSnap.getBoolean("hideFollowLists") ?: false
-            if (hideFollowLists) return@safeCall null
+            if (hideFollowLists) throw com.linker.app.domain.repository.UserRepositoryError.PrivateAccountLocked
             if (isPrivate) {
                 val followDoc = firestore.collection("follows").document("${me}_${userId}").get().await()
-                if (!(followDoc.exists() && followDoc.getString("status") == "active")) return@safeCall null
+                if (!(followDoc.exists() && followDoc.getString("status") == "active")) throw com.linker.app.domain.repository.UserRepositoryError.PrivateAccountLocked
             }
         }
         val q = firestore.collection("follows")
-            .whereEqualTo("followerId", userId).whereEqualTo("status", "active").get().await()
+            .whereEqualTo("followerId", userId).whereEqualTo("status", "active")
+            .limit(limit.toLong()).get().await()
         val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
@@ -299,26 +344,30 @@ class UserRepositoryImpl @Inject constructor(
                 if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
-        batchFetchRelationships(entities).map { it.toDomain() }
+        val users = batchFetchRelationships(entities).map { it.toDomain() }
+        PaginatedUsers(users = users, nextCursor = null, hasMore = false)
     }
 
-    override suspend fun getPendingRequests(): Result<List<User>> = safeCall {
+    override suspend fun getPendingRequests(limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val q = firestore.collection("follows")
-            .whereEqualTo("followedId", me).whereEqualTo("status", "pending").get().await()
-        q.documents.mapNotNull { doc ->
+            .whereEqualTo("followedId", me).whereEqualTo("status", "pending")
+            .limit(limit.toLong()).get().await()
+        val users = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followerId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
             snap.data?.let { data ->
                 if (snap.exists()) mapToEntity(fid, data).toDomain() else null
             }
         }
+        PaginatedUsers(users = users, nextCursor = null, hasMore = false)
     }
 
-    override suspend fun getSentRequests(): Result<List<User>> = safeCall {
+    override suspend fun getSentRequests(limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
         val me = currentUid ?: throw Exception("Not logged in")
         val q = firestore.collection("follows")
-            .whereEqualTo("followerId", me).whereEqualTo("status", "pending").get().await()
+            .whereEqualTo("followerId", me).whereEqualTo("status", "pending")
+            .limit(limit.toLong()).get().await()
         val entities = q.documents.mapNotNull { doc ->
             val fid = doc.getString("followedId") ?: return@mapNotNull null
             val snap = firestore.collection("users").document(fid).get().await()
@@ -326,7 +375,16 @@ class UserRepositoryImpl @Inject constructor(
                 if (snap.exists()) mapToEntity(fid, data) else null
             }
         }
-        batchFetchRelationships(entities).map { it.toDomain() }
+        val users = batchFetchRelationships(entities).map { it.toDomain() }
+        PaginatedUsers(users = users, nextCursor = null, hasMore = false)
+    }
+
+    override suspend fun getMutualFollowing(userId: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
+        PaginatedUsers(users = emptyList(), nextCursor = null, hasMore = false)
+    }
+
+    override suspend fun getMutualFollowers(userId: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {
+        PaginatedUsers(users = emptyList(), nextCursor = null, hasMore = false)
     }
 
     override suspend fun blockUser(targetUserId: String): Result<Unit> = safeCall {
@@ -340,13 +398,11 @@ class UserRepositoryImpl @Inject constructor(
         userDao.updateUser(user.copy(isBlocked = false))
     }
 
-    override suspend fun updateProfile(displayName: String?, bio: String?, profileImageUrl: String?, coverImageUrl: String?): Result<User> = safeCall {
+    override suspend fun updateProfile(displayName: String?, bio: String?): Result<User> = safeCall {
         val uid = currentUid ?: throw Exception("Not logged in")
         val map = mutableMapOf<String, Any>()
         displayName?.let { map["displayName"] = it }
         bio?.let { map["bio"] = it }
-        profileImageUrl?.let { map["profileImageUrl"] = it }
-        coverImageUrl?.let { map["coverImageUrl"] = it }
         map["updatedAt"] = System.currentTimeMillis()
         firestore.collection("users").document(uid).set(map, SetOptions.merge()).await()
         val snap = firestore.collection("users").document(uid).get().await()
@@ -354,6 +410,16 @@ class UserRepositoryImpl @Inject constructor(
         val entity = mapToEntity(uid, data)
         userDao.insertUser(entity)
         entity.toDomain()
+    }
+
+    override suspend fun updateProfileImage(localImagePath: String): Result<User> = safeCall {
+        // Placeholder for profile image upload
+        throw Exception("Not implemented")
+    }
+
+    override suspend fun updateCoverImage(localImagePath: String): Result<User> = safeCall {
+        // Placeholder for cover image upload
+        throw Exception("Not implemented")
     }
 
     override suspend fun setPrivateAccount(isPrivate: Boolean): Result<Unit> = safeCall {
@@ -370,12 +436,16 @@ class UserRepositoryImpl @Inject constructor(
         if (local != null) userDao.updateUser(local.copy(hideFollowLists = hide))
     }
 
-    override fun observeFollowing(): Flow<List<User>> =
-        userDao.observeFollowing().map { it.map { e -> e.toDomain() } }
+    override fun observeFollowing(): Flow<Result<List<User>>> =
+        userDao.observeFollowing().map { Result.Success(it.map { e -> e.toDomain() }) }
 
     override suspend fun isUsernameAvailable(username: String): Result<Boolean> = safeCall {
-        val snap = firestore.collection("users").whereEqualTo("username", username).limit(1).get().await()
-        snap.isEmpty
+        val snap = firestore.collection("users").whereEqualTo("username", username).limit(2).get().await()
+        when (snap.size()) {
+            0 -> true
+            1 -> snap.documents[0].id == currentUid
+            else -> false
+        }
     }
 
     /**

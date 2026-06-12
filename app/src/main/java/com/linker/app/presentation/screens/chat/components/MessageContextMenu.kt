@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -29,6 +30,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +40,17 @@ import com.linker.app.presentation.screens.chat.MessageUiModel
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import kotlin.math.roundToInt
+
+private const val ONE_HOUR_IN_MILLIS = 3600000L
+
+enum class MenuAction(val titleRes: Int, val iconRes: Int, val isDelete: Boolean = false) {
+    REPLY(R.string.action_reply, R.drawable.ic_export_circle_01_outline),
+    COPY(R.string.action_copy, R.drawable.ic_archive_book_outline),
+    FORWARD(R.string.action_forward, R.drawable.ic_forward_outline),
+    MESSAGE_INFO(R.string.action_message_info, R.drawable.ic_search_status_1_outline),
+    DELETE_FOR_ME(R.string.action_delete_for_me, R.drawable.ic_cloud_cross_bold, true),
+    DELETE_FOR_EVERYONE(R.string.action_delete_for_everyone, R.drawable.ic_cloud_cross_bold, true)
+}
 
 /**
  * Context menu shown on long press of a message
@@ -68,17 +81,17 @@ fun MessageContextMenu(
 
     // Check if message can be deleted for everyone (within 1 hour)
     val now = System.currentTimeMillis()
-    val canDeleteForEveryone = message.isSelf && (now - message.timestamp) <= 3600000 // 1 hour
+    val canDeleteForEveryone = message.isSelf && (now - message.timestamp) <= ONE_HOUR_IN_MILLIS
 
     val actions = if (message.isSelf) {
-        val baseActions = mutableListOf("Reply", "Copy", "Forward", "Message Info")
+        val baseActions = mutableListOf(MenuAction.REPLY, MenuAction.COPY, MenuAction.FORWARD, MenuAction.MESSAGE_INFO)
         if (canDeleteForEveryone) {
-            baseActions.add("Delete for Everyone")
+            baseActions.add(MenuAction.DELETE_FOR_EVERYONE)
         }
-        baseActions.add("Delete for Me")
+        baseActions.add(MenuAction.DELETE_FOR_ME)
         baseActions
     } else {
-        listOf("Reply", "Copy", "Forward", "Message Info", "Delete for Me")
+        listOf(MenuAction.REPLY, MenuAction.COPY, MenuAction.FORWARD, MenuAction.MESSAGE_INFO, MenuAction.DELETE_FOR_ME)
     }
 
     val paddingPx = with(density) { 8.dp.toPx() }
@@ -191,7 +204,7 @@ fun MessageContextMenu(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0x77000000))
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f))
                 .clickable(
                     interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                     indication = null
@@ -203,7 +216,6 @@ fun MessageContextMenu(
         Box(
             modifier = Modifier
                 .offset {
-                    android.util.Log.d("MessageContextMenu", "Highlighted message offset: left=${messageBounds.left}, top=${messageBounds.top}, width=${messageBounds.width}, height=${messageBounds.height}, isSelf=${message.isSelf}")
                     IntOffset(messageBounds.left.roundToInt(), messageBounds.top.roundToInt())
                 }
                 .size(
@@ -256,23 +268,22 @@ fun MessageContextMenu(
                     .offset { IntOffset(menuX.roundToInt(), menuY.roundToInt()) }
                     .width(with(density) { menuWidthPx.toDp() })
                     .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFF1F1F23))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
                     .padding(vertical = 8.dp)
             ) {
         actions.forEach { action ->
-            val isDelete = action == "Delete for Me" || action == "Delete for Everyone"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         when (action) {
-                            "Reply" -> onReply()
-                            "Copy" -> onCopy()
-                            "Forward" -> onForward()
-                            "Message Info" -> onInfo()
-                            "Delete for Me" -> onDelete?.invoke()
-                            "Delete for Everyone" -> onDeleteForEveryone?.invoke()
+                            MenuAction.REPLY -> onReply()
+                            MenuAction.COPY -> onCopy()
+                            MenuAction.FORWARD -> onForward()
+                            MenuAction.MESSAGE_INFO -> onInfo()
+                            MenuAction.DELETE_FOR_ME -> onDelete?.invoke()
+                            MenuAction.DELETE_FOR_EVERYONE -> onDeleteForEveryone?.invoke()
                         }
                         onDismiss()
                     }
@@ -280,24 +291,15 @@ fun MessageContextMenu(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    painter = painterResource(
-                        id = when (action) {
-                            "Reply" -> R.drawable.ic_export_circle_01_outline
-                            "Copy" -> R.drawable.ic_archive_book_outline
-                            "Forward" -> R.drawable.ic_forward_outline
-                            "Message Info" -> R.drawable.ic_search_status_1_outline
-                            "Delete for Me", "Delete for Everyone" -> R.drawable.ic_cloud_cross_bold
-                            else -> R.drawable.ic_arrow_down_02_bold
-                        }
-                    ),
-                    contentDescription = action,
-                    tint = if (isDelete) Color(0xFFFF4B4B) else TextSecondary,
+                    painter = painterResource(id = action.iconRes),
+                    contentDescription = stringResource(id = action.titleRes),
+                    tint = if (action.isDelete) MaterialTheme.colorScheme.error else TextSecondary,
                     modifier = Modifier.size(20.dp)
                 )
                 androidx.compose.foundation.layout.Spacer(modifier = Modifier.width(12.dp))
                 Text(
-                    text = action,
-                    color = if (isDelete) Color(0xFFFF4B4B) else TextPrimary,
+                    text = stringResource(id = action.titleRes),
+                    color = if (action.isDelete) MaterialTheme.colorScheme.error else TextPrimary,
                     fontSize = 15.sp
                 )
             }
@@ -317,7 +319,7 @@ fun QuickReactionsBar(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(26.dp))
-            .background(Color(0xFF1F1F23))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
@@ -340,7 +342,7 @@ fun QuickReactionsBar(
             modifier = Modifier
                 .size(28.dp)
                 .clip(RoundedCornerShape(11.dp))
-                .background(Color(0xFF2E2E32))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
                 .clickable { onShowMoreClick() },
             contentAlignment = Alignment.Center
         ) {

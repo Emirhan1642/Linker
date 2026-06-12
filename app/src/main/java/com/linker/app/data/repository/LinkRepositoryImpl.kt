@@ -26,18 +26,24 @@ class LinkRepositoryImpl @Inject constructor(
         userDao.getUserById(authorId)?.toDomain()
             ?: throw Exception("Author $authorId not found in local cache")
 
-    override fun observeFeed(limit: Int): Flow<List<Link>> =
+    override fun observeFeed(): Flow<Result<List<Link>>> =
         linkDao.observeAllLinks().map { entities ->
-            entities.mapNotNull { entity ->
+            val links = entities.mapNotNull { entity ->
                 runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
             }
+            Result.Success(links)
         }
 
-    override suspend fun refreshFeed(limit: Int, offset: Int): Result<List<Link>> = safeCall {
+    override suspend fun refreshFeed(limit: Int): Result<List<Link>> = safeCall {
         // TODO: fetch from Supabase and upsert locally
-        linkDao.getAllLinks(limit, offset).mapNotNull { entity ->
+        linkDao.getAllLinks(limit, 0).mapNotNull { entity ->
             runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
         }
+    }
+
+    override suspend fun loadMoreFeed(beforeTimestamp: Long, limit: Int): Result<List<Link>> = safeCall {
+        // TODO: implement actual pagination
+        emptyList()
     }
 
     override suspend fun getLinkById(linkId: String): Result<Link> = safeCall {
@@ -45,24 +51,28 @@ class LinkRepositoryImpl @Inject constructor(
         entity.toDomain(resolveAuthor(entity.authorId))
     }
 
-    override fun observeLinkById(linkId: String): Flow<Link?> =
+    override fun observeLinkById(linkId: String): Flow<Result<Link?>> =
         linkDao.observeLinkById(linkId).map { entity ->
-            entity?.let { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            val link = entity?.let { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            Result.Success(link)
         }
 
-    override fun observeLinksByAuthor(authorId: String): Flow<List<Link>> =
+    override fun observeLinksByAuthor(authorId: String): Flow<Result<List<Link>>> =
         linkDao.observeLinksByAuthor(authorId).map { entities ->
-            entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            val links = entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            Result.Success(links)
         }
 
-    override fun observeSavedLinks(): Flow<List<Link>> =
+    override fun observeSavedLinks(): Flow<Result<List<Link>>> =
         linkDao.observeSavedLinks().map { entities ->
-            entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            val links = entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            Result.Success(links)
         }
 
-    override fun observeRelinkedLinks(): Flow<List<Link>> =
+    override fun observeRelinkedLinks(): Flow<Result<List<Link>>> =
         linkDao.observeRelinkedLinks().map { entities ->
-            entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            val links = entities.mapNotNull { runCatching { it.toDomain(resolveAuthor(it.authorId)) }.getOrNull() }
+            Result.Success(links)
         }
 
     override suspend fun createLink(
@@ -137,6 +147,15 @@ class LinkRepositoryImpl @Inject constructor(
         // Remote delete will be implemented with Supabase integration
     }
 
+    override suspend fun deleteLinks(linkIds: List<String>): Result<Int> = safeCall {
+        var count = 0
+        for (id in linkIds) {
+            linkDao.deleteLinkById(id)
+            count++
+        }
+        count
+    }
+
     override suspend fun toggleLike(linkId: String): Result<Boolean> = safeCall {
         val entity = linkDao.getLinkById(linkId) ?: throw Exception("Link not found")
         val newLiked = !entity.isLiked
@@ -161,7 +180,7 @@ class LinkRepositoryImpl @Inject constructor(
         newRelinked
     }
 
-    override suspend fun recordView(linkId: String): Result<Unit> = safeCall {
+    override fun recordView(linkId: String) {
         // Optimistic local update only; batched sync handled by WorkManager
         // TODO: implement view batching
     }

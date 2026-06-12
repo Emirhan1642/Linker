@@ -13,6 +13,7 @@ import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.CommentRepository
 import com.linker.app.domain.repository.NotificationRepository
 import com.linker.app.data.local.entity.NotificationEntity
+import com.linker.app.domain.model.CommentAuthor
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -38,14 +39,14 @@ class CommentRepositoryImpl @Inject constructor(
     private val usersCollection = firestore.collection("users")
     private val linksCollection = firestore.collection("links")
 
-    override fun observeComments(linkId: String): Flow<List<Comment>> = callbackFlow {
+    override fun observeComments(linkId: String): Flow<Result<List<Comment>>> = callbackFlow {
         val listener = commentsCollection
             .whereEqualTo("linkId", linkId)
             .whereEqualTo("parentCommentId", null) // Top-level comments only
             .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList())
+                    trySend(Result.Success(emptyList()))
                     return@addSnapshotListener
                 }
 
@@ -57,7 +58,7 @@ class CommentRepositoryImpl @Inject constructor(
                     } ?: emptyList()
 
                     val comments = mapDocumentsToComments(dataList)
-                    trySend(comments)
+                    trySend(Result.Success(comments))
                 }
             }
 
@@ -67,20 +68,31 @@ class CommentRepositoryImpl @Inject constructor(
     override suspend fun getComments(
         linkId: String,
         limit: Int,
-        offset: Int
+        beforeTimestamp: Long?
     ): Result<List<Comment>> = RetryUtil.retrySafeCall {
-        val snapshot = commentsCollection
+        var query = commentsCollection
             .whereEqualTo("linkId", linkId)
             .whereEqualTo("parentCommentId", null)
             .orderBy("createdAt", Query.Direction.DESCENDING)
+            
+        if (beforeTimestamp != null) {
+            query = query.whereLessThan("createdAt", beforeTimestamp)
+        }
+        
+        val snapshot = query
             .limit(limit.toLong())
             .get()
             .await()
 
-        val dataList = snapshot.documents.drop(offset).mapNotNull { doc ->
+        val dataList = snapshot.documents.mapNotNull { doc ->
             doc.toObject(CommentDocument::class.java)?.let { Pair(doc.id, it) }
         }
         mapDocumentsToComments(dataList)
+    }
+
+    override suspend fun getReplyCount(parentCommentId: String): Result<Int> = RetryUtil.retrySafeCall {
+        val doc = commentsCollection.document(parentCommentId).get().await()
+        (doc.getLong("repliesCount") ?: 0L).toInt()
     }
 
     override suspend fun getReplies(parentCommentId: String): Result<List<Comment>> = RetryUtil.retrySafeCall {
@@ -105,6 +117,15 @@ class CommentRepositoryImpl @Inject constructor(
         val currentUser = auth.currentUser ?: throw IllegalStateException("Not authenticated")
         val commentId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
+        
+        // Calculate nesting level
+        val nestingLevel = if (parentCommentId != null) {
+            val parentDoc = commentsCollection.document(parentCommentId).get().await()
+            val parentNestingLevel = (parentDoc.getLong("nestingLevel") ?: 0L).toInt()
+            parentNestingLevel + 1
+        } else {
+            0
+        }
 
         val commentData = hashMapOf(
             "commentId" to commentId,
@@ -113,6 +134,7 @@ class CommentRepositoryImpl @Inject constructor(
             "content" to content,
             "gifUrl" to gifUrl,
             "parentCommentId" to parentCommentId,
+            "nestingLevel" to nestingLevel,
             "likesCount" to 0,
             "repliesCount" to 0,
             "isPinned" to false,
@@ -141,25 +163,12 @@ class CommentRepositoryImpl @Inject constructor(
 
         // Get author info
         val authorDoc = usersCollection.document(currentUser.uid).get().await()
-        val author = User(
+        val author = CommentAuthor(
             userId = currentUser.uid,
             username = authorDoc.getString("username") ?: "",
             displayName = authorDoc.getString("displayName") ?: "",
-            email = authorDoc.getString("email"),
-            phoneNumber = null,
-            bio = authorDoc.getString("bio"),
             profileImageUrl = authorDoc.getString("profileImageUrl"),
-            coverImageUrl = authorDoc.getString("coverImageUrl"),
-            isVerified = authorDoc.getBoolean("isVerified") ?: false,
-            followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-            followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-            likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            createdAt = authorDoc.getLong("createdAt") ?: 0,
-            updatedAt = authorDoc.getLong("updatedAt") ?: 0
+            isVerified = authorDoc.getBoolean("isVerified") ?: false
         )
 
         Comment(
@@ -169,6 +178,7 @@ class CommentRepositoryImpl @Inject constructor(
             content = content,
             gifUrl = gifUrl,
             parentCommentId = parentCommentId,
+            nestingLevel = nestingLevel,
             likesCount = 0,
             repliesCount = 0,
             isLiked = false,
@@ -263,32 +273,19 @@ class CommentRepositoryImpl @Inject constructor(
 
         // Batch fetch users
         val authorIds = dataList.map { it.second.authorId }.distinct()
-        val usersMap = mutableMapOf<String, User>()
+        val usersMap = mutableMapOf<String, CommentAuthor>()
 
         authorIds.chunked(10).forEach { chunk ->
             val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
             userDocs.documents.forEach { authorDoc ->
-                val user = User(
+                val author = CommentAuthor(
                     userId = authorDoc.id,
                     username = authorDoc.getString("username") ?: "",
                     displayName = authorDoc.getString("displayName") ?: "",
-                    email = authorDoc.getString("email"),
-                    phoneNumber = null,
-                    bio = authorDoc.getString("bio"),
                     profileImageUrl = authorDoc.getString("profileImageUrl"),
-                    coverImageUrl = authorDoc.getString("coverImageUrl"),
-                    isVerified = authorDoc.getBoolean("isVerified") ?: false,
-                    followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-                    followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-                    likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-                    isFollowing = false,
-                    isFollowedBy = false,
-                    isBlocked = false,
-                    isMuted = false,
-                    createdAt = authorDoc.getLong("createdAt") ?: 0,
-                    updatedAt = authorDoc.getLong("updatedAt") ?: 0
+                    isVerified = authorDoc.getBoolean("isVerified") ?: false
                 )
-                usersMap[authorDoc.id] = user
+                usersMap[authorDoc.id] = author
             }
         }
 

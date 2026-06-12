@@ -214,7 +214,7 @@ class SyncManagerImpl @Inject constructor(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
-                        mediaUrl = null,
+                        mediaLocalPath = null,
                         replyToMessageId = null
                     )
 
@@ -328,7 +328,7 @@ class SyncManagerImpl @Inject constructor(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
-                        mediaUrl = null,
+                        mediaLocalPath = null,
                         replyToMessageId = null
                     )
                     

@@ -3,9 +3,10 @@ package com.linker.app.core.security
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.google.firebase.ktx.Firebase
+import com.google.firebase.Firebase
 import com.google.firebase.remoteconfig.ktx.remoteConfig
 import com.google.firebase.remoteconfig.ktx.remoteConfigSettings
+import com.google.firebase.remoteconfig.remoteConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
 import kotlinx.serialization.encodeToString
@@ -47,7 +48,8 @@ class SecurityManager @Inject constructor(
                 "supabase_anon_key" to "",
                 "cloudinary_cloud_name" to "",
                 "cloudinary_api_key" to "",
-                "cloudinary_api_secret" to ""
+                "cloudinary_api_secret" to "",
+                "cert_pinning_enabled" to true
             )
         )
     }
@@ -69,7 +71,7 @@ class SecurityManager @Inject constructor(
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                "Failed to initialize keys from remote config: \${e.message}"
+                "Failed to initialize keys from remote config: ${e.message}"
             )
             throw e
         }
@@ -113,7 +115,7 @@ class SecurityManager @Inject constructor(
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                "Integrity verification failed: \${e.message}"
+                "Integrity verification failed: ${e.message}"
             )
             false
         }
@@ -159,7 +161,7 @@ class SecurityManager @Inject constructor(
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                "Key rotation failed: \${e.message}"
+                "Key rotation failed: ${e.message}"
             )
             throw e
         }
@@ -174,7 +176,7 @@ class SecurityManager @Inject constructor(
         val lastAccess = lastAccessTime.getAndSet(now)
 
         if (accessCount > 1000) {
-            SecurityLogger.logSuspiciousActivity("Excessive config access detected: \$accessCount times")
+            SecurityLogger.logSuspiciousActivity("Excessive config access detected: $accessCount times")
         }
         if (now - lastAccess < 50) { 
             // Commenting out rapid access log to prevent log spam during normal init
@@ -317,7 +319,7 @@ class SecurityManager @Inject constructor(
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                "Failed to backup config: \${e.message}",
+                "Failed to backup config: ${e.message}",
                 userId = userId
             )
         }
@@ -345,7 +347,7 @@ class SecurityManager @Inject constructor(
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                "Failed to restore config: \${e.message}",
+                "Failed to restore config: ${e.message}",
                 userId = userId
             )
             false

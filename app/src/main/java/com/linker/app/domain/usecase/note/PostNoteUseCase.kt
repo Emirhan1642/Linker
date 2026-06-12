@@ -9,6 +9,9 @@ class PostNoteUseCase @Inject constructor(
     private val noteRepository: NoteRepository
 ) {
     suspend operator fun invoke(content: String): Result<Note> {
-        return noteRepository.postNote(content)
+        if (content.isBlank()) return Result.Error("Note content cannot be empty")
+        if (content.length > 500) return Result.Error("Note content too long (max 500)")
+        val sanitized = content.replace(Regex("<[^>]*>"), "").trim()
+        return noteRepository.postNote(sanitized)
     }
 }

@@ -25,9 +25,7 @@ import com.linker.app.data.local.entity.UserEntity
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.domain.model.*
 import com.linker.app.domain.repository.ChatRepository
-import com.linker.app.domain.repository.MessageReactionRepository
 import com.linker.app.domain.repository.MessageRepository
-import com.linker.app.domain.repository.ReadReceiptRepository
 import com.linker.app.domain.repository.ChatSettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -54,8 +52,6 @@ class ChatRepositoryImpl @Inject constructor(
     private val userDao: UserDao,
     // ✅ DELEGATED: Message operations moved to MessageRepository
     private val messageRepository: MessageRepository,
-    private val messageReactionRepository: MessageReactionRepository,
-    private val readReceiptRepository: ReadReceiptRepository,
     private val chatSettingsRepository: ChatSettingsRepository
 ) : ChatRepository {
 
@@ -87,9 +83,9 @@ class ChatRepositoryImpl @Inject constructor(
 
     // ── Chat list ──────────────────────────────────────────────────────────
 
-    override fun observeChats(): Flow<List<Chat>> {
+    override fun observeChats(): Flow<Result<List<Chat>>> {
         if (currentUserId.isBlank()) {
-            return flowOf(emptyList())
+            return flowOf(Result.Success(emptyList<Chat>()))
         }
 
         // Merge Firestore and local database flows
@@ -119,13 +115,13 @@ class ChatRepositoryImpl @Inject constructor(
                         }
                     }
                     
-                    trySend(chats)
+                    trySend(Result.Success(chats))
                 }
             awaitClose { listener.remove() }
         }
         
         val localFlow = chatDao.observeActiveChats().map { entities ->
-            entities.mapNotNull { entity ->
+            val domainChats = entities.mapNotNull { entity ->
                 try {
                     val participants = entity.participantIds.map { uid ->
                         userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
@@ -138,15 +134,16 @@ class ChatRepositoryImpl @Inject constructor(
                     null
                 }
             }
+            Result.Success(domainChats) as Result<List<Chat>>
         }
         
         // Merge flows: Firestore takes priority, but local DB is fallback
         return merge(firestoreFlow, localFlow)
     }
 
-    override fun observeArchivedChats(): Flow<List<Chat>> = callbackFlow {
+    override fun observeArchivedChats(): Flow<Result<List<Chat>>> = callbackFlow {
         if (currentUserId.isBlank()) {
-            trySend(emptyList())
+            trySend(Result.Success(emptyList()))
             awaitClose { }
             return@callbackFlow
         }
@@ -155,7 +152,7 @@ class ChatRepositoryImpl @Inject constructor(
             .whereArrayContains("participantIds", currentUserId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList())
+                    trySend(Result.Success(emptyList()))
                     return@addSnapshotListener
                 }
                 val chats = snapshot?.documents?.mapNotNull { doc ->
@@ -163,14 +160,14 @@ class ChatRepositoryImpl @Inject constructor(
                     if (!isUserArchivedChat(data)) return@mapNotNull null
                     mapToChatSync(doc.id, data)
                 }?.sortedByDescending { it.updatedAt } ?: emptyList()
-                trySend(chats)
+                trySend(Result.Success(chats))
             }
         awaitClose { listener.remove() }
     }
 
-    override fun observeTotalUnread(): Flow<Int> = callbackFlow {
+    override fun observeTotalUnread(): Flow<Result<Int>> = callbackFlow {
         if (currentUserId.isBlank()) {
-            trySend(0)
+            trySend(Result.Success(0))
             awaitClose { }
             return@callbackFlow
         }
@@ -179,7 +176,7 @@ class ChatRepositoryImpl @Inject constructor(
             .whereArrayContains("participantIds", currentUserId)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(0)
+                    trySend(Result.Success(0))
                     return@addSnapshotListener
                 }
                 val total = snapshot?.documents?.sumOf { doc ->
@@ -191,7 +188,7 @@ class ChatRepositoryImpl @Inject constructor(
                     val count = (map?.get(currentUserId) as? Number)?.toInt()
                     count ?: (doc.getLong("unreadCount") ?: 0L).toInt()
                 } ?: 0
-                trySend(total)
+                trySend(Result.Success(total))
             }
         awaitClose { listener.remove() }
     }
@@ -354,93 +351,9 @@ class ChatRepositoryImpl @Inject constructor(
         mapToChat(chatId, chatData)
     }
 
-    override suspend fun updateChatSettings(
-        chatId: String,
-        isPinned: Boolean?,
-        isMuted: Boolean?,
-        isArchived: Boolean?,
-        isBlocked: Boolean?,
-        isFavorited: Boolean?
-    ): Result<Unit> = safeCall {
-        val updates = mutableMapOf<String, Any>()
-        isPinned?.let {
-            updates["pinnedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
-            chatDao.updatePinStatus(chatId, it)
-        }
-        isMuted?.let {
-            updates["mutedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
-            chatDao.updateMuteStatus(chatId, it)
-        }
-        isArchived?.let {
-            updates["archivedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
-            chatDao.updateArchiveStatus(chatId, it)
-        }
-        isBlocked?.let {
-            updates["blockedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
-            chatDao.updateBlockedStatus(chatId, it)
-        }
-        isFavorited?.let {
-            updates["favoritedBy"] = if (it) FieldValue.arrayUnion(currentUserId) else FieldValue.arrayRemove(currentUserId)
-            chatDao.updateFavoriteStatus(chatId, it)
-        }
-        if (updates.isNotEmpty()) {
-            chatsCollection.document(chatId).update(updates).await()
-        }
+    override suspend fun deleteChat(chatId: String): Result<Unit> = safeCall {
+        chatsCollection.document(chatId).delete().await()
     }
-
-    // ── Messages ───────────────────────────────────────────────────────────
-    // ✅ DELEGATED: All message operations are now delegated to MessageRepository
-
-    override fun observeMessages(chatId: String): Flow<List<Message>> = 
-        messageRepository.observeMessages(chatId)
-
-    override suspend fun sendMessage(
-        chatId: String,
-        messageType: MessageType,
-        content: String?,
-        mediaLocalPath: String?,
-        replyToMessageId: String?
-    ): Result<Message> = messageRepository.sendMessage(
-        chatId = chatId,
-        messageType = messageType,
-        content = content ?: "",
-        mediaUrl = mediaLocalPath,
-        replyToMessageId = replyToMessageId
-    )
-
-    override suspend fun editMessage(messageId: String, newContent: String): Result<Unit> = 
-        messageRepository.editMessage(messageId, newContent)
-
-    override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = 
-        messageRepository.deleteMessage(messageId, forEveryone)
-
-    override suspend fun forwardMessage(messageId: String, targetChatId: String): Result<Unit> = 
-        messageRepository.forwardMessage(messageId, targetChatId).map { }
-
-    override suspend fun searchMessages(chatId: String, query: String): Result<List<Message>> = 
-        messageRepository.searchMessages(chatId, query)
-
-    override suspend fun retryFailedMessages(preferredMethod: DeliveryMethod, batchSize: Int): Result<Int> = 
-        messageRepository.retryFailedMessages(batchSize)
-
-    // ✅ DELEGATED: Reaction operations to MessageReactionRepository
-    override suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit> = safeCall {
-        val ref = resolveMessageRef(messageId)
-        val snap = ref.get().await()
-        val chatId = snap.getString("chatId") ?: ""
-        if (chatId.isBlank()) throw Exception("Message chatId missing")
-        messageReactionRepository.reactToMessage(chatId, messageId, emoji)
-    }
-
-    // ✅ DELEGATED: Read receipt operations to ReadReceiptRepository
-    override suspend fun markChatAsRead(chatId: String): Result<Unit> = safeCall {
-        chatsCollection.document(chatId).update("unreadCounts.$currentUserId", 0).await()
-        chatDao.markAsRead(chatId)
-        readReceiptRepository.markChatAsReadUpTo(chatId, Long.MAX_VALUE)
-    }
-
-    override suspend fun markChatAsReadUpTo(chatId: String, upToTimestamp: Long): Result<Unit> = 
-        readReceiptRepository.markChatAsReadUpTo(chatId, upToTimestamp)
 
     // ── Chat detail helpers ────────────────────────────────────────────────
 
@@ -497,7 +410,9 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     private fun messageEntityToDomainSync(entity: MessageEntity): Message =
-        entity.toDomain(createUserStub(entity.senderId))
+        entity.toDomain(User.deletedUser(entity.senderId))
+
+    private fun createUserStub(userId: String): User = User.deletedUser(userId)
 
     private fun lastMessagePreviewFromChatDoc(chatId: String, data: Map<String, Any?>): Message? {
         val text = data["lastMessageText"] as? String ?: return null
@@ -506,7 +421,7 @@ class ChatRepositoryImpl @Inject constructor(
         return Message(
             messageId = mid,
             chatId = chatId,
-            sender = User(),
+            sender = UserReference.deletedUser("unknown"),
             messageType = MessageType.TEXT,
             content = text,
             mediaUrl = null,
@@ -697,29 +612,14 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     private fun mapToMessageSync(messageId: String, data: Map<String, Any?>): Message {
-        val senderId = data["senderId"] as? String ?: ""
-        val senderStub = User(
-            userId = senderId,
-            username = "",
-            displayName = "",
-            email = null,
-            phoneNumber = null,
-            bio = null,
+        val senderId = data["senderId"] as? String ?: "unknown"
+        val resolvedSenderId = if (senderId.isNotBlank()) senderId else "unknown"
+        val senderStub = UserReference(
+            userId = resolvedSenderId,
+            username = "user",
+            displayName = "User",
             profileImageUrl = null,
-            coverImageUrl = null,
-            isVerified = false,
-            followersCount = 0,
-            followingCount = 0,
-            likesCount = 0,
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            isPrivate = false,
-            followRequestSent = false,
-            hideFollowLists = false,
-            createdAt = 0L,
-            updatedAt = 0L
+            isVerified = false
         )
 
         val replyToMessageId = data["replyToMessageId"] as? String
@@ -777,98 +677,7 @@ class ChatRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun promoteGroupAdmin(chatId: String, userId: String): Result<Unit> = safeCall {
-        assertIsGroupAdmin(chatId)
-        chatsCollection.document(chatId).update("adminIds", FieldValue.arrayUnion(userId)).await()
-    }
 
-    override suspend fun demoteGroupAdmin(chatId: String, userId: String): Result<Unit> = safeCall {
-        assertIsGroupAdmin(chatId)
-        val doc = chatsCollection.document(chatId).get().await()
-        val data = doc.data ?: throw Exception("Chat not found")
-        val admins = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String }?.toMutableList()
-            ?: mutableListOf()
-        if (!admins.contains(userId)) return@safeCall Unit
-        admins.remove(userId)
-        if (admins.isEmpty()) throw Exception("The group must keep at least one admin")
-        chatsCollection.document(chatId).update("adminIds", admins).await()
-    }
-
-    override suspend fun removeGroupMember(chatId: String, userId: String): Result<Unit> = safeCall {
-        if (userId == currentUserId) throw Exception("Use leave group to remove yourself")
-        assertIsGroupAdmin(chatId)
-        val doc = chatsCollection.document(chatId).get().await()
-        val data = doc.data ?: throw Exception("Chat not found")
-        val participants = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String }?.filter { it != userId }
-            ?: throw Exception("Invalid participants")
-        val admins = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String }?.filter { it != userId } ?: emptyList()
-        val unreadCounts = (data["unreadCounts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-            val key = k as? String ?: return@mapNotNull null
-            if (key == userId) return@mapNotNull null
-            key to (v as? Number ?: return@mapNotNull null)
-        }?.toMap()?.toMutableMap() ?: mutableMapOf()
-        val updates = mutableMapOf<String, Any>(
-            "participantIds" to participants,
-            "adminIds" to admins,
-            "updatedAt" to System.currentTimeMillis()
-        )
-        unreadCounts.forEach { (k, v) -> updates["unreadCounts.$k"] = v }
-        chatsCollection.document(chatId).update(updates).await()
-    }
-
-    override suspend fun leaveGroup(chatId: String): Result<Unit> = safeCall {
-        val doc = chatsCollection.document(chatId).get().await()
-        val data = doc.data ?: throw Exception("Chat not found")
-        if ((data["chatType"] as? String) != "GROUP") throw Exception("Not a group chat")
-
-        val participants = (data["participantIds"] as? List<*>)?.mapNotNull { it as? String }
-            ?: throw Exception("Invalid participants")
-        if (!participants.contains(currentUserId)) return@safeCall Unit
-        if (participants.size <= 1) throw Exception("The group cannot be left by the last participant")
-
-        val admins = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-        val remainingParticipants = participants.filter { it != currentUserId }
-        val remainingAdmins = admins.filter { it != currentUserId }.toMutableList()
-
-        if (remainingAdmins.isEmpty()) {
-            remainingAdmins += remainingParticipants.first()
-        }
-
-        val unreadCounts = (data["unreadCounts"] as? Map<*, *>)?.mapNotNull { (k, v) ->
-            val key = k as? String ?: return@mapNotNull null
-            if (key == currentUserId) return@mapNotNull null
-            key to (v as? Number ?: return@mapNotNull null)
-        }?.toMap() ?: emptyMap()
-
-        val updates = mutableMapOf<String, Any>(
-            "participantIds" to remainingParticipants,
-            "adminIds" to remainingAdmins,
-            "updatedAt" to System.currentTimeMillis()
-        )
-        unreadCounts.forEach { (k, v) -> updates["unreadCounts.$k"] = v }
-        chatsCollection.document(chatId).update(updates).await()
-    }
-
-    override suspend fun updateGroupProfile(chatId: String, name: String?, imageUrl: String?): Result<Unit> = safeCall {
-        assertIsGroupAdmin(chatId)
-        val updates = mutableMapOf<String, Any>("updatedAt" to System.currentTimeMillis())
-        if (name != null) updates["chatName"] = name
-        if (imageUrl != null) updates["chatImageUrl"] = imageUrl
-        if (updates.size <= 1) return@safeCall Unit
-        chatsCollection.document(chatId).update(updates).await()
-    }
-
-    private suspend fun assertIsGroupAdmin(chatId: String) {
-        val doc = chatsCollection.document(chatId).get().await()
-        val data = doc.data ?: throw Exception("Chat not found")
-        if ((data["chatType"] as? String) != "GROUP") throw Exception("Not a group chat")
-        val admins = (data["adminIds"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
-        val createdBy = data["createdBy"] as? String
-        val allowed = admins.contains(currentUserId) ||
-            (admins.isEmpty() && createdBy == currentUserId)
-        if (!allowed) throw Exception("Admin only")
-    }
-    
     /**
      * Save a chat from Firestore to local database
      * Used for offline access
@@ -904,20 +713,20 @@ class ChatRepositoryImpl @Inject constructor(
                         displayName = user.displayName,
                         profileImageUrl = user.profileImageUrl,
                         bio = user.bio,
-                        email = user.email,
-                        phoneNumber = user.phoneNumber,
+                        email = user.getEmail(),
+                        phoneNumber = user.getPhoneNumber(),
                         coverImageUrl = user.coverImageUrl,
                         isVerified = user.isVerified,
-                        followersCount = user.followersCount,
-                        followingCount = user.followingCount,
-                        likesCount = user.likesCount,
-                        isFollowing = user.isFollowing,
-                        isFollowedBy = user.isFollowedBy,
-                        isBlocked = user.isBlocked,
-                        isMuted = user.isMuted,
-                        isPrivate = user.isPrivate,
-                        followRequestSent = user.followRequestSent,
-                        hideFollowLists = user.hideFollowLists,
+                        followersCount = user.metrics.followersCount,
+                        followingCount = user.metrics.followingCount,
+                        likesCount = user.metrics.likesCount,
+                        isFollowing = user.relationship.isFollowedBy,
+                        isFollowedBy = user.relationship.isFollowedBy,
+                        isBlocked = user.relationship.isBlocked,
+                        isMuted = user.relationship.isMuted,
+                        followRequestSent = user.relationship.followRequestSent,
+                        isPrivate = user.privacy.isPrivate,
+                        hideFollowLists = user.privacy.hideFollowLists,
                         createdAt = user.createdAt,
                         updatedAt = user.updatedAt
                     )
@@ -931,71 +740,7 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    // ✅ PAGINATION: Load messages with cursor-based pagination
-    override suspend fun getMessagesPaged(
-        chatId: String,
-        beforeTimestamp: Long?,
-        limit: Int
-    ): Result<List<Message>> = safeCall {
-        var query = messagesRef(chatId)
-            .whereEqualTo("isDeleted", false)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            .limit(limit.toLong())
 
-        if (beforeTimestamp != null) {
-            query = query.whereLessThan("createdAt", beforeTimestamp)
-        }
-
-        val snapshot = query.get().await()
-        snapshot.documents.mapNotNull { doc ->
-            doc.data?.let { mapToMessageSync(doc.id, it) }
-        }.reversed() // Oldest first
-    }
-
-    // ✅ Helper: Get single message by ID
-    override suspend fun getMessageById(messageId: String): Message {
-        return when (val result = messageRepository.getMessageById(messageId)) {
-            is Result.Success -> result.data
-            is Result.Error -> throw Exception(result.message ?: "Message not found")
-            is Result.Loading -> throw Exception("Message loading")
-        }
-    }
-
-    // ✅ Helper: Get message reactions
-    override suspend fun getMessageReactions(messageId: String): Map<String, String> {
-        val ref = resolveMessageRef(messageId)
-        val snap = ref.get().await()
-        @Suppress("UNCHECKED_CAST")
-        return (snap.get("reactions") as? Map<String, String>) ?: emptyMap()
-    }
-
-    // ✅ Helper: Get read receipts for a message
-    override suspend fun getReadReceipts(messageId: String): Map<String, Long> {
-        val ref = resolveMessageRef(messageId)
-        val snap = ref.get().await()
-        val receipts = snap.get("readReceipts") as? Map<String, Any> ?: emptyMap()
-        return receipts.mapNotNull { (k, v) ->
-            val key = k as? String ?: return@mapNotNull null
-            val value = (v as? Number)?.toLong() ?: return@mapNotNull null
-            key to value
-        }.toMap()
-    }
-
-    override suspend fun getDeliveryReceipts(messageId: String): Map<String, Long> {
-        val ref = resolveMessageRef(messageId)
-        val snap = ref.get().await()
-        val receipts = snap.get("deliveryReceipts") as? Map<String, Any> ?: emptyMap()
-        return receipts.mapNotNull { (k, v) ->
-            val key = k as? String ?: return@mapNotNull null
-            val value = (v as? Number)?.toLong() ?: return@mapNotNull null
-            key to value
-        }.toMap()
-    }
-
-    // ✅ Observe queued message count
-    override fun observeQueuedMessageCount(): Flow<Int> =
-        messageQueueDao.observePendingCount()
-    
     /**
      * Start global chat listener to cache all chats
      * This ensures all chats are available offline

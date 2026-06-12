@@ -99,7 +99,7 @@ data class LinkAuthor(
             displayName = user.displayName,
             profileImageUrl = user.profileImageUrl,
             isVerified = user.isVerified,
-            followersCount = user.followersCount
+            followersCount = user.metrics.followersCount
         )
     }
 }

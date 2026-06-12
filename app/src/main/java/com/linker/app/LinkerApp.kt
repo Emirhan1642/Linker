@@ -23,16 +23,45 @@ import com.linker.app.data.bluetooth.BluetoothManager
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import android.os.StrictMode
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import timber.log.Timber
+import kotlin.system.exitProcess
 
 /**
  * Linker Application Class
  *
  * Entry point for the application with Hilt dependency injection.
- * Initializes core services and configurations.
+ * Initializes core services, security checks, and background tasks.
  * 
- * DEPENDENCY INJECTION:
- * Uses Hilt field injection for Application class. This is the standard
- * pattern as Application is instantiated by the Android framework.
+ * ## Initialization Flow:
+ * 1. Firebase initialization
+ * 2. Device security check (root/emulator detection)
+ * 3. API key initialization (remote config)
+ * 4. Background work scheduling (message sync, session cleanup)
+ * 5. Monitoring setup (Crashlytics)
+ * 
+ * ## Security Features:
+ * - Root/emulator detection on startup
+ * - Remote Config API key initialization
+ * - Security risk level assessment
+ * - Optional app blocking for high-risk devices
+ * 
+ * ## Background Tasks:
+ * - Message queue sync: Every 15-30 minutes (network required)
+ * - Session cleanup: Every 15-60 minutes (passive account cleanup)
+ * 
+ * ## Dependency Injection:
+ * Uses Hilt field injection (@Inject lateinit var) which is the standard
+ * pattern for Application class as it's instantiated by Android framework.
+ * 
+ * @property securityManager Manages encrypted storage and security policies
+ * @property workerFactory Hilt worker factory for WorkManager integration
+ * 
+ * @see SecurityManager
+ * @see RootDetector
+ * @see MessageQueueWorker
+ * @see SessionCleanupWorker
  */
 @HiltAndroidApp
 class LinkerApp : Application(), Configuration.Provider {
@@ -40,6 +69,12 @@ class LinkerApp : Application(), Configuration.Provider {
     @Inject lateinit var securityManager: SecurityManager
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var bluetoothManager: BluetoothManager
+
+    companion object {
+        private const val TAG = "LinkerApp"
+        private val MESSAGE_SYNC_INTERVAL_MINUTES = if (BuildConfig.DEBUG) 15L else 30L
+        private val SESSION_CLEANUP_INTERVAL_MINUTES = if (BuildConfig.DEBUG) 15L else 60L
+    }
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -49,25 +84,106 @@ class LinkerApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
 
+        // Enable StrictMode in debug builds
+        if (BuildConfig.DEBUG) {
+            enableStrictMode()
+        }
+
+        // Initialize Timber
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        } else {
+            Timber.plant(CrashlyticsTree())
+        }
+
         // CRITICAL: Initialize Firebase before any Firebase service is used
-        initializeFirebase()
+        try {
+            initializeFirebase()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to initialize Firebase in onCreate")
+        }
 
         // SECURITY: Check device security status on startup
-        checkDeviceSecurity()
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            try {
+                checkDeviceSecurity()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to check device security")
+            }
+        }
 
         // SECURITY: Initialize API keys from Remote Config
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             try {
                 securityManager.initializeKeysFromRemoteConfig()
             } catch (e: Exception) {
-                android.util.Log.e("LinkerApp", "Failed to initialize keys from remote config", e)
+                Timber.e(e, "Failed to initialize keys from remote config")
             }
         }
 
-        scheduleMessageQueueSync()
-        scheduleSessionCleanup()
-        initializeMonitoring()
-        bluetoothManager.initialize()
+        try {
+            if (::workerFactory.isInitialized) {
+                scheduleMessageQueueSync()
+                scheduleSessionCleanup()
+            } else {
+                Timber.e("WorkerFactory not initialized, skipping work scheduling")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to schedule background work")
+        }
+        
+        try {
+            initializeMonitoring()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to initialize monitoring")
+        }
+        
+        try {
+            bluetoothManager.initialize()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to initialize bluetooth manager")
+        }
+    }
+
+    private fun enableStrictMode() {
+        StrictMode.setThreadPolicy(
+            StrictMode.ThreadPolicy.Builder()
+                .detectDiskReads()
+                .detectDiskWrites()
+                .detectNetwork()
+                .detectCustomSlowCalls()
+                .penaltyLog()
+                .penaltyFlashScreen()
+                .build()
+        )
+
+        StrictMode.setVmPolicy(
+            StrictMode.VmPolicy.Builder()
+                .detectLeakedSqlLiteObjects()
+                .detectLeakedClosableObjects()
+                .detectLeakedRegistrationObjects()
+                .detectActivityLeaks()
+                .detectFileUriExposure()
+                .penaltyLog()
+                .build()
+        )
+
+        Timber.d("StrictMode enabled for debug build")
+    }
+
+    private class CrashlyticsTree : Timber.Tree() {
+        override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+            if (priority == android.util.Log.VERBOSE || priority == android.util.Log.DEBUG) {
+                return
+            }
+
+            val crashlytics = FirebaseCrashlytics.getInstance()
+            crashlytics.log(message)
+
+            if (t != null) {
+                crashlytics.recordException(t)
+            }
+        }
     }
 
     /**
@@ -88,31 +204,42 @@ class LinkerApp : Application(), Configuration.Provider {
         try {
             // Check if Firebase is already initialized (prevents double initialization)
             if (FirebaseApp.getApps(this).isEmpty()) {
-                // Initialize Firebase with default configuration from google-services.json
-                FirebaseApp.initializeApp(this)
-                android.util.Log.d("LinkerApp", "Firebase initialized successfully")
-                
-                // Validate Firebase configuration
-                val app = FirebaseApp.getInstance()
-                val options = app.options
-                
-                require(!options.projectId.isNullOrEmpty()) {
-                    "Firebase project ID is missing"
+                // Pre-initialize Firebase and Auth to avoid StrictMode DiskReadViolation
+                val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+                try {
+                    // Initialize Firebase with default configuration from google-services.json
+                    FirebaseApp.initializeApp(this)
+                    Timber.d("Firebase initialized successfully")
+                    
+                    // Validate Firebase configuration
+                    val app = FirebaseApp.getInstance()
+                    val options = app.options
+                    
+                    require(!options.projectId.isNullOrEmpty()) {
+                        "Firebase project ID is missing"
+                    }
+                    require(options.applicationId.isNotEmpty()) {
+                        "Firebase application ID is missing"
+                    }
+                    require(options.apiKey.isNotEmpty()) {
+                        "Firebase API key is missing"
+                    }
+                    
+                    Timber.d("Firebase configuration validated: projectId=${options.projectId}")
+                    
+                    // Pre-initialize FirebaseAuth to avoid StrictMode DiskReadViolation later in MainActivity
+                    com.google.firebase.auth.FirebaseAuth.getInstance()
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to initialize Firebase or Auth during startup")
+                } finally {
+                    android.os.StrictMode.setThreadPolicy(oldPolicy)
                 }
-                require(options.applicationId.isNotEmpty()) {
-                    "Firebase application ID is missing"
-                }
-                require(options.apiKey.isNotEmpty()) {
-                    "Firebase API key is missing"
-                }
-                
-                android.util.Log.d("LinkerApp", "Firebase configuration validated: projectId=${options.projectId}")
             } else {
-                android.util.Log.d("LinkerApp", "Firebase already initialized")
+                Timber.d("Firebase already initialized")
             }
         } catch (e: Exception) {
             // CRITICAL: Firebase initialization failure
-            android.util.Log.e("LinkerApp", "Firebase initialization failed", e)
+            Timber.e(e, "Firebase initialization failed")
             
             // In production, consider:
             // 1. Showing error dialog to user
@@ -143,19 +270,19 @@ class LinkerApp : Application(), Configuration.Provider {
         
         when (riskLevel) {
             SecurityRiskLevel.LOW -> {
-                android.util.Log.d("LinkerApp", "Device security: LOW risk (normal device)")
+                Timber.d("Device security: LOW risk (normal device)")
             }
             SecurityRiskLevel.MEDIUM -> {
-                android.util.Log.w("LinkerApp", "Device security: MEDIUM risk (emulator detected)")
-                // For production: Consider showing warning or limiting features
+                Timber.w("Device security: MEDIUM risk (emulator detected)")
             }
             SecurityRiskLevel.HIGH -> {
-                android.util.Log.w("LinkerApp", "Device security: HIGH risk (rooted device detected)")
-                // For production: Consider blocking app or showing warning
+                Timber.w("Device security: HIGH risk (rooted device detected)")
             }
             SecurityRiskLevel.CRITICAL -> {
-                android.util.Log.e("LinkerApp", "Device security: CRITICAL risk (rooted emulator)")
-                // For production: Strongly consider blocking app
+                Timber.e("Device security: CRITICAL risk (rooted emulator)")
+                if (BuildConfig.ENFORCE_SECURITY_POLICY) {
+                    exitProcess(0)
+                }
             }
         }
     }
@@ -177,15 +304,24 @@ class LinkerApp : Application(), Configuration.Provider {
         // Analytics initialization (if needed):
         // FirebaseAnalytics.getInstance(this)
         
-        android.util.Log.d("LinkerApp", "Monitoring initialized (Crashlytics auto-enabled)")
+        Timber.d("Monitoring initialized (Crashlytics auto-enabled)")
     }
 
     private fun scheduleMessageQueueSync() {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiresBatteryNotLow(true)
             .build()
-        val request = PeriodicWorkRequestBuilder<MessageQueueWorker>(15, TimeUnit.MINUTES)
+        val request = PeriodicWorkRequestBuilder<MessageQueueWorker>(
+            MESSAGE_SYNC_INTERVAL_MINUTES, 
+            TimeUnit.MINUTES
+        )
             .setConstraints(constraints)
+            .setBackoffCriteria(
+                androidx.work.BackoffPolicy.EXPONENTIAL,
+                androidx.work.WorkRequest.MIN_BACKOFF_MILLIS,
+                TimeUnit.MILLISECONDS
+            )
             .build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "linker_message_queue_sync",
@@ -196,13 +332,23 @@ class LinkerApp : Application(), Configuration.Provider {
     
     /**
      * Schedule periodic cleanup of expired passive sessions
-     * 
-     * Runs every 15 minutes to free up resources from inactive passive accounts.
      */
     private fun scheduleSessionCleanup() {
+        val constraints = Constraints.Builder()
+            .setRequiresBatteryNotLow(true)
+            .build()
+            
         val request = PeriodicWorkRequestBuilder<com.linker.app.core.session.SessionCleanupWorker>(
-            15, TimeUnit.MINUTES
-        ).build()
+            SESSION_CLEANUP_INTERVAL_MINUTES, 
+            TimeUnit.MINUTES
+        )
+            .setConstraints(constraints)
+            .setBackoffCriteria(
+                androidx.work.BackoffPolicy.EXPONENTIAL,
+                androidx.work.WorkRequest.MIN_BACKOFF_MILLIS,
+                TimeUnit.MILLISECONDS
+            )
+            .build()
         
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             "linker_session_cleanup",

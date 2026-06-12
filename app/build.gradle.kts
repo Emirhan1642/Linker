@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 android {
@@ -47,16 +48,19 @@ android {
                 "proguard-rules.pro"
             )
             buildConfigField("boolean", "ENABLE_SENSITIVE_LOGS", "false")
+            buildConfigField("boolean", "ENFORCE_SECURITY_POLICY", "true")
         }
         debug {
             isMinifyEnabled = false
             buildConfigField("boolean", "ENABLE_SENSITIVE_LOGS", "true")
+            buildConfigField("boolean", "ENFORCE_SECURITY_POLICY", "false")
         }
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -73,6 +77,9 @@ android {
     }
 
     packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
@@ -80,6 +87,13 @@ android {
             excludes += "/META-INF/*.DSA"
             excludes += "/META-INF/*.RSA"
         }
+    }
+
+    // Fix for 16 KB page size on Android 15+:
+    // Force .so files to be stored uncompressed in the APK so the OS installer
+    // can extract and memory-map them correctly (bypasses libsqlcipher.so alignment issue).
+    aaptOptions {
+        noCompress += listOf(".so")
     }
 
     lint {
@@ -148,6 +162,7 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.analytics)
     implementation(libs.firebase.config)
+    implementation(libs.firebase.crashlytics)
     implementation(libs.google.firebase.config)
 
     // Google Play Services
@@ -185,8 +200,14 @@ dependencies {
     // Security
     implementation(libs.androidx.security.crypto)
     
+    // Logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+    
     // Signal Protocol (Rust-based JNI)
     implementation(libs.libsignal.client)
+
+    // Core Library Desugaring (Required by Signal Protocol)
+    coreLibraryDesugaring(libs.coreLibraryDesugaring)
 
     // Testing
     testImplementation(libs.junit)

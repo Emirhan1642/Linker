@@ -11,7 +11,6 @@ import javax.inject.Inject
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
-    private val accountRepository: AccountRepository,
     private val userRepository: UserRepository
 ) : ViewModel() {
 
@@ -36,8 +35,9 @@ class SplashViewModel @Inject constructor(
      * uygulama açılışlarında kaybolmaz.
      */
     suspend fun resolveStartDestination(): SplashDestination {
-        val user = userRepository.getCurrentUser().firstOrNull() ?: return SplashDestination.AUTH
-        val hasCompleteProfile = user.username.isNotBlank()
+        val result = userRepository.getCurrentUser()
+        val user = (result as? com.linker.app.core.util.Result.Success)?.data ?: return SplashDestination.AUTH
+        val hasCompleteProfile = user.hasCompletedOnboarding()
         return if (hasCompleteProfile) SplashDestination.HOME else SplashDestination.AUTH
     }
 }

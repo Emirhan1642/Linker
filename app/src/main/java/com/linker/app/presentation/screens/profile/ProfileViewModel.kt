@@ -2,7 +2,6 @@ package com.linker.app.presentation.screens.profile
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.LinkRepository
@@ -38,9 +37,11 @@ class ProfileViewModel @Inject constructor(
 
     val uiState: StateFlow<ProfileUiState> = combine(
         _uiState,
-        userRepository.getCurrentUser(),
+        userRepository.observeCurrentUser(),
         linkRepository.observeRelinkedLinks()
-    ) { state, user, relinked ->
+    ) { state, userResult, relinkedResult ->
+        val user = (userResult as? com.linker.app.core.util.Result.Success)?.data
+        val relinked = (relinkedResult as? com.linker.app.core.util.Result.Success)?.data ?: emptyList()
         state.copy(
             isLoading     = user == null && state.isLoading,
             user          = user,
@@ -59,18 +60,5 @@ class ProfileViewModel @Inject constructor(
     }
 
     val currentUid: String?
-        get() = FirebaseAuth.getInstance().currentUser?.uid
-
-    /**
-     * Hesap değişiminde ProfileScreen bu metodu çağırır.
-     * getCurrentUser() zaten Firestore realtime listener kullanıyor ve
-     * firebaseAuth.currentUser anlık uid'yi döndürüyor — callbackFlow
-     * yeniden başlatılmasa da Firestore listener'ı yeni UID'nin belgesini
-     * dinleyecek şekilde güncellenmelidir.
-     *
-     * Bunun için _uiState'i sıfırlayıp combine'ın yeniden tetiklenmesini sağlıyoruz.
-     */
-    fun refreshForAccountChange() {
-        _uiState.update { ProfileUiState(isLoading = true) }
-    }
+        get() = uiState.value.user?.userId
 }

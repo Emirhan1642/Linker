@@ -1,41 +1,53 @@
 package com.linker.app.domain.usecase.chat
 
 import com.linker.app.domain.model.Message
-import com.linker.app.domain.repository.ChatRepository
-import com.linker.app.domain.repository.UserRepository
+import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.core.util.Result
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import javax.inject.Inject
 
-/**
- * Load detailed message information including reactions, replies, and read receipts
- */
 class LoadMessageInfoUseCase @Inject constructor(
-    private val chatRepository: ChatRepository
+    private val messageRepository: MessageRepository
 ) {
     suspend operator fun invoke(messageId: String): Result<MessageInfo> {
+        if (messageId.isBlank()) return Result.Error("Message ID cannot be empty")
+        
         return try {
-            val message = chatRepository.getMessageById(messageId)
-            val reactions = chatRepository.getMessageReactions(messageId)
-            val readReceipts = chatRepository.getReadReceipts(messageId)
-            val deliveryReceipts = chatRepository.getDeliveryReceipts(messageId)
-
-            Result.Success(
-                MessageInfo(
-                    message = message,
-                    reactions = reactions,
-                    readReceipts = readReceipts,
-                    deliveryReceipts = deliveryReceipts
+            coroutineScope {
+                val messageDeferred = async { messageRepository.getMessageById(messageId) }
+                val reactionsDeferred = async { 
+                    try { messageRepository.getMessageReactions(messageId) } catch (e: Exception) { Result.Success(emptyMap()) }
+                }
+                val readReceiptsDeferred = async { 
+                    try { messageRepository.getReadReceipts(messageId) } catch (e: Exception) { Result.Success(emptyMap()) }
+                }
+                val deliveryReceiptsDeferred = async { 
+                    try { messageRepository.getDeliveryReceipts(messageId) } catch (e: Exception) { Result.Success(emptyMap()) }
+                }
+                
+                val messageResult = messageDeferred.await()
+                if (messageResult !is Result.Success) return@coroutineScope Result.Error("Message not found")
+                
+                val reactionsResult = reactionsDeferred.await()
+                val readReceiptsResult = readReceiptsDeferred.await()
+                val deliveryReceiptsResult = deliveryReceiptsDeferred.await()
+                
+                Result.Success(
+                    MessageInfo(
+                        messageResult.data, 
+                        if (reactionsResult is Result.Success) reactionsResult.data else emptyMap(), 
+                        if (readReceiptsResult is Result.Success) readReceiptsResult.data else emptyMap(), 
+                        if (deliveryReceiptsResult is Result.Success) deliveryReceiptsResult.data else emptyMap()
+                    )
                 )
-            )
+            }
         } catch (e: Exception) {
             Result.Error("Failed to load message info: ${e.message}")
         }
     }
 }
 
-/**
- * Data class for message information
- */
 data class MessageInfo(
     val message: Message,
     val reactions: Map<String, String>,

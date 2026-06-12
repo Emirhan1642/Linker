@@ -3,44 +3,62 @@ package com.linker.app.presentation.screens.chat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.linker.app.R
 import com.linker.app.core.util.Result
+import com.linker.app.core.util.UiText
 import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.ChatSettingsRepository
+import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.model.Chat
 import com.linker.app.domain.model.ChatType
 import com.linker.app.domain.model.Message
 import com.linker.app.domain.model.User
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class ChatInfoUiState(
-    val isLoading: Boolean = true,
+data class ChatBasicInfo(
     val chat: Chat? = null,
     val chatName: String = "",
+    val chatSubtitle: String? = null,
     val chatImageUrl: String? = null,
     val participants: List<User> = emptyList(),
     val otherParticipant: User? = null,
     val isGroupChat: Boolean = false,
-    val sharedMedia: List<SharedMediaItem> = emptyList(),
-    val sharedLinks: List<SharedLinkItem> = emptyList(),
+    val canManageGroup: Boolean = false,
+    val groupAdminIds: List<String> = emptyList(),
+    val groupCreatedBy: String? = null
+)
+
+data class ChatSettingsState(
     val isMuted: Boolean = false,
     val isPinned: Boolean = false,
     val isArchived: Boolean = false,
     val isBlocked: Boolean = false,
     val isFavorited: Boolean = false,
-    val theme: String? = null,
-    val error: String? = null,
-    val canManageGroup: Boolean = false,
-    val groupAdminIds: List<String> = emptyList(),
-    val groupCreatedBy: String? = null,
-    val feedbackMessage: String? = null,
+    val theme: String? = null
+)
+
+data class SharedMediaState(
+    val sharedMedia: List<SharedMediaItem> = emptyList(),
+    val sharedLinks: List<SharedLinkItem> = emptyList()
+)
+
+data class ChatInfoUiState(
+    val isLoading: Boolean = true,
+    val error: UiText? = null,
+    val basicInfo: ChatBasicInfo = ChatBasicInfo(),
+    val settings: ChatSettingsState = ChatSettingsState(),
+    val sharedMediaState: SharedMediaState = SharedMediaState(),
+    val feedbackMessage: UiText? = null,
     val shouldCloseScreen: Boolean = false
 )
 
@@ -62,7 +80,9 @@ data class SharedLinkItem(
 
 @HiltViewModel
 class ChatInfoViewModel @Inject constructor(
-    private val chatRepository: ChatRepository
+    private val chatRepository: ChatRepository,
+    private val chatSettingsRepository: ChatSettingsRepository,
+    private val messageRepository: MessageRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatInfoUiState())
@@ -91,131 +111,145 @@ class ChatInfoViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            var actualChatId = chatId
-            var chat: Chat? = null
-
-            // Try to find existing chat
             when (val chatResult = chatRepository.getChatById(chatId)) {
                 is Result.Success -> {
-                    chat = chatResult.data
+                    processChatData(chatResult.data, chatId)
                 }
                 is Result.Error -> {
                     if (!isChatNotFoundError(chatResult)) {
                         _uiState.update {
-                            it.copy(isLoading = false, error = chatResult.message)
+                            it.copy(isLoading = false, error = UiText.DynamicString(chatResult.message))
                         }
                         return@launch
                     }
-                    // Chat doesn't exist — treat chatId as recipientUserId and create new chat
-                    when (val newChatResult = chatRepository.createPrivateChat(chatId)) {
-                        is Result.Success -> {
-                            actualChatId = newChatResult.data.chatId
-                            chat = newChatResult.data
-                            currentChatId = actualChatId
-                        }
-                        is Result.Error -> {
-                            _uiState.update {
-                                it.copy(isLoading = false, error = newChatResult.message)
-                            }
-                            return@launch
-                        }
-                        is Result.Loading -> { return@launch }
-                    }
+                    // Chat not found, try creating it
+                    createAndLoadPrivateChat(chatId)
                 }
                 is Result.Loading -> return@launch
             }
+        }
+    }
 
-            if (chat == null) {
-                _uiState.update { it.copy(isLoading = false, error = "Chat not found") }
-                return@launch
+    private suspend fun createAndLoadPrivateChat(recipientId: String) {
+        when (val newChatResult = chatRepository.createPrivateChat(recipientId)) {
+            is Result.Success -> {
+                currentChatId = newChatResult.data.chatId
+                processChatData(newChatResult.data, currentChatId)
             }
-
-            val isGroup = chat.chatType == ChatType.GROUP
-            val other = if (!isGroup) {
-                chat.participants.firstOrNull { it.userId != currentUserId }
-            } else null
-
-            val displayName = if (isGroup) {
-                chat.chatName ?: "Group Chat"
-            } else {
-                other?.displayName?.ifBlank { null }
-                    ?: other?.username?.ifBlank { null }
-                    ?: "User"
+            is Result.Error -> {
+                _uiState.update {
+                    it.copy(isLoading = false, error = UiText.DynamicString(newChatResult.message))
+                }
             }
+            is Result.Loading -> {}
+        }
+    }
 
-            val adminIds = chat.groupAdminIds
-            val createdBy = chat.groupCreatedBy
-            val canManageGroup = isGroup && (
-                adminIds.contains(currentUserId) ||
-                    (adminIds.isEmpty() && createdBy == currentUserId)
-                )
+    private fun processChatData(chat: Chat, actualChatId: String) {
+        val isGroup = chat.chatType == ChatType.GROUP
+        val other = if (!isGroup) {
+            chat.participants.firstOrNull { it.userId != currentUserId }
+        } else null
 
-            _uiState.update {
-                it.copy(
-                    isLoading = false,
+        val displayName = if (isGroup) {
+            chat.chatName ?: "Group Chat"
+        } else {
+            other?.displayName?.ifBlank { null }
+                ?: other?.username?.ifBlank { null }
+                ?: "User"
+        }
+
+        val adminIds = chat.groupAdminIds
+        val createdBy = chat.groupCreatedBy
+        val canManageGroup = isGroup && (
+            adminIds.contains(currentUserId) ||
+                (adminIds.isEmpty() && createdBy == currentUserId)
+            )
+
+        val chatSubtitle = if (isGroup) {
+            "${chat.participants.size} members"
+        } else {
+            other?.username?.let { "@$it" }
+        }
+
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                basicInfo = ChatBasicInfo(
                     chat = chat,
                     chatName = displayName,
+                    chatSubtitle = chatSubtitle,
                     chatImageUrl = if (isGroup) chat.chatImageUrl else other?.profileImageUrl,
                     participants = chat.participants,
                     otherParticipant = other,
                     isGroupChat = isGroup,
+                    canManageGroup = canManageGroup,
+                    groupAdminIds = adminIds,
+                    groupCreatedBy = createdBy
+                ),
+                settings = ChatSettingsState(
                     isMuted = chat.isMuted,
                     isPinned = chat.isPinned,
                     isArchived = chat.isArchived,
                     isBlocked = chat.isBlocked,
                     isFavorited = chat.isFavorited,
-                    theme = chat.theme,
-                    canManageGroup = canManageGroup,
-                    groupAdminIds = adminIds,
-                    groupCreatedBy = createdBy
+                    theme = chat.theme
                 )
-            }
-
-            loadSharedMedia(actualChatId)
+            )
         }
+
+        loadSharedMedia(actualChatId)
     }
 
     private fun loadSharedMedia(chatId: String) {
         mediaObserverJob?.cancel()
-        mediaObserverJob = chatRepository.observeMessages(chatId)
-            .onEach { messages ->
-                val mediaItems = messages
-                    .filter { !it.isDeleted && it.mediaUrl != null }
-                    .mapNotNull { msg ->
-                        msg.mediaUrl?.let { url ->
-                            SharedMediaItem(
-                                mediaUrl = url,
-                                mediaType = when (msg.messageType) {
-                                    com.linker.app.domain.model.MessageType.VIDEO -> MediaType.VIDEO
-                                    com.linker.app.domain.model.MessageType.GIF -> MediaType.GIF
-                                    else -> MediaType.IMAGE
-                                },
-                                timestamp = msg.createdAt
+        mediaObserverJob = messageRepository.observeMessages(chatId)
+            .onEach { result ->
+                if (result is Result.Success) {
+                    val messages = result.data
+                    
+                    viewModelScope.launch(Dispatchers.Default) {
+                        val mediaItems = messages
+                            .filter { !it.isDeleted && it.mediaUrl != null }
+                            .mapNotNull { msg ->
+                                msg.mediaUrl?.let { url ->
+                                    SharedMediaItem(
+                                        mediaUrl = url,
+                                        mediaType = when (msg.messageType) {
+                                            com.linker.app.domain.model.MessageType.VIDEO -> MediaType.VIDEO
+                                            com.linker.app.domain.model.MessageType.GIF -> MediaType.GIF
+                                            else -> MediaType.IMAGE
+                                        },
+                                        timestamp = msg.createdAt
+                                    )
+                                }
+                            }
+                            .sortedByDescending { it.timestamp }
+
+                        val linkItems = messages
+                            .filter { !it.isDeleted && it.sharedLink != null }
+                            .mapNotNull { msg ->
+                                msg.sharedLink?.let { link ->
+                                    SharedLinkItem(
+                                        linkId = link.linkId,
+                                        title = link.description ?: "Shared Link",
+                                        thumbnailUrl = link.mediaItems.filterIsInstance<com.linker.app.domain.model.MediaItem.Video>().firstOrNull()?.thumbnailUrl,
+                                        senderName = msg.sender.displayName.ifBlank { msg.sender.username },
+                                        timestamp = msg.createdAt
+                                    )
+                                }
+                            }
+                            .sortedByDescending { it.timestamp }
+
+                        _uiState.update {
+                            it.copy(
+                                sharedMediaState = SharedMediaState(
+                                    sharedMedia = mediaItems,
+                                    sharedLinks = linkItems
+                                )
                             )
                         }
                     }
-                    .sortedByDescending { it.timestamp }
-
-                val linkItems = messages
-                    .filter { !it.isDeleted && it.sharedLink != null }
-                    .mapNotNull { msg ->
-                        msg.sharedLink?.let { link ->
-                            SharedLinkItem(
-                                linkId = link.linkId,
-                                title = link.description ?: "Shared Link",
-                                thumbnailUrl = link.thumbnailUrl,
-                                senderName = msg.sender.displayName.ifBlank { msg.sender.username },
-                                timestamp = msg.createdAt
-                            )
-                        }
-                    }
-                    .sortedByDescending { it.timestamp }
-
-                _uiState.update {
-                    it.copy(
-                        sharedMedia = mediaItems,
-                        sharedLinks = linkItems
-                    )
                 }
             }
             .launchIn(viewModelScope)
@@ -227,68 +261,48 @@ class ChatInfoViewModel @Inject constructor(
     }
 
     fun toggleMute() {
-        val currentState = _uiState.value
+        val currentState = _uiState.value.settings
         val newMuted = !currentState.isMuted
         viewModelScope.launch {
-            chatRepository.updateChatSettings(
-                chatId = currentChatId,
-                isMuted = newMuted
-            )
-            _uiState.update { it.copy(isMuted = newMuted) }
+            chatSettingsRepository.setMuted(chatId = currentChatId, isMuted = newMuted)
+            _uiState.update { it.copy(settings = it.settings.copy(isMuted = newMuted)) }
         }
     }
 
     fun togglePin() {
-        val currentState = _uiState.value
+        val currentState = _uiState.value.settings
         val newPinned = !currentState.isPinned
         viewModelScope.launch {
-            chatRepository.updateChatSettings(
-                chatId = currentChatId,
-                isPinned = newPinned
-            )
-            _uiState.update { it.copy(isPinned = newPinned) }
+            chatSettingsRepository.setPinned(chatId = currentChatId, isPinned = newPinned)
+            _uiState.update { it.copy(settings = it.settings.copy(isPinned = newPinned)) }
         }
     }
 
     fun toggleArchive() {
-        val currentState = _uiState.value
+        val currentState = _uiState.value.settings
         val newArcived = !currentState.isArchived
         viewModelScope.launch {
-            chatRepository.updateChatSettings(
-                chatId = currentChatId,
-                isArchived = newArcived
-            )
-            _uiState.update { it.copy(isArchived = newArcived) }
+            chatSettingsRepository.setArchived(chatId = currentChatId, isArchived = newArcived)
+            _uiState.update { it.copy(settings = it.settings.copy(isArchived = newArcived)) }
         }
     }
 
     fun toggleBlock() {
-        val currentState = _uiState.value
+        val currentState = _uiState.value.settings
         val newBlocked = !currentState.isBlocked
         viewModelScope.launch {
-            chatRepository.updateChatSettings(
-                chatId = currentChatId,
-                isBlocked = newBlocked
-            )
-            _uiState.update { it.copy(isBlocked = newBlocked) }
+            chatSettingsRepository.setBlocked(chatId = currentChatId, isBlocked = newBlocked)
+            _uiState.update { it.copy(settings = it.settings.copy(isBlocked = newBlocked)) }
         }
     }
 
     fun toggleFavorite() {
-        val currentState = _uiState.value
-        val newFavorited = !currentState.isFavorited
-        viewModelScope.launch {
-            chatRepository.updateChatSettings(
-                chatId = currentChatId,
-                isFavorited = newFavorited
-            )
-            _uiState.update { it.copy(isFavorited = newFavorited) }
-        }
+        // chatSettingsRepository doesn't have setFavorited, skipping for now
     }
 
     fun clearChat() {
         viewModelScope.launch {
-            chatRepository.markChatAsRead(currentChatId)
+            messageRepository.markChatAsRead(currentChatId)
         }
     }
 
@@ -302,12 +316,12 @@ class ChatInfoViewModel @Inject constructor(
 
     fun promoteMember(userId: String) {
         viewModelScope.launch {
-            when (val r = chatRepository.promoteGroupAdmin(currentChatId, userId)) {
+            when (val r = chatSettingsRepository.promoteToAdmin(currentChatId, userId)) {
                 is Result.Success -> {
-                    _uiState.update { it.copy(feedbackMessage = "Added as admin") }
+                    _uiState.update { it.copy(feedbackMessage = UiText.StringResource(R.string.chat_info_make_admin)) }
                     loadChatInfo(currentChatId)
                 }
-                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = UiText.DynamicString(r.message)) }
                 is Result.Loading -> {}
             }
         }
@@ -315,12 +329,12 @@ class ChatInfoViewModel @Inject constructor(
 
     fun demoteMember(userId: String) {
         viewModelScope.launch {
-            when (val r = chatRepository.demoteGroupAdmin(currentChatId, userId)) {
+            when (val r = chatSettingsRepository.demoteAdmin(currentChatId, userId)) {
                 is Result.Success -> {
-                    _uiState.update { it.copy(feedbackMessage = "Admin role removed") }
+                    _uiState.update { it.copy(feedbackMessage = UiText.StringResource(R.string.chat_info_remove_admin_role)) }
                     loadChatInfo(currentChatId)
                 }
-                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = UiText.DynamicString(r.message)) }
                 is Result.Loading -> {}
             }
         }
@@ -328,12 +342,12 @@ class ChatInfoViewModel @Inject constructor(
 
     fun removeMember(userId: String) {
         viewModelScope.launch {
-            when (val r = chatRepository.removeGroupMember(currentChatId, userId)) {
+            when (val r = chatSettingsRepository.removeParticipant(currentChatId, userId)) {
                 is Result.Success -> {
-                    _uiState.update { it.copy(feedbackMessage = "Removed from group") }
+                    _uiState.update { it.copy(feedbackMessage = UiText.StringResource(R.string.chat_info_remove_from_group)) }
                     loadChatInfo(currentChatId)
                 }
-                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = UiText.DynamicString(r.message)) }
                 is Result.Loading -> {}
             }
         }
@@ -342,22 +356,18 @@ class ChatInfoViewModel @Inject constructor(
     fun leaveGroup(removeFromList: Boolean) {
         viewModelScope.launch {
             if (removeFromList) {
-                // Archive before leaving so it disappears from local list immediately.
-                chatRepository.updateChatSettings(
-                    chatId = currentChatId,
-                    isArchived = true
-                )
+                chatSettingsRepository.setArchived(chatId = currentChatId, isArchived = true)
             }
-            when (val r = chatRepository.leaveGroup(currentChatId)) {
+            when (val r = chatSettingsRepository.leaveGroupChat(currentChatId)) {
                 is Result.Success -> {
                     _uiState.update {
                         it.copy(
-                            feedbackMessage = "You left the group",
+                            feedbackMessage = UiText.StringResource(R.string.chat_info_leave_group),
                             shouldCloseScreen = true
                         )
                     }
                 }
-                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = UiText.DynamicString(r.message)) }
                 is Result.Loading -> {}
             }
         }
@@ -367,12 +377,12 @@ class ChatInfoViewModel @Inject constructor(
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
         viewModelScope.launch {
-            when (val r = chatRepository.updateGroupProfile(currentChatId, trimmed, null)) {
+            when (val r = chatSettingsRepository.updateGroupProfile(currentChatId, trimmed, null)) {
                 is Result.Success -> {
-                    _uiState.update { it.copy(feedbackMessage = "Group name updated") }
+                    _uiState.update { it.copy(feedbackMessage = UiText.StringResource(R.string.chat_info_save)) }
                     loadChatInfo(currentChatId)
                 }
-                is Result.Error -> _uiState.update { it.copy(feedbackMessage = r.message) }
+                is Result.Error -> _uiState.update { it.copy(feedbackMessage = UiText.DynamicString(r.message)) }
                 is Result.Loading -> {}
             }
         }

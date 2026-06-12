@@ -368,7 +368,7 @@ class HybridAccountManager @Inject constructor(
         val auth = FirebaseAuth.getInstance(firebaseApp)
         val firestore = FirebaseFirestore.getInstance(firebaseApp)
 
-        val credentials = accountRepository.getDecryptedCredentials(userId)
+        val credentials = (accountRepository as com.linker.app.data.repository.AccountRepositoryImpl).getDecryptedCredentials(userId)
             ?: throw IllegalStateException("Failed to get credentials for ${sanitizeUserId(userId)}")
 
         val (email, password) = credentials

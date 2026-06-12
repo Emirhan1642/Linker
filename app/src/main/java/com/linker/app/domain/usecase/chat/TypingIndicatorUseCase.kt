@@ -1,106 +1,78 @@
 package com.linker.app.domain.usecase.chat
 
-import com.google.firebase.firestore.FirebaseFirestore
+import com.linker.app.core.util.Result
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Typing indicator management
- * Shows when other users are typing in a chat
- */
+interface TypingIndicatorRepository {
+    suspend fun startTyping(chatId: String, userId: String): Result<Unit>
+    suspend fun stopTyping(chatId: String, userId: String): Result<Unit>
+    fun observeTypingUsers(chatId: String, excludeUserId: String): Flow<List<String>>
+}
+
 @Singleton
 class TypingIndicatorUseCase @Inject constructor(
-    private val firestore: FirebaseFirestore,
+    private val typingIndicatorRepository: TypingIndicatorRepository,
     private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider
 ) {
     private var typingJob: Job? = null
+    private val typingJobLock = Mutex()
     private val scope = CoroutineScope(Dispatchers.IO)
 
-    companion object {
-        private const val TYPING_TIMEOUT = 5000L // 5 seconds
-        private const val COLLECTION_TYPING = "typing"
-    }
-
-    /**
-     * Start typing indicator for current user
-     */
     fun startTyping(chatId: String) {
-        typingJob?.cancel()
-        typingJob = scope.launch {
-            val userId = currentUserProvider.getCurrentUserId() ?: return@launch
-
-            val typingRef = firestore
-                .collection(COLLECTION_TYPING)
-                .document(chatId)
-                .collection("users")
-                .document(userId)
-
-            typingRef.set(mapOf(
-                "startedAt" to System.currentTimeMillis()
-            ))
-
-            // Auto-clear after timeout
-            delay(TYPING_TIMEOUT)
-            stopTyping(chatId)
-        }
-    }
-
-    /**
-     * Stop typing indicator for current user
-     */
-    fun stopTyping(chatId: String) {
-        typingJob?.cancel()
-        val userId = currentUserProvider.getCurrentUserId() ?: return
-
+        if (chatId.isBlank()) return
+        
         scope.launch {
-            firestore
-                .collection(COLLECTION_TYPING)
-                .document(chatId)
-                .collection("users")
-                .document(userId)
-                .delete()
+            typingJobLock.withLock {
+                typingJob?.cancel()
+                typingJob = launch {
+                    try {
+                        val userId = currentUserProvider.getCurrentUserId() ?: return@launch
+                        when (typingIndicatorRepository.startTyping(chatId, userId)) {
+                            is Result.Success -> {
+                                delay(5000L)
+                                stopTyping(chatId)
+                            }
+                            is Result.Error -> { /* Handle error */ }
+                            is Result.Loading -> { /* Ignored */ }
+                        }
+                    } catch (e: Exception) {
+                        /* Ignore cancellation, log other exceptions */
+                    }
+                }
+            }
         }
     }
 
-    /**
-     * Observe typing users in a chat (excluding current user)
-     */
-    fun observeTypingUsers(chatId: String): Flow<List<String>> = callbackFlow {
-        val listener = firestore
-            .collection(COLLECTION_TYPING)
-            .document(chatId)
-            .collection("users")
-            .addSnapshotListener { snapshot, _ ->
-                val now = System.currentTimeMillis()
-                val currentUserId = currentUserProvider.getCurrentUserId()
-
-                val typingUsers = snapshot?.documents?.mapNotNull { doc ->
-                    val startedAt = (doc.get("startedAt") as? Number)?.toLong() ?: 0L
-
-                    // Only show if typing within last 5 seconds
-                    if (now - startedAt < TYPING_TIMEOUT && doc.id != currentUserId) {
-                        doc.id
-                    } else null
-                } ?: emptyList()
-
-                trySend(typingUsers)
+    fun stopTyping(chatId: String) {
+        if (chatId.isBlank()) return
+        
+        scope.launch {
+            typingJobLock.withLock {
+                typingJob?.cancel()
+                val userId = currentUserProvider.getCurrentUserId() ?: return@launch
+                typingIndicatorRepository.stopTyping(chatId, userId)
             }
-
-        awaitClose { listener.remove() }
+        }
     }
 
-    /**
-     * Clean up resources
-     */
+    fun observeTypingUsers(chatId: String): Flow<List<String>> {
+        if (chatId.isBlank()) return flowOf(emptyList())
+        val currentUserId = currentUserProvider.getCurrentUserId() ?: return flowOf(emptyList())
+        return typingIndicatorRepository.observeTypingUsers(chatId, currentUserId).catch { emit(emptyList()) }
+    }
+
     fun cleanup() {
         scope.cancel()
     }

@@ -39,7 +39,7 @@ class NewChatViewModel @Inject constructor(
             try {
                 when(val result = userRepository.searchUsers("", 40)) {
                     is Result.Success -> {
-                        _uiState.value = _uiState.value.copy(isLoading = false, suggested = result.data)
+                        _uiState.value = _uiState.value.copy(isLoading = false, suggested = result.data.users)
                     }
                     is Result.Error -> {
                         _uiState.value = _uiState.value.copy(isLoading = false)

@@ -46,22 +46,28 @@ fun createUserStub(
         userId = userId,
         username = username?.takeIf { it.isNotBlank() } ?: "user_${userId.take(8)}",
         displayName = displayName?.takeIf { it.isNotBlank() } ?: "User ${userId.take(8)}",
-        email = null,
-        phoneNumber = null,
+        _email = null,
+        _phoneNumber = null,
         bio = null,
         profileImageUrl = null,
         coverImageUrl = null,
         isVerified = false,
-        followersCount = 0,
-        followingCount = 0,
-        likesCount = 0,
-        isFollowing = false,
-        isFollowedBy = false,
-        isBlocked = false,
-        isMuted = false,
-        isPrivate = false,
-        followRequestSent = false,
-        hideFollowLists = false,
+        privacy = UserPrivacy(
+            isPrivate = false,
+            hideFollowLists = false
+        ),
+        metrics = UserMetrics(
+            followersCount = 0,
+            followingCount = 0,
+            likesCount = 0
+        ),
+        relationship = UserRelationship(
+            isFollowing = false,
+            isFollowedBy = false,
+            isBlocked = false,
+            isMuted = false,
+            followRequestSent = false
+        ),
         createdAt = 0L,
         updatedAt = 0L
     )

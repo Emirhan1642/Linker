@@ -11,6 +11,7 @@ val LightGray = Color(0xFF353434) // Borders, secondary surfaces
 val TextPrimary = Color(0xFFFFFFFF)
 val TextSecondary = Color(0xFFA0A0A5)
 val TextHint = Color(0xFF66666D)
+val DarkGrayTransparent = DarkGray.copy(alpha = 0.9f)
 
 // Accents
 val AccentGreen = Color(0xFF8CFF62) // Add button inner color, online status

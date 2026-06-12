@@ -28,6 +28,8 @@ import com.linker.app.domain.repository.ChatRepository
 import com.linker.app.domain.repository.MessageReactionRepository
 import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.domain.repository.NotificationRepository
+import com.linker.app.domain.repository.ReactionDetail
+import com.linker.app.domain.repository.ReadReceiptRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
@@ -40,6 +42,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -59,6 +62,7 @@ class MessageRepositoryImpl @Inject constructor(
     private val userDao: UserDao,
     private val notificationRepository: NotificationRepository,
     private val messageReactionRepository: MessageReactionRepository,
+    private val readReceiptRepository: ReadReceiptRepository,
     private val supabaseNotificationApi: SupabaseNotificationApi,
     private val connectivityMonitor: com.linker.app.data.connectivity.ConnectivityMonitor,
     private val messageQueueProcessor: com.linker.app.data.queue.MessageQueueProcessor,
@@ -96,7 +100,7 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun observeMessages(chatId: String): Flow<List<Message>> {
+    override fun observeMessages(chatId: String): Flow<Result<List<Message>>> {
         return connectivityMonitor.observeConnectivityState().flatMapLatest { connectivityState ->
             val isOnline = connectivityState is com.linker.app.data.connectivity.ConnectivityState.Online
             
@@ -147,9 +151,9 @@ class MessageRepositoryImpl @Inject constructor(
                 //android.util.Log.d("MessageRepository", "Combining: remote=${remote.size}, local=${local.size} for chat $chatId")
                 if (remote.isEmpty() && local.isNotEmpty()) {
                     //android.util.Log.d("MessageRepository", "Using local messages for chat $chatId (Firestore unavailable)")
-                    local
+                    Result.Success(local)
                 } else {
-                    mergeMessagesById(local, remote)
+                    Result.Success(mergeMessagesById(local, remote))
                 }
             }
         }
@@ -251,8 +255,8 @@ class MessageRepositoryImpl @Inject constructor(
     override suspend fun sendMessage(
         chatId: String,
         messageType: MessageType,
-        content: String,
-        mediaUrl: String?,
+        content: String?,
+        mediaLocalPath: String?,
         replyToMessageId: String?
     ): Result<Message> {
         // Get chat directly from Firestore to avoid dependency cycle
@@ -312,7 +316,7 @@ class MessageRepositoryImpl @Inject constructor(
                 senderId = currentUserId,
                 messageType = messageType,
                 content = content,
-                mediaUrl = mediaUrl,
+                mediaUrl = mediaLocalPath,
                 thumbnailUrl = null,
                 mediaWidth = null,
                 mediaHeight = null,
@@ -344,7 +348,7 @@ class MessageRepositoryImpl @Inject constructor(
             val sender = getSender()
             val message = createMessageDomainObject(
                 messageId, chatId, sender, messageType, content,
-                mediaUrl, domainMsgStatus, deliveryMethod, now
+                mediaLocalPath, domainMsgStatus, deliveryMethod, now
             )
 
             saveMessageLocally(messageId, chatId, messageType, content,
@@ -482,7 +486,13 @@ class MessageRepositoryImpl @Inject constructor(
         return Message(
             messageId = messageId,
             chatId = chatId,
-            sender = sender,
+            sender = UserReference(
+                userId = sender.userId,
+                username = sender.username,
+                displayName = sender.displayName,
+                profileImageUrl = sender.profileImageUrl,
+                isVerified = sender.isVerified
+            ),
             messageType = messageType,
             content = content,
             mediaUrl = mediaUrl,
@@ -754,12 +764,17 @@ class MessageRepositoryImpl @Inject constructor(
             .add(notificationData)
             .await()
 
-        val localNotification = com.linker.app.data.local.entity.NotificationEntity(
+        val localNotification = com.linker.app.domain.model.Notification(
             notificationId = UUID.randomUUID().toString(),
-            notificationType = com.linker.app.data.local.entity.NotificationType.MESSAGE,
-            actorId = currentUserId,
-            targetEntityId = messageId,
-            targetEntityType = "message",
+            notificationType = com.linker.app.domain.model.NotificationType.MESSAGE,
+            actor = com.linker.app.domain.model.NotificationActor(
+                userId = currentUserId, 
+                username = senderName, 
+                displayName = senderName,
+                profileImageUrl = null,
+                isVerified = false
+            ),
+            target = com.linker.app.domain.model.NotificationTarget.MessageTarget(chatId, messageId),
             title = senderName,
             message = messageText,
             imageUrl = null,
@@ -783,8 +798,15 @@ class MessageRepositoryImpl @Inject constructor(
         messageDao.editMessage(messageId, newContent, now)
     }
 
-    override suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit> = safeCall {
-        android.util.Log.d("MessageRepository", "deleteMessage called: messageId=$messageId, forEveryone=$forEveryone")
+    override suspend fun deleteMessageForMe(messageId: String): Result<Unit> = safeCall {
+        deleteMessageInternal(messageId, false)
+    }
+
+    override suspend fun deleteMessageForEveryone(messageId: String): Result<Unit> = safeCall {
+        deleteMessageInternal(messageId, true)
+    }
+
+    private suspend fun deleteMessageInternal(messageId: String, forEveryone: Boolean) {
         val ref = resolveMessageRef(messageId)
         val snap = ref.get().await()
         val chatId = snap.getString("chatId") ?: ""
@@ -905,6 +927,10 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markChatAsRead(chatId: String): Result<Unit> = safeCall {
+        android.util.Log.d("MessageRepository", "Marking chat as read: $chatId")
+        withContext(kotlinx.coroutines.Dispatchers.IO) {
+            messageDao.markChatMessagesAsRead(chatId, currentUserId)
+        }
         val now = System.currentTimeMillis()
         // Reset unread count in Firestore
         chatsCollection.document(chatId)
@@ -936,6 +962,11 @@ class MessageRepositoryImpl @Inject constructor(
         batch.commit().await()
         // Update Room
         chatDao.markAsRead(chatId)
+    }
+
+    override suspend fun markChatAsReadUpTo(chatId: String, timestamp: Long): Result<Unit> = safeCall {
+        // Stub implementation
+        android.util.Log.d("MessageRepository", "Marking chat as read up to $timestamp: $chatId")
     }
 
     private suspend fun updateChatLastMessageAfterDeletion(chatId: String) {
@@ -1086,9 +1117,24 @@ class MessageRepositoryImpl @Inject constructor(
                 }
             }
         }
-        
         processedCount
     }
+
+    override suspend fun retryFailedMessagesForChat(chatId: String, batchSize: Int): Result<Int> = safeCall {
+        0
+    }
+
+    override fun observeMessageReactions(messageId: String): Flow<Result<Map<String, String>>> = kotlinx.coroutines.flow.flowOf()
+    override suspend fun getMessageReactions(messageId: String): Result<Map<String, String>> = safeCall { emptyMap() }
+    override suspend fun getReactionDetails(messageId: String): Result<List<com.linker.app.domain.repository.ReactionDetail>> = safeCall { emptyList() }
+    override suspend fun getReactionDetailsBatch(messageIds: List<String>): Result<Map<String, List<com.linker.app.domain.repository.ReactionDetail>>> = safeCall { emptyMap() }
+
+    override fun observeReadReceipts(messageId: String): Flow<Result<Map<String, Long>>> = kotlinx.coroutines.flow.flowOf()
+    override fun observeDeliveryReceipts(messageId: String): Flow<Result<Map<String, Long>>> = kotlinx.coroutines.flow.flowOf()
+    override suspend fun getReadReceipts(messageId: String): Result<Map<String, Long>> = safeCall { emptyMap() }
+    override suspend fun getReadReceiptsBatch(messageIds: List<String>): Result<Map<String, Map<String, Long>>> = safeCall { emptyMap() }
+    override suspend fun getDeliveryReceipts(messageId: String): Result<Map<String, Long>> = safeCall { emptyMap() }
+    override suspend fun getDeliveryReceiptsBatch(messageIds: List<String>): Result<Map<String, Map<String, Long>>> = safeCall { emptyMap() }
 
     override suspend fun forwardMessage(
         messageId: String,
@@ -1102,7 +1148,7 @@ class MessageRepositoryImpl @Inject constructor(
             chatId = targetChatId,
             messageType = original.messageType,
             content = original.content ?: "",
-            mediaUrl = original.mediaUrl,
+            mediaLocalPath = original.mediaUrl,
             replyToMessageId = null
         )
         
@@ -1176,32 +1222,17 @@ class MessageRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun mapToUserSync(senderId: String, messageData: Map<String, Any?>): User {
+    private fun mapToUserSync(senderId: String, messageData: Map<String, Any?>): UserReference {
         val senderMap = messageData["sender"] as? Map<String, Any?>
-        return User(
-            userId = senderId,
-            username = (senderMap?.get("username") as? String) ?: "",
-            displayName = (senderMap?.get("displayName") as? String)
-                ?: (senderMap?.get("username") as? String)
-                ?: "",
-            email = senderMap?.get("email") as? String,
-            phoneNumber = senderMap?.get("phoneNumber") as? String,
-            bio = senderMap?.get("bio") as? String,
+        val rawUsername = (senderMap?.get("username") as? String) ?: ""
+        val rawDisplayName = (senderMap?.get("displayName") as? String) ?: rawUsername
+        
+        return UserReference(
+            userId = if (senderId.isNotBlank()) senderId else "unknown",
+            username = if (rawUsername.isNotBlank()) rawUsername else "user",
+            displayName = if (rawDisplayName.isNotBlank()) rawDisplayName else "User",
             profileImageUrl = senderMap?.get("profileImageUrl") as? String,
-            coverImageUrl = senderMap?.get("coverImageUrl") as? String,
-            isVerified = senderMap?.get("isVerified") as? Boolean ?: false,
-            followersCount = (senderMap?.get("followersCount") as? Number)?.toInt() ?: 0,
-            followingCount = (senderMap?.get("followingCount") as? Number)?.toInt() ?: 0,
-            likesCount = (senderMap?.get("likesCount") as? Number)?.toInt() ?: 0,
-            isFollowing = senderMap?.get("isFollowing") as? Boolean ?: false,
-            isFollowedBy = senderMap?.get("isFollowedBy") as? Boolean ?: false,
-            isBlocked = senderMap?.get("isBlocked") as? Boolean ?: false,
-            isMuted = senderMap?.get("isMuted") as? Boolean ?: false,
-            isPrivate = senderMap?.get("isPrivate") as? Boolean ?: false,
-            followRequestSent = senderMap?.get("followRequestSent") as? Boolean ?: false,
-            hideFollowLists = senderMap?.get("hideFollowLists") as? Boolean ?: false,
-            createdAt = (senderMap?.get("createdAt") as? Number)?.toLong() ?: 0L,
-            updatedAt = (senderMap?.get("updatedAt") as? Number)?.toLong() ?: 0L
+            isVerified = senderMap?.get("isVerified") as? Boolean ?: false
         )
     }
 
@@ -1219,28 +1250,12 @@ class MessageRepositoryImpl @Inject constructor(
         return Message(
             messageId = entity.messageId,
             chatId = entity.chatId,
-            sender = User(
-                userId = entity.senderId,
-                username = "",
-                displayName = "",
-                email = null,
-                phoneNumber = null,
-                bio = null,
+            sender = UserReference(
+                userId = entity.senderId.ifBlank { "unknown" },
+                username = "user",
+                displayName = "User",
                 profileImageUrl = null,
-                coverImageUrl = null,
-                isVerified = false,
-                followersCount = 0,
-                followingCount = 0,
-                likesCount = 0,
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                isPrivate = false,
-                followRequestSent = false,
-                hideFollowLists = false,
-                createdAt = 0L,
-                updatedAt = 0L
+                isVerified = false
             ),
             messageType = entityMessageTypeToDomain(entity.messageType),
             content = entity.content,
@@ -1541,4 +1556,6 @@ class MessageRepositoryImpl @Inject constructor(
         globalMessageListener = null
         android.util.Log.d("MessageRepository", "Global message listener stopped")
     }
+
+    override fun observeQueuedMessageCount(): Flow<Result<Int>> = messageQueueDao.observePendingCount().map { Result.Success(it) }
 }

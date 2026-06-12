@@ -42,11 +42,7 @@ class FollowListViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val route = savedStateHandle.toRoute<Route.FollowList>()
-    private val listTypeSafe = runCatching { FollowListType.valueOf(route.listType) }
-        .getOrElse {
-            Log.w("FollowListViewModel", "Unknown listType='${route.listType}', defaulting to FOLLOWERS")
-            FollowListType.FOLLOWERS
-        }
+    private val listTypeSafe = route.listType
     private val myUid = FirebaseAuth.getInstance().currentUser?.uid
 
     private val _uiState = MutableStateFlow(
@@ -58,8 +54,12 @@ class FollowListViewModel @Inject constructor(
     )
     val uiState: StateFlow<FollowListUiState> = _uiState.asStateFlow()
 
+    companion object {
+        const val CURRENT_USER_ID_PARAM = "me"
+    }
+
     /** Sadece kendi takipçi/takip listesinde eylem butonları görünür */
-    val isOwnList: Boolean get() = route.userId == myUid || route.userId == "me"
+    val isOwnList: Boolean get() = route.userId == myUid || route.userId == CURRENT_USER_ID_PARAM
 
     init { load() }
 
@@ -69,30 +69,26 @@ class FollowListViewModel @Inject constructor(
 
             when (_uiState.value.listType) {
                 FollowListType.FOLLOWERS, FollowListType.FOLLOWING -> {
-                    // Bu iki tip nullable döner: null = gizli, emptyList = açık ama boş
-                    val result: Result<List<User>?> = if (_uiState.value.listType == FollowListType.FOLLOWERS)
+                    val result = if (_uiState.value.listType == FollowListType.FOLLOWERS)
                         userRepository.getFollowers(_uiState.value.targetUserId)
                     else
                         userRepository.getFollowing(_uiState.value.targetUserId)
 
                     when (result) {
                         is Result.Success -> {
-                            val nullableList = result.data
-                            if (nullableList == null) {
-                                // Repository null döndürdü → liste gizli
+                            val paginatedUsers = result.data
+                            var list = paginatedUsers.users
+                            if (_uiState.value.listType == FollowListType.FOLLOWERS && myUid != null) {
+                                list = list.sortedByDescending { it.userId == myUid }
+                            }
+                            _uiState.update { it.copy(isLoading = false, isLocked = false, users = list) }
+                        }
+                        is Result.Error -> {
+                            if (result.message?.contains("PrivateAccountLocked") == true || result.message?.contains("Not authorized to view") == true) {
                                 _uiState.update { it.copy(isLoading = false, isLocked = true, users = emptyList()) }
                             } else {
-                                // Liste açık (boş da olabilir)
-                                var list = nullableList
-                                if (_uiState.value.listType == FollowListType.FOLLOWERS && myUid != null) {
-                                    val me = list.firstOrNull { it.userId == myUid }
-                                    if (me != null) list = listOf(me) + list.filter { it.userId != myUid }
-                                }
-                                _uiState.update { it.copy(isLoading = false, isLocked = false, users = list) }
+                                _uiState.update { it.copy(isLoading = false, error = result.message) }
                             }
-                        }
-                        is Result.Error -> _uiState.update {
-                            it.copy(isLoading = false, error = result.message)
                         }
                         is Result.Loading -> {}
                     }
@@ -101,7 +97,7 @@ class FollowListViewModel @Inject constructor(
                 FollowListType.PENDING_REQUESTS -> {
                     when (val result = userRepository.getPendingRequests()) {
                         is Result.Success -> _uiState.update {
-                            it.copy(isLoading = false, isLocked = false, users = result.data)
+                            it.copy(isLoading = false, isLocked = false, users = result.data.users)
                         }
                         is Result.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
                         is Result.Loading -> {}
@@ -111,7 +107,7 @@ class FollowListViewModel @Inject constructor(
                 FollowListType.SENT_REQUESTS -> {
                     when (val result = userRepository.getSentRequests()) {
                         is Result.Success -> _uiState.update {
-                            it.copy(isLoading = false, isLocked = false, users = result.data)
+                            it.copy(isLoading = false, isLocked = false, users = result.data.users)
                         }
                         is Result.Error -> _uiState.update { it.copy(isLoading = false, error = result.message) }
                         is Result.Loading -> {}
@@ -134,7 +130,7 @@ class FollowListViewModel @Inject constructor(
     }
 
     fun removeFollower(userId: String) = viewModelScope.launch {
-        userRepository.declineFollowRequest(userId); load()
+        userRepository.removeFollower(userId); load()
     }
 
     fun unfollow(userId: String) = viewModelScope.launch {

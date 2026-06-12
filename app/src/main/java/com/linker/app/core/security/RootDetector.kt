@@ -120,8 +120,9 @@ object RootDetector {
         var process: Process? = null
         return try {
             process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            reader.readLine() != null
+            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                reader.readLine() != null
+            }
         } catch (t: Throwable) {
             false
         } finally {
@@ -140,22 +141,23 @@ object RootDetector {
             "/etc"
         )
         try {
-            var process = Runtime.getRuntime().exec("mount")
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val lineStr = line ?: continue
-                val args = lineStr.split(" ")
-                if (args.size < 4) continue
-                val mountPoint = args[1]
-                val mountOptions = args[3]
-                
-                for (path in paths) {
-                    if (mountPoint.equals(path, ignoreCase = true)) {
-                        val options = mountOptions.split(",")
-                        for (option in options) {
-                            if (option.equals("rw", ignoreCase = true)) {
-                                return true
+            val process = Runtime.getRuntime().exec("mount")
+            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val lineStr = line ?: continue
+                    val args = lineStr.split(" ")
+                    if (args.size < 4) continue
+                    val mountPoint = args[1]
+                    val mountOptions = args[3]
+                    
+                    for (path in paths) {
+                        if (mountPoint.equals(path, ignoreCase = true)) {
+                            val options = mountOptions.split(",")
+                            for (option in options) {
+                                if (option.equals("rw", ignoreCase = true)) {
+                                    return true
+                                }
                             }
                         }
                     }

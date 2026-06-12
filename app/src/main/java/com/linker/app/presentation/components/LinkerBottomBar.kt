@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.presentation.theme.AccentGreen
 import com.linker.app.presentation.theme.DarkGray
+import com.linker.app.presentation.theme.DarkGrayTransparent
 import com.linker.app.presentation.theme.LightBlue
 import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextHint
@@ -59,13 +60,13 @@ fun LinkerBottomNavigationBar(
                 .fillMaxWidth()
                 .height(60.dp)
                 .clip(RoundedCornerShape(25.dp))
-                .background(Color(0xE61C1C20)) // Dark Gray transparent
+                .background(DarkGrayTransparent)
                 .border(2.dp, LinkerAngularGradient, RoundedCornerShape(25.dp))
                 .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            BottomNavItem.values().forEach { item ->
+            BottomNavItem.entries.forEach { item ->
                 if (item == BottomNavItem.Add) {
                     // Special Add Button
                     Box(

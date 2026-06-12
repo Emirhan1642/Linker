@@ -72,6 +72,7 @@ object DatabaseModule {
         @ApplicationContext context: Context,
         securityManager: SecurityManager
     ): LinkerDatabase {
+        val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
         try {
             // Get encryption passphrase from secure storage
             val passphrase = securityManager.getDatabasePassphrase()
@@ -167,6 +168,8 @@ object DatabaseModule {
         } catch (e: Exception) {
             android.util.Log.e("DatabaseModule", "Failed to initialize encrypted database", e)
             throw IllegalStateException("Database encryption initialization failed", e)
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
         }
     }
 

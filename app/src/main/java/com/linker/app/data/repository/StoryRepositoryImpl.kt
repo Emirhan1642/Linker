@@ -7,8 +7,13 @@ import com.google.firebase.firestore.Query
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.RetryUtil
 import com.linker.app.domain.model.Story
+import com.linker.app.domain.model.StoryAuthor
 import com.linker.app.domain.model.StoryMediaType
 import com.linker.app.domain.model.User
+import com.linker.app.domain.model.UserMetrics
+import com.linker.app.domain.model.UserPrivacy
+import com.linker.app.domain.model.UserReference
+import com.linker.app.domain.model.UserRelationship
 import com.linker.app.domain.model.UserStories
 import com.linker.app.domain.repository.StoryRepository
 import kotlinx.coroutines.channels.awaitClose
@@ -19,6 +24,7 @@ import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.collections.forEach
 
 
 /**
@@ -36,7 +42,7 @@ class StoryRepositoryImpl @Inject constructor(
     private val storiesCollection = firestore.collection("stories")
     private val usersCollection = firestore.collection("users")
 
-    override fun observeActiveUserStories(): Flow<List<UserStories>> = callbackFlow {
+    override fun observeActiveUserStories(): Flow<Result<List<UserStories>>> = callbackFlow {
         val now = System.currentTimeMillis()
 
         val listener = storiesCollection
@@ -44,7 +50,7 @@ class StoryRepositoryImpl @Inject constructor(
             .orderBy("expiresAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(emptyList())
+                    trySend(Result.Success(emptyList()))
                     return@addSnapshotListener
                 }
 
@@ -56,36 +62,22 @@ class StoryRepositoryImpl @Inject constructor(
                     } ?: emptyList()
 
                     if (dataList.isEmpty()) {
-                        trySend(emptyList())
+                        trySend(Result.Success(emptyList()))
                         return@launch
                     }
 
                     // Batch fetch users to prevent N+1 queries
                     val authorIds = dataList.map { it.second.authorId }.distinct()
-                    val usersMap = mutableMapOf<String, User>()
+                    val usersMap = mutableMapOf<String, StoryAuthor>()
 
                     authorIds.chunked(10).forEach { chunk ->
                         val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
                         userDocs.documents.forEach { authorDoc ->
-                            val user = User(
+                            val user = StoryAuthor(
                                 userId = authorDoc.id,
                                 username = authorDoc.getString("username") ?: "",
                                 displayName = authorDoc.getString("displayName") ?: "",
-                                email = authorDoc.getString("email"),
-                                phoneNumber = null,
-                                bio = authorDoc.getString("bio"),
                                 profileImageUrl = authorDoc.getString("profileImageUrl"),
-                                coverImageUrl = authorDoc.getString("coverImageUrl"),
-                                isVerified = authorDoc.getBoolean("isVerified") ?: false,
-                                followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-                                followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-                                likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-                                isFollowing = false,
-                                isFollowedBy = false,
-                                isBlocked = false,
-                                isMuted = false,
-                                createdAt = authorDoc.getLong("createdAt") ?: 0,
-                                updatedAt = authorDoc.getLong("updatedAt") ?: 0
                             )
                             usersMap[authorDoc.id] = user
                         }
@@ -127,12 +119,16 @@ class StoryRepositoryImpl @Inject constructor(
                         }
                         .sortedByDescending { it.hasUnviewed }
 
-                    trySend(grouped)
+                    trySend(Result.Success(grouped))
                 }
             }
 
         awaitClose { listener.remove() }
     }
+
+    override suspend fun refreshStories(limit: Int): Result<List<UserStories>> = Result.Success(emptyList())
+
+    override suspend fun loadMoreStories(beforeTimestamp: Long, limit: Int): Result<List<UserStories>> = Result.Success(emptyList())
 
     override suspend fun getStoriesByUser(userId: String): Result<List<Story>> = RetryUtil.retrySafeCall {
         val now = System.currentTimeMillis()
@@ -145,25 +141,11 @@ class StoryRepositoryImpl @Inject constructor(
         if (snapshot.isEmpty) return@retrySafeCall emptyList()
         
         val authorDoc = usersCollection.document(userId).get().await()
-        val author = User(
+        val author = StoryAuthor(
             userId = userId,
             username = authorDoc.getString("username") ?: "",
             displayName = authorDoc.getString("displayName") ?: "",
-            email = authorDoc.getString("email"),
-            phoneNumber = null,
-            bio = authorDoc.getString("bio"),
             profileImageUrl = authorDoc.getString("profileImageUrl"),
-            coverImageUrl = authorDoc.getString("coverImageUrl"),
-            isVerified = authorDoc.getBoolean("isVerified") ?: false,
-            followersCount = (authorDoc.getLong("followersCount") ?: 0).toInt(),
-            followingCount = (authorDoc.getLong("followingCount") ?: 0).toInt(),
-            likesCount = (authorDoc.getLong("likesCount") ?: 0).toInt(),
-            isFollowing = false,
-            isFollowedBy = false,
-            isBlocked = false,
-            isMuted = false,
-            createdAt = authorDoc.getLong("createdAt") ?: 0,
-            updatedAt = authorDoc.getLong("updatedAt") ?: 0
         )
 
         snapshot.documents.mapNotNull { doc ->
@@ -192,7 +174,8 @@ class StoryRepositoryImpl @Inject constructor(
     override suspend fun createStory(
         mediaLocalPath: String,
         mediaType: StoryMediaType,
-        caption: String?
+        caption: String?,
+        privacy: com.linker.app.domain.repository.StoryPrivacy
     ): Result<Story> = RetryUtil.retrySafeCall {
         val currentUser = auth.currentUser ?: throw IllegalStateException("Not authenticated")
         val storyId = UUID.randomUUID().toString()
@@ -234,25 +217,11 @@ class StoryRepositoryImpl @Inject constructor(
         
         Story(
             storyId = storyId,
-            author = User(
+            author = StoryAuthor(
                 userId = currentUser.uid,
                 username = currentUser.displayName ?: "",
                 displayName = currentUser.displayName ?: "",
-                email = currentUser.email,
-                phoneNumber = currentUser.phoneNumber,
-                bio = null,
                 profileImageUrl = currentUser.photoUrl?.toString(),
-                coverImageUrl = null,
-                isVerified = false,
-                followersCount = 0,
-                followingCount = 0,
-                likesCount = 0,
-                isFollowing = false,
-                isFollowedBy = false,
-                isBlocked = false,
-                isMuted = false,
-                createdAt = now,
-                updatedAt = now
             ),
             mediaUrl = mediaUrl,
             mediaType = mediaType,
@@ -313,6 +282,18 @@ class StoryRepositoryImpl @Inject constructor(
         }
         batch.commit().await()
     }
+
+    override suspend fun getViewCount(storyId: String): Result<Int> = Result.Success(0)
+    override suspend fun getViewers(storyId: String): Result<List<com.linker.app.domain.repository.StoryViewer>> = Result.Success(emptyList())
+    override suspend fun replyToStory(storyId: String, content: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun getReplyCount(storyId: String): Result<Int> = Result.Success(0)
+    override suspend fun updateStoryPrivacy(storyId: String, privacy: com.linker.app.domain.repository.StoryPrivacy): Result<Unit> = Result.Success(Unit)
+    override suspend fun updateCloseFriendsList(userIds: List<String>): Result<Unit> = Result.Success(Unit)
+    override suspend fun getCloseFriendsList(): Result<List<String>> = Result.Success(emptyList())
+    override suspend fun addToHighlight(storyId: String, highlightId: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun removeFromHighlight(storyId: String, highlightId: String): Result<Unit> = Result.Success(Unit)
+    override suspend fun getHighlights(userId: String): Result<List<com.linker.app.domain.repository.StoryHighlight>> = Result.Success(emptyList())
+    override suspend fun createHighlight(title: String, coverStoryId: String?): Result<com.linker.app.domain.repository.StoryHighlight> = Result.Success(com.linker.app.domain.repository.StoryHighlight("", title, null, emptyList()))
 
     @Keep
     private data class StoryDocument(

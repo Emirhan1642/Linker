@@ -47,13 +47,18 @@ class LinkerMessagingService : FirebaseMessagingService() {
     @Inject lateinit var reactionTracker: ReactionTracker
 
     override fun onCreate() {
-        super.onCreate()
-        ChatNotificationStore.initialize(this)
+        val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+        try {
+            super.onCreate()
+            ChatNotificationStore.initialize(this)
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
+        }
     }
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        NotificationLogger.d("FCM token refreshed: \${token.take(10)}...")
+        NotificationLogger.d("FCM token refreshed: ${token.take(10)}...")
         applicationScope.launch {
             pushTokenRegistrar.registerToken(token)
         }
@@ -62,7 +67,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         val type = message.data["type"]
-        NotificationLogger.d("onMessageReceived type=\$type")
+        NotificationLogger.d("onMessageReceived type=$type")
         createDefaultChannels()
 
         val data = message.data
@@ -130,7 +135,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
         if (state == null) {
             val recoveredMessages = stateRecovery.recoverMessagesFromNotification(notificationId)
             if (recoveredMessages.isNotEmpty()) {
-                NotificationLogger.d("Recovered \${recoveredMessages.size} messages, creating state")
+                NotificationLogger.d("Recovered ${recoveredMessages.size} messages, creating state")
                 ChatNotificationStore.addIncoming(
                     notificationId,
                     recipientUid = auth.currentUser?.uid ?: recipientId,
@@ -142,7 +147,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
                 if (state != null) {
                     state.clearMessages()
                     recoveredMessages.forEach { state.addMessage(it) }
-                    NotificationLogger.d("Restored \${recoveredMessages.size} messages to state")
+                    NotificationLogger.d("Restored ${recoveredMessages.size} messages to state")
                 }
             }
         }
@@ -201,7 +206,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
                         transaction.update(
                             messageRef,
                             mapOf(
-                                "deliveryReceipts.\$currentUid" to now,
+                                "deliveryReceipts.$currentUid" to now,
                                 "deliveredAt" to now,
                                 "messageStatus" to "DELIVERED"
                             )
@@ -212,7 +217,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             } catch (e: Exception) {
                 retryCount++
                 if (retryCount >= maxRetries) {
-                    NotificationLogger.e("Failed to update delivery receipt after \$maxRetries attempts", e)
+                    NotificationLogger.e("Failed to update delivery receipt after $maxRetries attempts", e)
                 } else {
                     delay(1000L * retryCount) // Exponential backoff
                 }
@@ -246,12 +251,12 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("deep_link", "\$type/\$targetId")
+            putExtra("deep_link", "$type/$targetId")
         }
 
         val pendingIntent = PendingIntent.getActivity(
             this,
-            "\$type-\$targetId".hashCode(),
+            "$type-$targetId".hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -276,7 +281,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
             .setAutoCancel(true)
             .build()
 
-        showNotification("\$type-\$targetId".hashCode(), notification)
+        showNotification("$type-$targetId".hashCode(), notification)
     }
 
     private fun handleGeneralNotification(message: RemoteMessage) {
@@ -357,13 +362,13 @@ class LinkerMessagingService : FirebaseMessagingService() {
             return
         }
 
-        val notificationId = "reaction_\$messageId".hashCode() and 0x7fff_fffe
+        val notificationId = "reaction_$messageId".hashCode() and 0x7fff_fffe
         val reactionCount = reactionTracker.addReactor(messageId, senderId)
         
         val notificationTitle = if (reactionCount == 1) {
-            "Linker • \$senderName"
+            "Linker • $senderName"
         } else {
-            "Linker • \$reactionCount kişi"
+            "Linker • $reactionCount kişi"
         }
         
         val notificationBody = if (reactionCount == 1) {
@@ -374,7 +379,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
 
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("deep_link", "message/\$messageId")
+            putExtra("deep_link", "message/$messageId")
         }
 
         val pendingIntent = PendingIntent.getActivity(
@@ -434,7 +439,7 @@ class LinkerMessagingService : FirebaseMessagingService() {
         val messageId = data["messageId"] ?: return
         val chatId = data["chatId"]
         
-        val reactionNotificationId = "reaction_\$messageId".hashCode() and 0x7fff_fffe
+        val reactionNotificationId = "reaction_$messageId".hashCode() and 0x7fff_fffe
         NotificationManagerCompat.from(this).cancel(reactionNotificationId)
         reactionTracker.clearReactors(messageId)
         

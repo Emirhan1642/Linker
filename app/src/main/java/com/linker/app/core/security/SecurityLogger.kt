@@ -35,7 +35,7 @@ data class SecurityEvent(
     val timestamp: Long = System.currentTimeMillis()
 )
 
-class SecurityEventException(event: SecurityEvent) : Exception("\${event.eventType}: \${event.message}")
+class SecurityEventException(event: SecurityEvent) : Exception("${event.eventType}: ${event.message}")
 
 enum class LogLevel {
     NONE, ERROR, WARNING, INFO, DEBUG, VERBOSE
@@ -87,7 +87,7 @@ object SecurityLogger {
     
     private fun sanitizeUserId(userId: String?): String? {
         return userId?.let { 
-            if (BuildConfig.DEBUG) it else "user_\${it.hashCode().toString(16)}"
+            if (BuildConfig.DEBUG) it else "user_${it.hashCode().toString(16)}"
         }
     }
 
@@ -98,7 +98,7 @@ object SecurityLogger {
             } else {
                 val parts = it.split("@")
                 if (parts.size == 2) {
-                    "\${parts[0].take(2)}***@\${parts[1]}"
+                    "${parts[0].take(2)}***@${parts[1]}"
                 } else {
                     "***@***"
                 }
@@ -122,15 +122,15 @@ object SecurityLogger {
         
         return if (BuildConfig.DEBUG) {
             buildString {
-                append("[\${structured.eventType}] ")
+                append("[${structured.eventType}] ")
                 append("[")
                 append(SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(structured.timestamp)))
                 append("] ")
                 append(structured.message)
-                structured.userId?.let { append(" | User: \$it") }
+                structured.userId?.let { append(" | User: $it") }
                 structured.metadata?.let { metadata ->
-                    val metadataStr = metadata.entries.joinToString { "\${it.key}=\${it.value}" }
-                    append(" | Metadata: \$metadataStr")
+                    val metadataStr = metadata.entries.joinToString { "${it.key}=${it.value}" }
+                    append(" | Metadata: $metadataStr")
                 }
             }
         } else {
@@ -182,7 +182,7 @@ object SecurityLogger {
         
         if (rateLimitInfo.count > MAX_EVENTS_PER_WINDOW) {
             if (now - rateLimitInfo.lastLogged > RATE_LIMIT_WINDOW_MS) {
-                Log.w(TAG, "Rate limit exceeded for \$eventType (\${rateLimitInfo.count} events)")
+                Log.w(TAG, "Rate limit exceeded for $eventType (${rateLimitInfo.count} events)")
                 rateLimitInfo.lastLogged = now
             }
             return
@@ -275,7 +275,7 @@ object SecurityLogger {
     fun logAuthFailure(reason: String, email: String? = null) {
         logEvent(
             eventType = EventType.AUTH_FAILURE,
-            message = "Authentication failed: \$reason",
+            message = "Authentication failed: $reason",
             metadata = sanitizeEmail(email)?.let { mapOf("email" to it) }
         )
     }
@@ -289,7 +289,7 @@ object SecurityLogger {
 
         logEvent(
             eventType = eventType,
-            message = "Device security risk detected: \$riskLevel"
+            message = "Device security risk detected: $riskLevel"
         )
     }
 

@@ -1,24 +1,26 @@
 package com.linker.app.domain.repository
 
 import com.linker.app.domain.model.Chat
-import com.linker.app.domain.model.Message
-import com.linker.app.domain.model.DeliveryMethod
-import com.linker.app.domain.model.MessageType
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * Repository for chat lists and creation.
+ * Follows Single Responsibility Principle (SRP).
+ * 
+ * For messages, see [MessageRepository].
+ * For chat settings and group management, see [ChatSettingsRepository].
+ */
 interface ChatRepository {
 
-    // ── Chat list ──────────────────────────────────────────────────────────
-
     /** Observes all active (non-archived) chats ordered by last message. */
-    fun observeChats(): Flow<List<Chat>>
+    fun observeChats(): Flow<Result<List<Chat>>>
 
     /** Observes archived chats. */
-    fun observeArchivedChats(): Flow<List<Chat>>
+    fun observeArchivedChats(): Flow<Result<List<Chat>>>
 
     /** Observes total unread message count badge. */
-    fun observeTotalUnread(): Flow<Int>
+    fun observeTotalUnread(): Flow<Result<Int>>
 
     /** Fetches a single chat by ID. */
     suspend fun getChatById(chatId: String): Result<Chat>
@@ -33,95 +35,6 @@ interface ChatRepository {
         permissions: Map<String, Any>? = null
     ): Result<Chat>
 
-    /** Updates pin / mute / archive status. */
-    suspend fun updateChatSettings(
-        chatId: String,
-        isPinned: Boolean? = null,
-        isMuted: Boolean? = null,
-        isArchived: Boolean? = null,
-        isBlocked: Boolean? = null,
-        isFavorited: Boolean? = null
-    ): Result<Unit>
-
-    // ── Messages ───────────────────────────────────────────────────────────
-
-    /** Observes messages in a chat (oldest → newest). */
-    fun observeMessages(chatId: String): Flow<List<Message>>
-
-    /**
-     * Sends a message.
-     *
-     * If the device is online the message travels via Firebase/Supabase.
-     * If offline it is put in the [MessageQueue] and advertised over BLE.
-     */
-    suspend fun sendMessage(
-        chatId: String,
-        messageType: MessageType,
-        content: String? = null,
-        mediaLocalPath: String? = null,
-        replyToMessageId: String? = null
-    ): Result<Message>
-
-    /** Edits a text message. */
-    suspend fun editMessage(messageId: String, newContent: String): Result<Unit>
-
-    /** Deletes a message for the current user or for everyone. */
-    suspend fun deleteMessage(messageId: String, forEveryone: Boolean): Result<Unit>
-
-    /** Adds or removes an emoji reaction to a message. */
-    suspend fun reactToMessage(messageId: String, emoji: String?): Result<Unit>
-
-    /** Forwards a message to another chat. */
-    suspend fun forwardMessage(messageId: String, targetChatId: String): Result<Unit>
-
-    /** Marks all messages in a chat as read. */
-    suspend fun markChatAsRead(chatId: String): Result<Unit>
-
-    /** Marks messages up to [upToTimestamp] as read (inclusive). */
-    suspend fun markChatAsReadUpTo(chatId: String, upToTimestamp: Long): Result<Unit>
-
-    /** Searches messages within a chat. */
-    suspend fun searchMessages(chatId: String, query: String): Result<List<Message>>
-
-    /** Returns the number of items waiting in the offline queue. */
-    fun observeQueuedMessageCount(): Flow<Int>
-
-    /** Retries failed messages for a specific delivery method in batches. */
-    suspend fun retryFailedMessages(preferredMethod: DeliveryMethod, batchSize: Int = 50): Result<Int>
-
-    // ✅ PAGINATION: Load messages with cursor-based pagination
-    suspend fun getMessagesPaged(
-        chatId: String,
-        beforeTimestamp: Long? = null,
-        limit: Int = 50
-    ): Result<List<Message>>
-
-    /** Get single message by ID */
-    suspend fun getMessageById(messageId: String): Message
-
-    /** Get reactions for a message */
-    suspend fun getMessageReactions(messageId: String): Map<String, String>
-
-    /** Get read receipts for a message */
-    suspend fun getReadReceipts(messageId: String): Map<String, Long>
-
-    /** Get delivery receipts for a message */
-    suspend fun getDeliveryReceipts(messageId: String): Map<String, Long>
-
-    // ── Group management (admin) ───────────────────────────────────────────
-
-    /** [userId] kullanıcısını grup yöneticisi yapar (yalnızca mevcut yöneticiler). */
-    suspend fun promoteGroupAdmin(chatId: String, userId: String): Result<Unit>
-
-    /** Yöneticilik kaldırılır; en az bir yönetici kalmalıdır. */
-    suspend fun demoteGroupAdmin(chatId: String, userId: String): Result<Unit>
-
-    /** Üyeyi gruptan çıkarır (yönetici; kendini çıkarmaz — [leaveGroup] kullanın). */
-    suspend fun removeGroupMember(chatId: String, userId: String): Result<Unit>
-
-    /** Mevcut kullanıcının gruptan ayrılmasını sağlar. */
-    suspend fun leaveGroup(chatId: String): Result<Unit>
-
-    /** Grup adı / görseli (yönetici). */
-    suspend fun updateGroupProfile(chatId: String, name: String?, imageUrl: String?): Result<Unit>
+    /** Deletes a chat. */
+    suspend fun deleteChat(chatId: String): Result<Unit>
 }

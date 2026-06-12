@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -42,26 +43,29 @@ class AccountCenterViewModel @Inject constructor(
 
     init {
         accountRepository.observeSessions()
-            .onEach { sessions -> _uiState.value = _uiState.value.copy(sessions = sessions) }
+            .onEach { sessions -> _uiState.update { it.copy(sessions = sessions) } }
             .launchIn(viewModelScope)
 
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(activeUid = accountRepository.getActiveUid())
+            val result = accountRepository.getActiveUid()
+            if (result is Result.Success) {
+                _uiState.update { it.copy(activeUid = result.data) }
+            }
         }
     }
 
     fun switchAccount(uid: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isSwitching = true, switchError = null)
+            _uiState.update { it.copy(isSwitching = true, switchError = null) }
             when (val result = accountRepository.switchToAccount(uid)) {
                 is Result.Success -> {
-                    _uiState.value = _uiState.value.copy(isSwitching = false, activeUid = uid)
+                    _uiState.update { it.copy(isSwitching = false, activeUid = uid) }
                     _effects.emit(AccountCenterEffect.SwitchComplete(uid))
                 }
                 is Result.Error -> {
-                    _uiState.value = _uiState.value.copy(isSwitching = false, switchError = result.message)
+                    _uiState.update { it.copy(isSwitching = false, switchError = result.message ?: "An unexpected error occurred") }
                 }
-                else -> _uiState.value = _uiState.value.copy(isSwitching = false)
+                else -> _uiState.update { it.copy(isSwitching = false) }
             }
         }
     }
@@ -71,6 +75,6 @@ class AccountCenterViewModel @Inject constructor(
     }
 
     fun dismissError() {
-        _uiState.value = _uiState.value.copy(switchError = null)
+        _uiState.update { it.copy(switchError = null) }
     }
 }

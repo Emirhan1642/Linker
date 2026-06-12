@@ -16,6 +16,7 @@ import okhttp3.CertificatePinner
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Response
+import timber.log.Timber
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,9 +40,10 @@ object CertificatePins {
     // GlobalSign Root CA - R2 (backup)
     const val GLOBALSIGN_ROOT_R2 = "sha256/r/mIkG3eEpVdm+u/ko/cwxzOMo1bk4TyHIlByibiA5E="
     
-    // Supabase (Let's Encrypt)
-    const val SUPABASE_ROOT_CA = "sha256/Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o=" // ISG X1
+    // Supabase (Let's Encrypt / Cloudflare Edge)
+    const val SUPABASE_ROOT_CA = "sha256/C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=" // Let's Encrypt ISRG Root X1
     const val SUPABASE_BACKUP_CA = "sha256/jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=" // ISRG Root X1 Backup
+    const val SUPABASE_EDGE_CERT = "sha256/p51goejPCgGH+Oog/MU2k6PObcEfTrrr73jUcuWJ7w0=" // Supabase Leaf/Edge
     
     // Cloudinary
     const val CLOUDINARY_ROOT_CA = "sha256/Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o=" 
@@ -92,7 +94,14 @@ class CertificatePinningConfig @Inject constructor(
     private val remoteConfig: FirebaseRemoteConfig,
     @ApplicationContext private val context: Context
 ) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("cert_pinning_prefs", Context.MODE_PRIVATE)
+    private val prefs: SharedPreferences = run {
+        val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
+        try {
+            context.getSharedPreferences("cert_pinning_prefs", Context.MODE_PRIVATE)
+        } finally {
+            android.os.StrictMode.setThreadPolicy(oldPolicy)
+        }
+    }
     private val PREF_PINNING_ENABLED = "cert_pinning_enabled"
     private val PREF_PINNING_FAILURES = "cert_pinning_failures"
     private val MAX_FAILURES_BEFORE_DISABLE = 3
@@ -177,7 +186,7 @@ class CertificatePinningInterceptor @Inject constructor(
                 .add("*.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GLOBALSIGN_ROOT_R2)
                 .add("*.google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
                 .add("firestore.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
-                .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA)
+                .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA, CertificatePins.SUPABASE_EDGE_CERT, CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GLOBALSIGN_ROOT_R2)
                 .add("*.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .add("res.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .build()
@@ -196,7 +205,7 @@ class CertificatePinningInterceptor @Inject constructor(
             val response = chain.proceed(request)
             
             if (BuildConfig.DEBUG && shouldPin(request.url.host)) {
-                SecurityLogger.logDebug("Certificate pinning validated for \${request.url.host}")
+                SecurityLogger.logDebug("Certificate pinning validated for ${request.url.host}")
             }
             
             response
@@ -205,14 +214,14 @@ class CertificatePinningInterceptor @Inject constructor(
             if (e.message?.contains("Certificate pinning failure") == true) {
                 handlePinningFailure(request.url.host, e)
                 pinningConfig.recordPinningFailure()
-                throw SecurityException("Certificate pinning failed for \${request.url.host}", e)
+                throw SecurityException("Certificate pinning failed for ${request.url.host}", e)
             }
             throw e
         }
     }
     
     private fun handlePinningFailure(host: String, error: IOException) {
-        Log.e(TAG, "Certificate pinning FAILED for \$host: \${error.message}")
+        Timber.e("Certificate pinning FAILED for $host: ${error.message}")
         
         SecurityLogger.logEvent(
             SecurityLogger.EventType.SECURITY_CHECK_FAILED,

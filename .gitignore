@@ -105,3 +105,6 @@ apikey.properties
 
 .kotlin
 .linker-cache.json
+
+build_log.txt
+build_errors.txt

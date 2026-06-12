@@ -20,9 +20,12 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.linker.app.core.util.UiText
 
 data class UserProfileUiState(
     val isLoading: Boolean = true,
@@ -31,11 +34,11 @@ data class UserProfileUiState(
     val selectedTab: Int = 0,
     val isActionLoading: Boolean = false,
     val isContentLocked: Boolean = false,
-    val error: String? = null
+    val error: UiText? = null
 )
 
 sealed class UserProfileEffect {
-    data class ShowSnackbar(val message: String) : UserProfileEffect()
+    data class ShowSnackbar(val message: UiText) : UserProfileEffect()
     data object NavigateToChat : UserProfileEffect()
 }
 
@@ -67,7 +70,7 @@ class UserProfileViewModel @Inject constructor(
             when (val result = userRepository.getUserById(userId)) {
                 is Result.Success -> {
                     val user = result.data
-                    val locked = user.isPrivate && !user.isFollowing
+                    val locked = user.privacy.isPrivate && !user.relationship.isFollowing
                     // isActionLoading'i de burada sıfırlıyoruz —
                     // follow işlemi tamamlanınca loadUser() çağrılır ve her şey temizlenir
                     _uiState.update {
@@ -78,13 +81,26 @@ class UserProfileViewModel @Inject constructor(
                             isContentLocked = locked
                         )
                     }
+                    if (!locked) {
+                        loadUserPosts()
+                    }
                 }
                 is Result.Error -> _uiState.update {
-                    it.copy(isLoading = false, isActionLoading = false, error = result.message)
+                    it.copy(isLoading = false, isActionLoading = false, error = UiText.DynamicString(result.message ?: "Unknown error"))
                 }
                 is Result.Loading -> {}
             }
         }
+    }
+
+    private fun loadUserPosts() {
+        linkRepository.observeLinksByAuthor(userId)
+            .onEach { result ->
+                if (result is Result.Success) {
+                    _uiState.update { it.copy(posts = result.data) }
+                }
+            }
+            .launchIn(viewModelScope)
     }
 
     fun onTabSelected(tab: Int) = _uiState.update { it.copy(selectedTab = tab) }
@@ -105,7 +121,7 @@ class UserProfileViewModel @Inject constructor(
                 is Result.Success -> loadUser()   // loadUser isActionLoading'i false yapıyor
                 is Result.Error -> {
                     _uiState.update { it.copy(isActionLoading = false) }
-                    _effects.emit(UserProfileEffect.ShowSnackbar(result.message))
+                    _effects.emit(UserProfileEffect.ShowSnackbar(UiText.DynamicString(result.message ?: "Action failed")))
                 }
                 is Result.Loading -> {}
             }

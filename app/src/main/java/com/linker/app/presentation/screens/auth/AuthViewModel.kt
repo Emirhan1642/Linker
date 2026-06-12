@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+
 import javax.inject.Inject
 
 data class AuthUiState(
@@ -75,6 +75,7 @@ class AuthViewModel @Inject constructor(
     private val sendResetEmail: SendPasswordResetEmailUseCase,
     private val completeProfileSetup: CompleteProfileSetupUseCase,
     private val signOutUseCase: SignOutUseCase,
+    private val addPassiveAccountUseCase: com.linker.app.domain.usecase.auth.AddPassiveAccountUseCase,
     private val accountRepository: AccountRepository,
     private val pushTokenRegistrar: PushTokenRegistrar,
     private val credentialEncoder: CredentialEncoder
@@ -125,31 +126,56 @@ class AuthViewModel @Inject constructor(
 
     fun onEmailSignIn() = viewModelScope.launch {
         val state = _uiState.value
-        if (!validateEmailPassword(state)) return@launch
+        val (emailErr, passwordErr) = validateEmailPassword(state)
+        if (emailErr != null || passwordErr != null) {
+            _uiState.update { it.copy(emailError = emailErr, passwordError = passwordErr) }
+            return@launch
+        }
         _uiState.update { it.copy(isLoading = true) }
-        when (val r = signInWithEmail(state.email.trim(), state.password)) {
-            is Result.Success -> {
-                SecurityLogger.logAuthSuccess(r.data.userId, "email")
-                handleSignInSuccess(r.data)
+        
+        if (state.isAddingAccount) {
+            when (val r = addPassiveAccountUseCase(state.email.trim(), state.password)) {
+                is Result.Success -> {
+                    _effect.emit(AuthEffect.NavigateBackToAccountCenter)
+                }
+                is Result.Error -> {
+                    SecurityLogger.logAuthFailure("Passive account addition failed: ${r.message}", state.email.trim())
+                    showError(r.message)
+                }
+                is Result.Loading -> {}
             }
-            is Result.Error -> {
-                SecurityLogger.logAuthFailure("Email sign-in failed: ${r.message}", state.email.trim())
-                showError(r.message)
+        } else {
+            when (val r = signInWithEmail(state.email.trim(), state.password)) {
+                is Result.Success -> {
+                    SecurityLogger.logAuthSuccess(r.data.userId, "email")
+                    handleSignInSuccess(r.data)
+                }
+                is Result.Error -> {
+                    SecurityLogger.logAuthFailure("Email sign-in failed: ${r.message}", state.email.trim())
+                    showError(r.message)
+                }
+                is Result.Loading -> {}
             }
-            is Result.Loading -> {}
         }
         _uiState.update { it.copy(isLoading = false) }
     }
 
     fun onEmailSignUp() = viewModelScope.launch {
         val state = _uiState.value
-        if (!validateEmailPassword(state)) return@launch
+        val (emailErr, passwordErr) = validateEmailPassword(state)
+        if (emailErr != null || passwordErr != null) {
+            _uiState.update { it.copy(emailError = emailErr, passwordError = passwordErr) }
+            return@launch
+        }
         if (state.password != state.confirmPassword) {
             _uiState.update { it.copy(passwordError = "Passwords do not match") }; return@launch
         }
         _uiState.update { it.copy(isLoading = true) }
         when (val r = createAccount(state.email.trim(), state.password)) {
-            is Result.Success -> _effect.emit(AuthEffect.NavigateToProfileSetup)
+            is Result.Success -> {
+                _uiState.update { it.copy(currentUser = r.data) }
+                _effect.emit(AuthEffect.NavigateToProfileSetup)
+            }
             is Result.Error   -> showError(r.message)
             is Result.Loading -> {}
         }
@@ -161,7 +187,11 @@ class AuthViewModel @Inject constructor(
         if (phone.isEmpty()) { _uiState.update { it.copy(phoneError = "Enter your phone number") }; return@launch }
         
         // SECURITY: Validate phone number format
-        if (!validatePhoneNumber(phone)) return@launch
+        val phoneErr = validatePhoneNumber(phone)
+        if (phoneErr != null) {
+            _uiState.update { it.copy(phoneError = phoneErr) }
+            return@launch
+        }
         
         _uiState.update { it.copy(isLoading = true) }
         when (val r = sendPhoneOtp(phone)) {
@@ -197,12 +227,23 @@ class AuthViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = false) }
     }
 
-    fun onCompleteProfile(userId: String) = viewModelScope.launch {
+    fun onCompleteProfile() = viewModelScope.launch {
+        val userId = _uiState.value.currentUser?.userId ?: authState.value?.userId
+        if (userId == null) {
+            showError("User not found. Please sign in again.")
+            _uiState.update { it.copy(authStep = AuthStep.SIGN_IN) }
+            return@launch
+        }
+
         val state = _uiState.value
         if (state.username.isBlank()) { _uiState.update { it.copy(usernameError = "Username required") }; return@launch }
         
         // SECURITY: Validate username format
-        if (!validateUsername(state.username.trim())) return@launch
+        val usernameErr = validateUsername(state.username.trim())
+        if (usernameErr != null) {
+            _uiState.update { it.copy(usernameError = usernameErr) }
+            return@launch
+        }
         
         _uiState.update { it.copy(isLoading = true) }
         when (val r = completeProfileSetup(userId, state.username, state.displayName, null)) {
@@ -221,6 +262,10 @@ class AuthViewModel @Inject constructor(
                 else
                     AuthEffect.NavigateToHome
                 _effect.emit(dest)
+
+                viewModelScope.launch {
+                    pushTokenRegistrar.registerCurrentToken()
+                }
             }
             is Result.Error -> _uiState.update { it.copy(usernameError = r.message) }
             is Result.Loading -> {}
@@ -329,48 +374,28 @@ class AuthViewModel @Inject constructor(
     // - Username format validation
     // - Phone number format validation
 
-    private fun validateEmailPassword(state: AuthUiState): Boolean {
-        var valid = true
-        
-        // Email validation using InputValidator
-        if (!InputValidator.isValidEmail(state.email.trim())) {
-            _uiState.update { it.copy(emailError = "Enter a valid email") }
-            valid = false
-        }
-        
-        // Password validation using InputValidator
+    private fun validateEmailPassword(state: AuthUiState): Pair<String?, String?> {
+        val emailError = if (!InputValidator.isValidEmail(state.email.trim())) "Enter a valid email" else null
         val passwordResult = InputValidator.validatePassword(state.password)
-        if (!passwordResult.isValid) {
-            _uiState.update { it.copy(passwordError = passwordResult.message) }
-            valid = false
-        }
-        
-        return valid
+        val passwordError = if (!passwordResult.isValid) passwordResult.message else null
+        return Pair(emailError, passwordError)
     }
     
     /**
      * Validate username format
      * Used during profile setup
      */
-    private fun validateUsername(username: String): Boolean {
+    private fun validateUsername(username: String): String? {
         val result = InputValidator.validateUsername(username)
-        if (!result.isValid) {
-            _uiState.update { it.copy(usernameError = result.message) }
-            return false
-        }
-        return true
+        return if (!result.isValid) result.message else null
     }
     
     /**
      * Validate phone number format
      * Used during phone authentication
      */
-    private fun validatePhoneNumber(phoneNumber: String): Boolean {
-        if (!InputValidator.isValidPhoneNumber(phoneNumber)) {
-            _uiState.update { it.copy(phoneError = "Enter a valid phone number (e.g., +905551234567)") }
-            return false
-        }
-        return true
+    private fun validatePhoneNumber(phoneNumber: String): String? {
+        return if (!InputValidator.isValidPhoneNumber(phoneNumber)) "Enter a valid phone number (e.g., +905551234567)" else null
     }
 
     private fun showError(msg: String) = viewModelScope.launch {

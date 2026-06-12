@@ -164,6 +164,11 @@ data class User(
     fun hasPhoneNumber(): Boolean = !_phoneNumber.isNullOrBlank()
 
     /**
+     * Checks if the user has completed the onboarding/profile setup.
+     */
+    fun hasCompletedOnboarding(): Boolean = username.isNotBlank()
+
+    /**
      * Override toString to redact PII fields (email, phoneNumber).
      * Prevents accidental exposure in logs.
      */

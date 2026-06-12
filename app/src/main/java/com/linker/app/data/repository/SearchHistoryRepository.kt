@@ -1,4 +1,4 @@
-package com.linker.app.presentation.screens.search
+package com.linker.app.data.repository
 
 import android.content.Context
 import androidx.datastore.core.DataStore
@@ -14,8 +14,10 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val SEARCH_DATASTORE_NAME = "linker_search_history"
+
 private val Context.searchDataStore: DataStore<Preferences>
-        by preferencesDataStore(name = "linker_search_history")
+        by preferencesDataStore(name = SEARCH_DATASTORE_NAME)
 
 /**
  * Hesaba özel arama geçmişini DataStore'da saklar.

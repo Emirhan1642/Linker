@@ -5,7 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.linker.app.core.util.Result as LinkerResult
 import com.linker.app.domain.model.DeliveryMethod
-import com.linker.app.domain.repository.ChatRepository
+import com.linker.app.domain.repository.MessageRepository
 import com.linker.app.core.util.SecureLogger
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 class MessageQueueWorker @AssistedInject constructor(
     @Assisted context: Context,
     @Assisted params: WorkerParameters,
-    private val chatRepository: ChatRepository
+    private val messageRepository: MessageRepository
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -46,8 +46,7 @@ class MessageQueueWorker @AssistedInject constructor(
                 SecureLogger.d(TAG, "Starting batch processing loop. Batch size: $BATCH_SIZE")
 
                 while (keepProcessing) {
-                    val batchResult = chatRepository.retryFailedMessages(
-                        preferredMethod = DeliveryMethod.ONLINE,
+                    val batchResult = messageRepository.retryFailedMessages(
                         batchSize = BATCH_SIZE
                     )
 

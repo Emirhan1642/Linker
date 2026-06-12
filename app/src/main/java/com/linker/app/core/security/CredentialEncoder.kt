@@ -121,7 +121,7 @@ class CredentialEncoder @Inject constructor() {
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.CREDENTIAL_ENCRYPTION_FAILED,
-                "Failed to encode credentials: \${e.message}"
+                "Failed to encode credentials: ${e.message}"
             )
             throw SecurityException("Failed to encode credentials", e)
         } finally {
@@ -194,7 +194,7 @@ class CredentialEncoder @Inject constructor() {
         } catch (e: Exception) {
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.CREDENTIAL_ENCRYPTION_FAILED,
-                "Failed to decode credentials: \${e.message}"
+                "Failed to decode credentials: ${e.message}"
             )
             throw SecurityException("Failed to decode credentials", e)
         } finally {
