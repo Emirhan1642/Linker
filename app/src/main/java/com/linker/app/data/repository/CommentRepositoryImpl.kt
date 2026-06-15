@@ -7,8 +7,10 @@ import com.google.firebase.firestore.Query
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.RetryUtil
 import com.linker.app.domain.model.Comment
+import com.linker.app.domain.model.CommentVersion
 import com.linker.app.domain.model.Notification
 import com.linker.app.domain.model.NotificationType
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.domain.model.User
 import com.linker.app.domain.repository.CommentRepository
 import com.linker.app.domain.repository.NotificationRepository
@@ -222,13 +224,23 @@ class CommentRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteComment(commentId: String): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
         val commentDoc = commentsCollection.document(commentId).get().await()
         val linkId = commentDoc.getString("linkId")
         val parentCommentId = commentDoc.getString("parentCommentId")
+        val repliesCount = commentDoc.getLong("repliesCount") ?: 0L
 
         val batch = firestore.batch()
-        // Delete the comment
-        batch.delete(commentsCollection.document(commentId))
+
+        if (repliesCount > 0) {
+            // Soft delete: keep the document but blank the content
+            batch.update(commentsCollection.document(commentId), mapOf(
+                "content" to "[Silindi]",
+                "isDeleted" to true
+            ))
+        } else {
+            batch.delete(commentsCollection.document(commentId))
+        }
 
         // If this was a reply, decrement parent's repliesCount
         if (parentCommentId != null) {
@@ -248,6 +260,71 @@ class CommentRepositoryImpl @Inject constructor(
         batch.commit().await()
     }
 
+    override suspend fun editComment(commentId: String, newContent: String): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val commentRef = commentsCollection.document(commentId)
+        val commentDoc = commentRef.get().await()
+
+        val authorId = commentDoc.getString("authorId") ?: ""
+        if (authorId != currentUserId) throw SecurityException("Only the author can edit this comment")
+
+        val currentEditCount = (commentDoc.getLong("editCount") ?: 0L).toInt()
+        if (currentEditCount >= Comment.MAX_EDITS) {
+            throw IllegalStateException("Bu yorum en fazla ${Comment.MAX_EDITS} kez düzenlenebilir")
+        }
+
+        val oldContent = commentDoc.getString("content") ?: ""
+        val now = System.currentTimeMillis()
+        val newVersion = currentEditCount + 1
+
+        // Save old version to edit history sub-collection
+        val historyRef = commentRef.collection("editHistory").document("v$newVersion")
+
+        val batch = firestore.batch()
+        batch.set(historyRef, mapOf(
+            "content" to oldContent,
+            "editedAt" to now,
+            "version" to newVersion
+        ))
+        batch.update(commentRef, mapOf(
+            "content" to newContent,
+            "isEdited" to true,
+            "editCount" to newVersion,
+            "updatedAt" to now
+        ))
+        batch.commit().await()
+    }
+
+    override suspend fun getCommentEditHistory(commentId: String): Result<List<CommentVersion>> = RetryUtil.retrySafeCall {
+        val historySnapshot = commentsCollection
+            .document(commentId)
+            .collection("editHistory")
+            .orderBy("version", Query.Direction.DESCENDING)
+            .get()
+            .await()
+
+        historySnapshot.documents.mapNotNull { doc ->
+            val content = doc.getString("content") ?: return@mapNotNull null
+            val editedAt = doc.getLong("editedAt") ?: return@mapNotNull null
+            val version = (doc.getLong("version") ?: return@mapNotNull null).toInt()
+            CommentVersion(content = content, editedAt = editedAt, version = version)
+        }
+    }
+
+    override suspend fun reportComment(commentId: String, reason: ReportReason): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val reportId = "${currentUserId}_${commentId}"
+        firestore.collection("reports").document(reportId).set(
+            mapOf(
+                "reporterId" to currentUserId,
+                "contentId" to commentId,
+                "contentType" to "comment",
+                "reason" to reason.name,
+                "createdAt" to System.currentTimeMillis()
+            )
+        ).await()
+    }
+
     /**
      * Firestore [toObject] için düz veri taşıyıcı; alan adları koleksiyon şemasıyla aynı kalmalı (@Keep).
      * Eşleme suspend işlemleri içerdiği için nested class içinde değil, repository metodunda yapılır.
@@ -264,6 +341,8 @@ class CommentRepositoryImpl @Inject constructor(
         val repliesCount: Int = 0,
         val isPinned: Boolean = false,
         val isEdited: Boolean = false,
+        val isDeleted: Boolean = false,
+        val editCount: Int = 0,
         val createdAt: Long = 0,
         val updatedAt: Long = 0
     )
@@ -325,6 +404,7 @@ class CommentRepositoryImpl @Inject constructor(
                         isLiked = isLiked,
                         isPinned = data.isPinned,
                         isEdited = data.isEdited,
+                        editCount = data.editCount,
                         createdAt = data.createdAt,
                         updatedAt = data.updatedAt
                     )

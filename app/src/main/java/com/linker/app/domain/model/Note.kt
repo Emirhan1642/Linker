@@ -14,6 +14,9 @@ sealed class Note {
     abstract val author: NoteAuthor
     abstract val backgroundColor: String?
     abstract val textColor: String?
+    abstract val likesCount: Int
+    abstract val isLiked: Boolean
+    abstract val repliesCount: Int
     abstract val createdAt: Long
     abstract val expiresAt: Long
 
@@ -34,6 +37,9 @@ sealed class Note {
         val content: String,
         override val backgroundColor: String? = null,
         override val textColor: String? = null,
+        override val likesCount: Int = 0,
+        override val isLiked: Boolean = false,
+        override val repliesCount: Int = 0,
         override val createdAt: Long,
         override val expiresAt: Long
     ) : Note() {
@@ -43,6 +49,8 @@ sealed class Note {
             require(content.length <= MAX_TEXT_CONTENT_LENGTH) {
                 "Text content exceeds maximum length of $MAX_TEXT_CONTENT_LENGTH"
             }
+            require(likesCount >= 0) { "likesCount cannot be negative" }
+            require(repliesCount >= 0) { "repliesCount cannot be negative" }
             require(createdAt > 0) { "createdAt must be positive" }
             require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
             require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
@@ -81,6 +89,9 @@ sealed class Note {
         val musicAlbumArt: String?,
         override val backgroundColor: String? = null,
         override val textColor: String? = null,
+        override val likesCount: Int = 0,
+        override val isLiked: Boolean = false,
+        override val repliesCount: Int = 0,
         override val createdAt: Long,
         override val expiresAt: Long
     ) : Note() {
@@ -93,6 +104,8 @@ sealed class Note {
             require(musicTrackId.isNotBlank()) { "musicTrackId cannot be blank" }
             require(musicTrackName.isNotBlank()) { "musicTrackName cannot be blank" }
             require(musicArtistName.isNotBlank()) { "musicArtistName cannot be blank" }
+            require(likesCount >= 0) { "likesCount cannot be negative" }
+            require(repliesCount >= 0) { "repliesCount cannot be negative" }
             require(createdAt > 0) { "createdAt must be positive" }
             require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
             require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
@@ -125,8 +138,12 @@ sealed class Note {
         val content: String,
         val countdownTargetTime: Long,
         val countdownTitle: String,
+        val countdownSubscriberCount: Int = 0,
         override val backgroundColor: String? = null,
         override val textColor: String? = null,
+        override val likesCount: Int = 0,
+        override val isLiked: Boolean = false,
+        override val repliesCount: Int = 0,
         override val createdAt: Long,
         override val expiresAt: Long
     ) : Note() {
@@ -138,6 +155,9 @@ sealed class Note {
             }
             require(countdownTargetTime > 0) { "countdownTargetTime must be positive" }
             require(countdownTitle.isNotBlank()) { "countdownTitle cannot be blank" }
+            require(countdownSubscriberCount >= 0) { "countdownSubscriberCount cannot be negative" }
+            require(likesCount >= 0) { "likesCount cannot be negative" }
+            require(repliesCount >= 0) { "repliesCount cannot be negative" }
             require(createdAt > 0) { "createdAt must be positive" }
             require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
             require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
@@ -162,6 +182,51 @@ sealed class Note {
 
         companion object {
             const val MAX_COUNTDOWN_CONTENT_LENGTH = 40
+        }
+    }
+
+    /**
+     * Location-sharing note.
+     *
+     * @property noteId Unique note identifier.
+     * @property author Lightweight author reference.
+     * @property latitude GPS latitude.
+     * @property longitude GPS longitude.
+     * @property placeName Human-readable place name (e.g. "Kadıköy, Istanbul").
+     * @property mapPreviewUrl Google Maps Static API URL for the location preview image.
+     * @property backgroundColor Background color hex code.
+     * @property textColor Text color hex code.
+     * @property createdAt Creation timestamp (epoch ms).
+     * @property expiresAt Expiration timestamp (epoch ms).
+     */
+    data class Location(
+        override val noteId: String,
+        override val author: NoteAuthor,
+        val latitude: Double,
+        val longitude: Double,
+        val placeName: String,
+        val mapPreviewUrl: String?,
+        override val backgroundColor: String? = null,
+        override val textColor: String? = null,
+        override val likesCount: Int = 0,
+        override val isLiked: Boolean = false,
+        override val repliesCount: Int = 0,
+        override val createdAt: Long,
+        override val expiresAt: Long
+    ) : Note() {
+        init {
+            require(noteId.isNotBlank()) { "noteId cannot be blank" }
+            require(latitude in -90.0..90.0) { "latitude must be between -90 and 90" }
+            require(longitude in -180.0..180.0) { "longitude must be between -180 and 180" }
+            require(placeName.isNotBlank()) { "placeName cannot be blank" }
+            require(likesCount >= 0) { "likesCount cannot be negative" }
+            require(repliesCount >= 0) { "repliesCount cannot be negative" }
+            require(createdAt > 0) { "createdAt must be positive" }
+            require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
+            require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
+                "Note cannot expire more than 24 hours after creation"
+            }
+            validateColors()
         }
     }
 
@@ -233,5 +298,7 @@ enum class NoteType(
     /** Note with music attachment. */
     MUSIC("Music", "ic_music", 40),
     /** Countdown note with target time. */
-    COUNTDOWN("Countdown", "ic_timer", 40)
+    COUNTDOWN("Countdown", "ic_timer", 40),
+    /** Location-sharing note. */
+    LOCATION("Location", "ic_location", 40)
 }

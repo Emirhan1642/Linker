@@ -206,6 +206,7 @@ class NoteRepositoryImpl @Inject constructor(
     override fun recordView(noteId: String) {}
     override suspend fun getViewCount(noteId: String): Result<Int> = safeCall { 0 }
     override suspend fun getViewers(noteId: String): Result<List<com.linker.app.domain.repository.NoteViewer>> = safeCall { emptyList() }
+    override suspend fun toggleLikeNote(noteId: String): Result<Boolean> = safeCall { false }
     override suspend fun reactToNote(noteId: String, emoji: String?): Result<Unit> = safeCall {}
     override suspend fun getNoteReactions(noteId: String): Result<Map<String, String>> = safeCall { emptyMap() }
     override suspend fun replyToNote(noteId: String, content: String): Result<Unit> = safeCall {}
@@ -278,6 +279,18 @@ class NoteRepositoryImpl @Inject constructor(
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
+            NoteType.LOCATION -> Note.Location(
+                noteId = noteId,
+                author = authorStub,
+                latitude = (data["latitude"] as? Number)?.toDouble() ?: 0.0,
+                longitude = (data["longitude"] as? Number)?.toDouble() ?: 0.0,
+                placeName = data["placeName"] as? String ?: "",
+                mapPreviewUrl = data["mapPreviewUrl"] as? String,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
         }
     }
 
@@ -329,6 +342,149 @@ class NoteRepositoryImpl @Inject constructor(
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
+            NoteType.LOCATION -> Note.Location(
+                noteId = noteId,
+                author = authorRef,
+                latitude = (data["latitude"] as? Number)?.toDouble() ?: 0.0,
+                longitude = (data["longitude"] as? Number)?.toDouble() ?: 0.0,
+                placeName = data["placeName"] as? String ?: "",
+                mapPreviewUrl = data["mapPreviewUrl"] as? String,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
         }
     }
+
+    override suspend fun postLocationNote(
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ): Result<Note.Location> {
+        return try {
+            val now = System.currentTimeMillis()
+            val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
+            val noteId = UUID.randomUUID().toString()
+
+            val noteData = hashMapOf(
+                "authorId" to currentUserId,
+                "noteType" to "LOCATION",
+                "content" to "",
+                "latitude" to latitude,
+                "longitude" to longitude,
+                "placeName" to placeName,
+                "createdAt" to now,
+                "expiresAt" to expiresAt
+            )
+            notesCollection.document(noteId).set(noteData).await()
+
+            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            Result.Success(
+                Note.Location(
+                    noteId = noteId,
+                    author = authorStub,
+                    latitude = latitude,
+                    longitude = longitude,
+                    placeName = placeName,
+                    mapPreviewUrl = null,
+                    backgroundColor = null,
+                    textColor = null,
+                    createdAt = now,
+                    expiresAt = expiresAt
+                )
+            )
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Unknown error", e.toString())
+        }
+    }
+
+    override suspend fun postCountdownNote(
+        title: String,
+        targetTime: Long
+    ): Result<Note.Countdown> {
+        return try {
+            val now = System.currentTimeMillis()
+            val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
+            val noteId = UUID.randomUUID().toString()
+
+            val noteData = hashMapOf(
+                "authorId" to currentUserId,
+                "noteType" to "COUNTDOWN",
+                "content" to "",
+                "countdownTitle" to title,
+                "countdownTargetTime" to targetTime,
+                "createdAt" to now,
+                "expiresAt" to expiresAt
+            )
+            notesCollection.document(noteId).set(noteData).await()
+
+            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            Result.Success(
+                Note.Countdown(
+                    noteId = noteId,
+                    author = authorStub,
+                    content = "",
+                    countdownTitle = title,
+                    countdownTargetTime = targetTime,
+                    backgroundColor = null,
+                    textColor = null,
+                    createdAt = now,
+                    expiresAt = expiresAt
+                )
+            )
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Unknown error", e.toString())
+        }
+    }
+
+    override suspend fun postMusicNote(
+        trackId: String,
+        trackName: String,
+        artistName: String,
+        albumArtUrl: String?,
+        caption: String
+    ): Result<Note.Music> {
+        return try {
+            val now = System.currentTimeMillis()
+            val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
+            val noteId = UUID.randomUUID().toString()
+
+            val noteData = hashMapOf(
+                "authorId" to currentUserId,
+                "noteType" to "MUSIC",
+                "content" to caption,
+                "musicTrackId" to trackId,
+                "musicTrackName" to trackName,
+                "musicArtistName" to artistName,
+                "musicAlbumArt" to albumArtUrl,
+                "createdAt" to now,
+                "expiresAt" to expiresAt
+            )
+            notesCollection.document(noteId).set(noteData).await()
+
+            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            Result.Success(
+                Note.Music(
+                    noteId = noteId,
+                    author = authorStub,
+                    content = caption,
+                    musicTrackId = trackId,
+                    musicTrackName = trackName,
+                    musicArtistName = artistName,
+                    musicAlbumArt = albumArtUrl,
+                    backgroundColor = null,
+                    textColor = null,
+                    createdAt = now,
+                    expiresAt = expiresAt
+                )
+            )
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Unknown error", e.toString())
+        }
+    }
+
+    override suspend fun subscribeToCountdown(noteId: String): Result<Unit> = safeCall { throw NotImplementedError() }
+    override suspend fun unsubscribeFromCountdown(noteId: String): Result<Unit> = safeCall { throw NotImplementedError() }
+    override suspend fun isSubscribedToCountdown(noteId: String): Result<Boolean> = safeCall { throw NotImplementedError() }
 }

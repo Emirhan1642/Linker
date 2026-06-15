@@ -1,6 +1,54 @@
 package com.linker.app.domain.model
 
 /**
+ * A single historical version of a Link description.
+ *
+ * @property content The description text at this version.
+ * @property editedAt Timestamp when this version was saved (epoch ms).
+ * @property editedByUserId The user ID who made this edit.
+ * @property version Version number (1-indexed; original = 0 implicit).
+ */
+data class DescriptionVersion(
+    val content: String,
+    val editedAt: Long,
+    val editedByUserId: String,
+    val version: Int
+) {
+    init {
+        require(editedAt > 0) { "editedAt must be positive" }
+        require(editedByUserId.isNotBlank()) { "editedByUserId cannot be blank" }
+        require(version > 0) { "version must be 1 or greater" }
+    }
+}
+
+/**
+ * Identifies the original author when a Link has been relinked.
+ *
+ * @property originalAuthorId User ID of the original author.
+ * @property originalAuthorUsername Username of the original author.
+ * @property originalAuthorDisplayName Display name of the original author.
+ * @property originalAuthorAvatarUrl Profile picture URL of the original author.
+ * @property originalLinkId ID of the original Link post.
+ * @property originalCreatedAt Timestamp of the original post.
+ */
+data class RelinkSource(
+    val originalAuthorId: String,
+    val originalAuthorUsername: String,
+    val originalAuthorDisplayName: String,
+    val originalAuthorAvatarUrl: String?,
+    val originalLinkId: String,
+    val originalCreatedAt: Long
+) {
+    init {
+        require(originalAuthorId.isNotBlank()) { "originalAuthorId cannot be blank" }
+        require(originalAuthorUsername.isNotBlank()) { "originalAuthorUsername cannot be blank" }
+        require(originalAuthorDisplayName.isNotBlank()) { "originalAuthorDisplayName cannot be blank" }
+        require(originalLinkId.isNotBlank()) { "originalLinkId cannot be blank" }
+        require(originalCreatedAt > 0) { "originalCreatedAt must be positive" }
+    }
+}
+
+/**
  * Engagement metrics for a Link post.
  *
  * Groups all engagement-related counts and user interaction flags.
@@ -154,6 +202,9 @@ sealed class MediaItem {
  * @property author Lightweight author reference (use [LinkAuthor.from] to create from [User]).
  * @property linkType Content type (FEED, VIDEO, or REEL).
  * @property description Post caption/description (nullable, up to [MAX_DESCRIPTION_LENGTH] chars).
+ * @property descriptionHistory List of previous description versions (max [MAX_DESCRIPTION_EDITS] entries).
+ * @property editCount How many times the description has been edited (max [MAX_DESCRIPTION_EDITS]).
+ * @property relinkSource If this post is a relink, identifies the original author and post.
  * @property mediaItems List of media items (images/videos/GIFs).
  * @property engagement Engagement metrics (likes, comments, shares, etc.).
  * @property location Location tag (nullable).
@@ -167,6 +218,9 @@ data class Link(
     val author: LinkAuthor,
     val linkType: LinkType = LinkType.FEED,
     val description: String? = null,
+    val descriptionHistory: List<DescriptionVersion> = emptyList(),
+    val editCount: Int = 0,
+    val relinkSource: RelinkSource? = null,
     val mediaItems: List<MediaItem> = emptyList(),
     val engagement: EngagementMetrics = EngagementMetrics(),
     val location: String? = null,
@@ -183,10 +237,24 @@ data class Link(
         require(mediaItems.size <= MAX_MEDIA_COUNT) { "Media items exceed maximum of $MAX_MEDIA_COUNT" }
         require(hashtags.size <= MAX_HASHTAGS) { "Hashtags exceed maximum of $MAX_HASHTAGS" }
         require(mentions.size <= MAX_MENTIONS) { "Mentions exceed maximum of $MAX_MENTIONS" }
+        require(editCount in 0..MAX_DESCRIPTION_EDITS) {
+            "editCount cannot exceed $MAX_DESCRIPTION_EDITS"
+        }
+        require(descriptionHistory.size <= MAX_DESCRIPTION_EDITS) {
+            "descriptionHistory cannot exceed $MAX_DESCRIPTION_EDITS entries"
+        }
         description?.let {
             require(it.length <= MAX_DESCRIPTION_LENGTH) { "Description exceeds maximum length of $MAX_DESCRIPTION_LENGTH" }
         }
     }
+
+    /** Whether this link's description can still be edited. */
+    val canEditDescription: Boolean
+        get() = editCount < MAX_DESCRIPTION_EDITS
+
+    /** Whether this link was relinked from another user's post. */
+    val isRelink: Boolean
+        get() = relinkSource != null
 
     /** Primary media item (first in the list). */
     val primaryMedia: MediaItem
@@ -210,6 +278,9 @@ data class Link(
 
         /** Maximum description/caption length. */
         const val MAX_DESCRIPTION_LENGTH = 2200
+
+        /** Maximum number of times a description can be edited. */
+        const val MAX_DESCRIPTION_EDITS = 2
 
         /** Maximum video duration in seconds (10 minutes). */
         const val MAX_VIDEO_DURATION_SECONDS = 600

@@ -35,6 +35,8 @@ android {
         buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"${properties.getProperty("cloudinary.cloudName", "")}\"")
         buildConfigField("String", "CLOUDINARY_API_KEY", "\"${properties.getProperty("cloudinary.apiKey", "")}\"")
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"${properties.getProperty("cloudinary.apiSecret", "")}\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${properties.getProperty("spotify.clientId", "")}\"")
+        buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"${properties.getProperty("spotify.clientSecret", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${properties.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${properties.getProperty("supabase.anonkey", "")}\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${properties.getProperty("supabase.publishablekey", "")}\"")
@@ -210,6 +212,20 @@ dependencies {
     coreLibraryDesugaring(libs.coreLibraryDesugaring)
 
     // Testing
+    // Google Play Services & Maps
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-maps:19.0.0")
+    implementation("com.google.maps.android:maps-compose:5.0.1")
+
+    // Retrofit & Network (For Spotify API Integration)
+    implementation("com.squareup.retrofit2:retrofit:2.11.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.11.0")
+
+    // Cloudinary for Media Uploads
+    implementation("com.cloudinary:cloudinary-android:2.5.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)

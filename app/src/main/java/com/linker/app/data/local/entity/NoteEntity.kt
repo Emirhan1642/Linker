@@ -57,5 +57,6 @@ data class NoteEntity(
 enum class NoteType {
     TEXT,
     MUSIC,
-    COUNTDOWN
+    COUNTDOWN,
+    LOCATION
 }

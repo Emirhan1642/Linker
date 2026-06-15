@@ -14,7 +14,10 @@ package com.linker.app.domain.model
  * @property duration Duration in seconds for video stories (null for images).
  * @property caption Optional text overlay on the story.
  * @property viewsCount Number of times this story has been viewed.
+ * @property likesCount Number of likes on this story.
  * @property isViewed Whether the current user has viewed this story.
+ * @property isLiked Whether the current user has liked this story.
+ * @property reactionEmoji The emoji reaction the current user sent (null if none).
  * @property viewedAt Timestamp when the current user viewed this story (epoch ms, null if not viewed).
  * @property createdAt Creation timestamp (epoch ms).
  * @property expiresAt Expiration timestamp (epoch ms).
@@ -28,7 +31,10 @@ data class Story(
     val duration: Int?,
     val caption: String?,
     val viewsCount: Int,
+    val likesCount: Int = 0,
     val isViewed: Boolean,
+    val isLiked: Boolean = false,
+    val reactionEmoji: String? = null,
     val viewedAt: Long? = null,
     val createdAt: Long,
     val expiresAt: Long
@@ -37,6 +43,7 @@ data class Story(
         require(storyId.isNotBlank()) { "storyId cannot be blank" }
         require(mediaUrl.isNotBlank()) { "mediaUrl cannot be blank" }
         require(viewsCount >= 0) { "viewsCount cannot be negative" }
+        require(likesCount >= 0) { "likesCount cannot be negative" }
         require(createdAt > 0) { "createdAt must be positive" }
         require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
         require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
@@ -83,6 +90,19 @@ data class Story(
         StoryMediaType.IMAGE -> DEFAULT_IMAGE_DISPLAY_SECONDS
         StoryMediaType.VIDEO -> duration ?: DEFAULT_IMAGE_DISPLAY_SECONDS
     }
+
+    /**
+     * Returns a copy with the story marked as liked/unliked.
+     */
+    fun toggleLike(): Story = copy(
+        isLiked = !isLiked,
+        likesCount = if (isLiked) maxOf(0, likesCount - 1) else likesCount + 1
+    )
+
+    /**
+     * Returns a copy with the given emoji reaction set (or cleared if null).
+     */
+    fun withReaction(emoji: String?): Story = copy(reactionEmoji = emoji)
 
     /**
      * Returns a copy with the story marked as viewed now.
@@ -135,6 +155,18 @@ enum class StoryMediaType(
 
     /** Whether this type requires a duration field. */
     fun requiresDuration(): Boolean = this == VIDEO
+}
+
+/**
+ * Supported emoji reactions for Stories.
+ */
+enum class StoryReaction(val emoji: String) {
+    HEART("❤️"),
+    LAUGH("😂"),
+    WOW("😮"),
+    SAD("😢"),
+    CLAP("👏"),
+    FIRE("🔥")
 }
 
 /**

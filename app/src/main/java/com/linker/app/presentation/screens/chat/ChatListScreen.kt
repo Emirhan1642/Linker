@@ -138,6 +138,7 @@ fun ChatListScreen(
                         is com.linker.app.domain.model.Note.Text -> userNote.content
                         is com.linker.app.domain.model.Note.Music -> userNote.content
                         is com.linker.app.domain.model.Note.Countdown -> userNote.content
+                        is com.linker.app.domain.model.Note.Location -> userNote.placeName
                         null -> stringResource(R.string.chat_list_share_note)
                     }
                     NoteItem(
@@ -152,6 +153,7 @@ fun ChatListScreen(
                         is com.linker.app.domain.model.Note.Text -> note.content
                         is com.linker.app.domain.model.Note.Music -> note.content
                         is com.linker.app.domain.model.Note.Countdown -> note.content
+                        is com.linker.app.domain.model.Note.Location -> note.placeName
                     }
                     NoteItem(
                         name = note.author.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },

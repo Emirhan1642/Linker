@@ -283,6 +283,25 @@ fun NoteEntity.toDomain(author: User?): Note {
             createdAt = createdAt,
             expiresAt = expiresAt
         )
+        NoteType.LOCATION -> {
+            val parts = content.split("|", limit = 4)
+            val latitude = parts.getOrNull(0)?.toDoubleOrNull() ?: 0.0
+            val longitude = parts.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+            val placeName = parts.getOrNull(2) ?: ""
+            val mapPreviewUrl = parts.getOrNull(3)?.takeIf { it.isNotBlank() }
+            Note.Location(
+                noteId = noteId,
+                author = noteAuthor,
+                latitude = latitude,
+                longitude = longitude,
+                placeName = placeName,
+                mapPreviewUrl = mapPreviewUrl,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+        }
     }
 }
 
@@ -290,6 +309,7 @@ inline fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when
     com.linker.app.data.local.entity.NoteType.TEXT      -> NoteType.TEXT
     com.linker.app.data.local.entity.NoteType.MUSIC     -> NoteType.MUSIC
     com.linker.app.data.local.entity.NoteType.COUNTDOWN -> NoteType.COUNTDOWN
+    com.linker.app.data.local.entity.NoteType.LOCATION  -> NoteType.LOCATION
 }
 
 fun Note.toEntity(): NoteEntity = when (this) {
@@ -338,6 +358,23 @@ fun Note.toEntity(): NoteEntity = when (this) {
         musicAlbumArt = null,
         countdownTargetTime = countdownTargetTime,
         countdownTitle = countdownTitle,
+        backgroundColor = backgroundColor,
+        textColor = textColor,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+    is Note.Location -> NoteEntity(
+        noteId = noteId,
+        authorId = author.userId,
+        noteType = com.linker.app.data.local.entity.NoteType.LOCATION,
+        content = "$latitude|$longitude|$placeName|${mapPreviewUrl ?: ""}",
+        musicTrackId = null,
+        musicTrackName = null,
+        musicArtistName = null,
+        musicAlbumArt = null,
+        countdownTargetTime = null,
+        countdownTitle = null,
         backgroundColor = backgroundColor,
         textColor = textColor,
         createdAt = createdAt,

@@ -1,16 +1,21 @@
 package com.linker.app.data.repository
 
 import com.linker.app.core.util.Result
+import com.linker.app.core.util.RetryUtil
 import com.linker.app.core.util.safeCall
+import com.linker.app.data.local.dao.ChatDao
 import com.linker.app.data.local.dao.LinkDao
 import com.linker.app.data.local.dao.UserDao
 import com.linker.app.data.local.mapper.toDomain
 import com.linker.app.data.local.mapper.toEntity
+import com.linker.app.domain.model.DescriptionVersion
 import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.LinkType
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.domain.repository.LinkRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +23,8 @@ import javax.inject.Singleton
 class LinkRepositoryImpl @Inject constructor(
     private val linkDao: LinkDao,
     private val userDao: UserDao,
+    private val firestore: com.google.firebase.firestore.FirebaseFirestore,
+    private val auth: com.google.firebase.auth.FirebaseAuth,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : LinkRepository {
 
@@ -183,5 +190,121 @@ class LinkRepositoryImpl @Inject constructor(
     override fun recordView(linkId: String) {
         // Optimistic local update only; batched sync handled by WorkManager
         // TODO: implement view batching
+    }
+
+    // ── Description Editing ────────────────────────────────────────────────
+
+    override suspend fun updateLinkDescription(linkId: String, newDescription: String): Result<Unit> =
+        RetryUtil.retrySafeCall {
+            val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+            val linkRef = firestore.collection("links").document(linkId)
+            val linkDoc = linkRef.get().await()
+
+            val authorId = linkDoc.getString("authorId") ?: ""
+            if (authorId != currentUserId) throw SecurityException("Only the author can edit this link")
+
+            val currentEditCount = (linkDoc.getLong("editCount") ?: 0L).toInt()
+            if (currentEditCount >= Link.MAX_DESCRIPTION_EDITS) {
+                throw IllegalStateException("Bu gönderi en fazla ${Link.MAX_DESCRIPTION_EDITS} kez düzenlenebilir")
+            }
+
+            val oldDescription = linkDoc.getString("description")
+            val now = System.currentTimeMillis()
+            val newVersion = currentEditCount + 1
+
+            val batch = firestore.batch()
+
+            // Save old version to history sub-collection
+            if (oldDescription != null) {
+                val historyRef = linkRef.collection("descriptionHistory").document("v$newVersion")
+                batch.set(historyRef, mapOf(
+                    "content" to oldDescription,
+                    "editedAt" to now,
+                    "editedByUserId" to currentUserId,
+                    "version" to newVersion
+                ))
+            }
+
+            // Update the link document
+            batch.update(linkRef, mapOf(
+                "description" to newDescription,
+                "editCount" to newVersion,
+                "updatedAt" to now
+            ))
+
+            batch.commit().await()
+        }
+
+    override suspend fun getLinkDescriptionHistory(linkId: String): Result<List<DescriptionVersion>> =
+        RetryUtil.retrySafeCall {
+            val historySnapshot = firestore
+                .collection("links")
+                .document(linkId)
+                .collection("descriptionHistory")
+                .orderBy("version", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .get()
+                .await()
+
+            historySnapshot.documents.mapNotNull { doc ->
+                val content = doc.getString("content") ?: return@mapNotNull null
+                val editedAt = doc.getLong("editedAt") ?: return@mapNotNull null
+                val editedByUserId = doc.getString("editedByUserId") ?: return@mapNotNull null
+                val version = (doc.getLong("version") ?: return@mapNotNull null).toInt()
+                DescriptionVersion(content, editedAt, editedByUserId, version)
+            }
+        }
+
+    // ── Sharing & Safety ────────────────────────────────────────────────
+
+    override suspend fun sendLinkToDm(linkId: String, recipientUserId: String): Result<Unit> =
+        RetryUtil.retrySafeCall {
+            val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+
+            // Find or create DM chat between currentUser and recipientUser
+            val chatId = listOf(currentUserId, recipientUserId).sorted().joinToString("_")
+            val messageId = java.util.UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+
+            // Create a MessageType.LINK message in the chat
+            firestore.collection("chats").document(chatId)
+                .collection("messages")
+                .document(messageId)
+                .set(mapOf(
+                    "messageId" to messageId,
+                    "chatId" to chatId,
+                    "senderId" to currentUserId,
+                    "type" to "LINK",
+                    "linkId" to linkId,
+                    "content" to "", // Empty content for link messages
+                    "createdAt" to now,
+                    "updatedAt" to now,
+                    "status" to "SENT"
+                )).await()
+
+            // Update chat's last message metadata
+            firestore.collection("chats").document(chatId)
+                .update(mapOf(
+                    "lastMessageAt" to now,
+                    "lastMessagePreview" to "🔗 Link paylaşıldı"
+                )).await()
+        }
+
+    override suspend fun reportLink(linkId: String, reason: ReportReason): Result<Unit> =
+        RetryUtil.retrySafeCall {
+            val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+            val reportId = "${currentUserId}_${linkId}"
+            firestore.collection("reports").document(reportId).set(
+                mapOf(
+                    "reporterId" to currentUserId,
+                    "contentId" to linkId,
+                    "contentType" to "link",
+                    "reason" to reason.name,
+                    "createdAt" to System.currentTimeMillis()
+                )
+            ).await()
+        }
+
+    override suspend fun getShareableLink(linkId: String): Result<String> {
+        return Result.Success("https://linker.app/link/$linkId")
     }
 }

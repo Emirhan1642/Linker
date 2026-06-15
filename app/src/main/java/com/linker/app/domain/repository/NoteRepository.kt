@@ -4,6 +4,14 @@ import com.linker.app.domain.model.Note
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
+/** Privacy tier for a Note. */
+enum class NotePrivacy {
+    /** Visible to all followers. */
+    FOLLOWERS,
+    /** Visible to everyone (public accounts). */
+    PUBLIC
+}
+
 /**
  * Type of media attached to a note.
  */
@@ -103,4 +111,75 @@ interface NoteRepository {
 
     /** Reply to a note (creates a private message to the author). */
     suspend fun replyToNote(noteId: String, content: String): Result<Unit>
+
+    // ── Likes ──────────────────────────────────────────────────────
+
+    /**
+     * Toggles like on a Note.
+     * @return Result containing true if liked, false if unliked.
+     */
+    suspend fun toggleLikeNote(noteId: String): Result<Boolean>
+
+    // ── Specific Note Type Creation ──────────────────────────────────
+
+    /**
+     * Posts a location note using GPS coordinates.
+     * A Google Maps Static API thumbnail is generated server-side.
+     * Requires ACCESS_FINE_LOCATION permission granted before calling.
+     *
+     * @param latitude GPS latitude (-90 to 90).
+     * @param longitude GPS longitude (-180 to 180).
+     * @param placeName Human-readable place name (e.g. "Kadıköy, Istanbul").
+     */
+    suspend fun postLocationNote(
+        latitude: Double,
+        longitude: Double,
+        placeName: String
+    ): Result<Note.Location>
+
+    /**
+     * Posts a countdown note that notifies subscribers when it reaches zero.
+     *
+     * @param title Short label for the countdown event (e.g. "Concert 🎸").
+     * @param targetTime Epoch milliseconds of the target moment.
+     */
+    suspend fun postCountdownNote(
+        title: String,
+        targetTime: Long
+    ): Result<Note.Countdown>
+
+    /**
+     * Posts a music note with Spotify track metadata.
+     *
+     * @param trackId Spotify track ID.
+     * @param trackName Track name.
+     * @param artistName Artist name.
+     * @param albumArtUrl Spotify album artwork URL.
+     * @param caption Optional short caption (max [Note.Text.MAX_TEXT_CONTENT_LENGTH] chars).
+     */
+    suspend fun postMusicNote(
+        trackId: String,
+        trackName: String,
+        artistName: String,
+        albumArtUrl: String?,
+        caption: String = ""
+    ): Result<Note.Music>
+
+    // ── Countdown Subscriptions ────────────────────────────────────────
+
+    /**
+     * Subscribes the current user to a countdown note.
+     * They will receive an FCM push notification when the countdown reaches zero.
+     */
+    suspend fun subscribeToCountdown(noteId: String): Result<Unit>
+
+    /**
+     * Unsubscribes the current user from a countdown notification.
+     */
+    suspend fun unsubscribeFromCountdown(noteId: String): Result<Unit>
+
+    /**
+     * Returns whether the current user is subscribed to the given countdown.
+     */
+    suspend fun isSubscribedToCountdown(noteId: String): Result<Boolean>
 }

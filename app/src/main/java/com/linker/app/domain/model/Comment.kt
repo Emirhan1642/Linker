@@ -1,6 +1,25 @@
 package com.linker.app.domain.model
 
 /**
+ * A single historical version of a Comment's content.
+ *
+ * @property content The comment text at this version.
+ * @property editedAt Timestamp when this version was saved (epoch ms).
+ * @property version Version number (1-indexed; original = 0 implicit).
+ */
+data class CommentVersion(
+    val content: String,
+    val editedAt: Long,
+    val version: Int
+) {
+    init {
+        require(content.isNotBlank()) { "content cannot be blank" }
+        require(editedAt > 0) { "editedAt must be positive" }
+        require(version > 0) { "version must be 1 or greater" }
+    }
+}
+
+/**
  * Domain model for a Comment (supports nested replies).
  *
  * Comments are attached to [Link] posts and support a nesting hierarchy
@@ -19,6 +38,8 @@ package com.linker.app.domain.model
  * @property isLiked Whether the current user has liked this comment.
  * @property isPinned Whether this comment is pinned by the post author.
  * @property isEdited Whether this comment has been edited.
+ * @property editCount How many times this comment has been edited (max [MAX_EDITS]).
+ * @property editHistory Previous versions of this comment (visible to all users).
  * @property createdAt Creation timestamp (epoch ms).
  * @property updatedAt Last update timestamp (epoch ms).
  */
@@ -35,6 +56,8 @@ data class Comment(
     val isLiked: Boolean = false,
     val isPinned: Boolean = false,
     val isEdited: Boolean = false,
+    val editCount: Int = 0,
+    val editHistory: List<CommentVersion> = emptyList(),
     val createdAt: Long,
     val updatedAt: Long
 ) {
@@ -50,6 +73,8 @@ data class Comment(
         require(commentId != parentCommentId) { "Comment cannot be its own parent" }
         require(nestingLevel >= 0) { "nestingLevel cannot be negative" }
         require(nestingLevel <= MAX_NESTING_LEVEL) { "Comment nesting exceeds maximum level of $MAX_NESTING_LEVEL" }
+        require(editCount in 0..MAX_EDITS) { "editCount cannot exceed $MAX_EDITS" }
+        require(editHistory.size <= MAX_EDITS) { "editHistory cannot exceed $MAX_EDITS entries" }
         if (parentCommentId == null) {
             require(nestingLevel == 0) { "Root comment must have nestingLevel = 0" }
         } else {
@@ -63,12 +88,18 @@ data class Comment(
     /** Whether this is a root-level comment (not a reply). */
     fun isRoot(): Boolean = parentCommentId == null
 
+    /** Whether the current user can still edit this comment. */
+    fun canEdit(): Boolean = editCount < MAX_EDITS
+
     companion object {
         /** Maximum allowed content length in characters. */
         const val MAX_CONTENT_LENGTH = 2000
 
         /** Maximum nesting depth for replies. */
         const val MAX_NESTING_LEVEL = 3
+
+        /** Maximum number of times a comment can be edited. */
+        const val MAX_EDITS = 2
 
         /**
          * Creates a root comment.

@@ -13,6 +13,7 @@ import com.linker.app.data.repository.NoteRepositoryImpl
 import com.linker.app.data.repository.NotificationRepositoryImpl
 import com.linker.app.data.repository.ReadReceiptRepositoryImpl
 import com.linker.app.data.repository.StoryRepositoryImpl
+import com.linker.app.data.repository.UserPreferencesRepositoryImpl
 import com.linker.app.data.repository.UserRepositoryImpl
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.domain.repository.AuthRepository
@@ -26,6 +27,11 @@ import com.linker.app.domain.repository.NoteRepository
 import com.linker.app.domain.repository.NotificationRepository
 import com.linker.app.domain.repository.ReadReceiptRepository
 import com.linker.app.domain.repository.StoryRepository
+import com.linker.app.domain.repository.UserPreferencesRepository
+import com.linker.app.data.repository.LocationRepositoryImpl
+import com.linker.app.domain.repository.LocationRepository
+import com.linker.app.data.repository.SpotifyRepositoryImpl
+import com.linker.app.domain.repository.SpotifyRepository
 import com.linker.app.domain.repository.UserRepository
 import dagger.Binds
 import dagger.Module
@@ -124,10 +130,16 @@ abstract class RepositoryModule {
     abstract fun bindStoryRepository(impl: StoryRepositoryImpl): StoryRepository
 
     /**
-     * Manages personal notes (private, not shared)
+     * Manages personal notes
      */
     @Binds @Singleton
     abstract fun bindNoteRepository(impl: NoteRepositoryImpl): NoteRepository
+
+    @Binds @Singleton
+    abstract fun bindLocationRepository(impl: LocationRepositoryImpl): LocationRepository
+
+    @Binds @Singleton
+    abstract fun bindSpotifyRepository(impl: SpotifyRepositoryImpl): SpotifyRepository
 
     /**
      * Manages comments on posts, stories, and other content
@@ -186,4 +198,16 @@ abstract class RepositoryModule {
     abstract fun bindNotificationRepository(
         impl: NotificationRepositoryImpl
     ): NotificationRepository
+
+    // ══════════════════════════════════════════════════════
+    // User Preferences & Moderation
+    // ══════════════════════════════════════════════════════
+
+    /**
+     * Manages user blocking, muting, content interest signals and reporting
+     */
+    @Binds @Singleton
+    abstract fun bindUserPreferencesRepository(
+        impl: UserPreferencesRepositoryImpl
+    ): UserPreferencesRepository
 }

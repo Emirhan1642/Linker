@@ -56,10 +56,21 @@ import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import com.linker.app.presentation.theme.TextHint
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.foundation.clickable
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onNavigateBottomNav: (BottomNavItem) -> Unit
+    onNavigateBottomNav: (BottomNavItem) -> Unit,
+    onNavigateToStoryGrid: () -> Unit = {}
 ) {
     var topTab by remember { mutableStateOf(0) }
     val pagerState = rememberPagerState(pageCount = { 10 }) // 10 fake items
@@ -110,7 +121,12 @@ fun HomeScreen(
             // Top Pill Bar
             TopPillTabs(
                 selectedTab = topTab,
-                onTabSelected = { topTab = it },
+                onTabSelected = { tabIndex ->
+                    topTab = tabIndex
+                    if (tabIndex == 2) {
+                        onNavigateToStoryGrid()
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 48.dp) // Status bar padding approx

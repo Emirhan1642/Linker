@@ -3,6 +3,7 @@ package com.linker.app.domain.repository
 import com.linker.app.domain.model.Story
 import com.linker.app.domain.model.UserStories
 import com.linker.app.domain.model.StoryMediaType
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
@@ -122,4 +123,32 @@ interface StoryRepository {
     
     /** Create a new highlight reel. */
     suspend fun createHighlight(title: String, coverStoryId: String? = null): Result<StoryHighlight>
+
+    // ── Engagement & Safety ────────────────────────────────────────────────
+
+    /**
+     * Toggles like on a Story.
+     * Likes are visible to everyone; counts are public.
+     * @return Result containing true if liked, false if unliked.
+     */
+    suspend fun toggleLikeStory(storyId: String): Result<Boolean>
+
+    /**
+     * Sends or clears an emoji reaction on a story.
+     * @param emoji The emoji character, or null to clear the reaction.
+     */
+    suspend fun reactToStory(storyId: String, emoji: String?): Result<Unit>
+
+    /**
+     * Reports a story for policy violations.
+     * @param reason The report reason selected by the user.
+     */
+    suspend fun reportStory(storyId: String, reason: ReportReason): Result<Unit>
+
+    /**
+     * Returns a shareable deep-link URL for the given story.
+     * The link navigates back to the story viewer when opened on a device
+     * with Linker installed, or falls back to a web preview.
+     */
+    suspend fun getShareableLink(storyId: String): Result<String>
 }

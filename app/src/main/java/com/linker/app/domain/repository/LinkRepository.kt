@@ -2,6 +2,8 @@ package com.linker.app.domain.repository
 
 import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.LinkType
+import com.linker.app.domain.model.DescriptionVersion
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
@@ -85,4 +87,37 @@ interface LinkRepository {
      * This is a fire-and-forget operation optimized for performance.
      */
     fun recordView(linkId: String)
+
+    // ── Description Editing ────────────────────────────────────────────────
+
+    /**
+     * Updates a link's description and stores the old version in edit history.
+     * Maximum [Link.MAX_DESCRIPTION_EDITS] edits are allowed per link.
+     * Fails if the limit is reached.
+     */
+    suspend fun updateLinkDescription(linkId: String, newDescription: String): Result<Unit>
+
+    /**
+     * Retrieves the description edit history for a link.
+     * Returns an empty list if no edits have been made.
+     */
+    suspend fun getLinkDescriptionHistory(linkId: String): Result<List<DescriptionVersion>>
+
+    // ── Sharing & Safety ────────────────────────────────────────────────
+
+    /**
+     * Sends a link to another user as a direct message.
+     * Uses [MessageType.LINK] under the hood in the existing Chat system.
+     */
+    suspend fun sendLinkToDm(linkId: String, recipientUserId: String): Result<Unit>
+
+    /**
+     * Reports a link for policy violations.
+     */
+    suspend fun reportLink(linkId: String, reason: ReportReason): Result<Unit>
+
+    /**
+     * Returns a shareable deep-link URL for the given link post.
+     */
+    suspend fun getShareableLink(linkId: String): Result<String>
 }

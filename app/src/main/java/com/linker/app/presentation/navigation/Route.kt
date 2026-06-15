@@ -14,11 +14,27 @@ sealed interface Route {
     @Serializable data object Chat : Route
     @Serializable data object Profile : Route
 
+    @Serializable data object StoryGrid : Route
     @Serializable data class UserProfile(val userId: String) : Route
     @Serializable data class ChatDetail(val chatId: String) : Route
     @Serializable data class ChatInfo(val chatId: String) : Route
     @Serializable data object NewChat : Route
     @Serializable data class StoryViewer(val userId: String) : Route
+
+    /** Link post detail — displays the full post with comments. */
+    @Serializable data class LinkDetail(val linkId: String) : Route
+
+    /** Link editor — for creating or editing a new Link post. */
+    @Serializable data object LinkEditor : Route
+
+    /** Note editor screen — for creating a new Note (text/music/location/countdown). */
+    @Serializable data object NoteEditor : Route
+
+    /** Spotify Search Screen */
+    @Serializable data object SpotifySearch : Route
+
+    /** Location Picker Screen */
+    @Serializable data object LocationPicker : Route
 
     @Serializable data object Settings : Route
     @Serializable data object OfflineMessagingSettings : Route

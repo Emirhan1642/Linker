@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import com.linker.app.core.work.MessageQueueWorker
 import com.linker.app.data.bluetooth.BluetoothManager
+import com.cloudinary.android.MediaManager
 import dagger.hilt.android.HiltAndroidApp
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -100,7 +101,20 @@ class LinkerApp : Application(), Configuration.Provider {
         try {
             initializeFirebase()
         } catch (e: Exception) {
-            Timber.e(e, "Failed to initialize Firebase in onCreate")
+            Timber.e(e, "Firebase initialization failed in onCreate")
+        }
+
+        // Initialize Cloudinary
+        try {
+            val config = mapOf(
+                "cloud_name" to BuildConfig.CLOUDINARY_CLOUD_NAME,
+                "api_key" to BuildConfig.CLOUDINARY_API_KEY,
+                "api_secret" to BuildConfig.CLOUDINARY_API_SECRET
+            )
+            MediaManager.init(this, config)
+            Timber.d("Cloudinary initialized")
+        } catch (e: Exception) {
+            Timber.e(e, "Cloudinary initialization failed. Ignore if already initialized.")
         }
 
         // SECURITY: Check device security status on startup

@@ -22,8 +22,27 @@ import com.linker.app.presentation.screens.search.SearchScreen
 import com.linker.app.presentation.screens.settings.SettingsScreen
 import com.linker.app.presentation.screens.settings.OfflineMessagingSettingsScreen
 import com.linker.app.presentation.screens.splash.SplashScreen
+import com.linker.app.presentation.screens.story.StoryGridScreen
 import com.linker.app.presentation.screens.story.StoryScreen
 import com.linker.app.presentation.screens.userprofile.UserProfileScreen
+import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.linker.app.presentation.theme.DarkGray
+import com.linker.app.presentation.theme.TextPrimary
+import com.linker.app.presentation.theme.TextSecondary
 
 @Composable
 fun LinkerNavHost(
@@ -34,18 +53,24 @@ fun LinkerNavHost(
 ) {
     val navController = rememberNavController()
 
+    var showContentPicker by remember { mutableStateOf(false) }
+
     val onNavigateBottomNav: (BottomNavItem) -> Unit = { item ->
-        val route = when (item) {
-            BottomNavItem.Explore -> Route.Home
-            BottomNavItem.Search  -> Route.Search
-            BottomNavItem.Add     -> Route.Create
-            BottomNavItem.Chat    -> Route.Chat
-            BottomNavItem.Profile -> Route.Profile
-        }
-        navController.navigate(route) {
-            popUpTo(Route.Home) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+        if (item == BottomNavItem.Add) {
+            showContentPicker = true
+        } else {
+            val route = when (item) {
+                BottomNavItem.Explore -> Route.Home
+                BottomNavItem.Search  -> Route.Search
+                BottomNavItem.Chat    -> Route.Chat
+                BottomNavItem.Profile -> Route.Profile
+                else -> Route.Home
+            }
+            navController.navigate(route) {
+                popUpTo(Route.Home) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
 
@@ -84,7 +109,10 @@ fun LinkerNavHost(
         }
 
         composable<Route.Home> {
-            HomeScreen(onNavigateBottomNav = onNavigateBottomNav)
+            HomeScreen(
+                onNavigateBottomNav = onNavigateBottomNav,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) }
+            )
         }
 
         composable<Route.Search> {
@@ -158,8 +186,84 @@ fun LinkerNavHost(
             )
         }
 
-        composable<Route.StoryViewer> {
-            StoryScreen(onNavigateBack = { navController.popBackStack() })
+        composable<Route.StoryGrid> {
+            StoryGridScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onOpenStoryViewer = { userId ->
+                    navController.navigate(Route.StoryViewer(userId))
+                }
+            )
+        }
+
+        composable<Route.StoryViewer> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.StoryViewer>()
+            // Note: allUserStories would be passed from a shared ViewModel in a real impl.
+            // For now we pass empty list; StoryGridViewModel is the source of truth.
+            StoryScreen(
+                userId = route.userId,
+                allUserStories = emptyList(),
+                onNavigateBack = { navController.popBackStack() },
+                onUserTap = { uid ->
+                    if (uid != currentUserId) navController.navigate(Route.UserProfile(uid))
+                }
+            )
+        }
+
+        composable<Route.LinkDetail> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.LinkDetail>()
+            com.linker.app.presentation.screens.link.LinkDetailScreen(
+                linkId = route.linkId,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable<Route.LinkEditor> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.LinkEditor>()
+            com.linker.app.presentation.screens.link.LinkEditorScreen(
+                linkId = null,
+                initialDescription = null, // Can be passed via safe args if needed
+                onNavigateBack = { navController.popBackStack() },
+                onSaved = { navController.popBackStack() }
+            )
+        }
+
+        composable<Route.NoteEditor> {
+            com.linker.app.presentation.screens.note.NoteEditorScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToSpotifySearch = { navController.navigate(Route.SpotifySearch) },
+                onNavigateToLocationPicker = { navController.navigate(Route.LocationPicker) },
+                navController = navController
+            )
+        }
+
+        composable<Route.SpotifySearch> {
+            com.linker.app.presentation.screens.note.SpotifySearchScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onTrackSelected = { track ->
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("selected_track_id", track.id)
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        composable<Route.LocationPicker> {
+            com.linker.app.presentation.screens.note.LocationPickerScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onLocationSelected = { location ->
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("selected_location_lat", location.lat)
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("selected_location_lon", location.lon)
+                    navController.previousBackStackEntry
+                        ?.savedStateHandle
+                        ?.set("selected_location_name", location.name)
+                    navController.popBackStack()
+                }
+            )
         }
 
         composable<Route.Profile> {
@@ -251,5 +355,74 @@ fun LinkerNavHost(
             navController.navigate(Route.ChatDetail(initialChatId))
             onChatDeepLinkHandled()
         }
+    }
+
+    if (showContentPicker) {
+        ContentPickerBottomSheet(
+            onDismiss = { showContentPicker = false },
+            onLinkSelected = {
+                showContentPicker = false
+                navController.navigate(Route.LinkEditor)
+            },
+            onNoteSelected = {
+                showContentPicker = false
+                navController.navigate(Route.NoteEditor)
+            },
+            onStorySelected = {
+                showContentPicker = false
+                // Handle story camera launch
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ContentPickerBottomSheet(
+    onDismiss: () -> Unit,
+    onLinkSelected: () -> Unit,
+    onNoteSelected: () -> Unit,
+    onStorySelected: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = DarkGray,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp, top = 16.dp, start = 16.dp, end = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("Ne Paylaşmak İstersin?", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                ContentPickerOption(icon = Icons.Default.Link, title = "Link", onClick = onLinkSelected)
+                ContentPickerOption(icon = Icons.Default.NoteAdd, title = "Not", onClick = onNoteSelected)
+                ContentPickerOption(icon = Icons.Default.PhotoCamera, title = "Hikaye", onClick = onStorySelected)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentPickerOption(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .background(Color.Black, shape = CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(32.dp))
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = title, color = TextPrimary, fontSize = 14.sp)
     }
 }

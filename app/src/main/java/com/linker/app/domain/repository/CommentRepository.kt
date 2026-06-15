@@ -1,6 +1,8 @@
 package com.linker.app.domain.repository
 
 import com.linker.app.domain.model.Comment
+import com.linker.app.domain.model.CommentVersion
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
@@ -44,6 +46,39 @@ interface CommentRepository {
      */
     suspend fun toggleLike(commentId: String): Result<Boolean>
 
-    /** Deletes a comment. */
+    /** 
+     * Edits a comment's content.
+     * 
+     * Rules:
+     * - Only the comment author can edit their comment.
+     * - Maximum [Comment.MAX_EDITS] edits are allowed per comment.
+     * - Previous content is saved to [getCommentEditHistory].
+     * - The `isEdited` flag and `editCount` are incremented automatically.
+     *
+     * @return Error if edit limit is reached or user is not the author.
+     */
+    suspend fun editComment(commentId: String, newContent: String): Result<Unit>
+
+    /**
+     * Retrieves the full edit history of a comment.
+     * Visible to all users — each version's content and timestamp are shown.
+     * Returns an empty list if the comment has never been edited.
+     */
+    suspend fun getCommentEditHistory(commentId: String): Result<List<CommentVersion>>
+
+    /** 
+     * Deletes a comment.
+     * 
+     * Rules:
+     * - The author can always delete their own comment.
+     * - Post authors can delete any comment on their link.
+     * - Deleted root comments display "[Silindi]" if they have replies;
+     *   otherwise they are permanently removed.
+     */
     suspend fun deleteComment(commentId: String): Result<Unit>
+
+    /**
+     * Reports a comment for policy violations.
+     */
+    suspend fun reportComment(commentId: String, reason: ReportReason): Result<Unit>
 }

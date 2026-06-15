@@ -6,6 +6,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.RetryUtil
+import com.linker.app.domain.model.ReportReason
 import com.linker.app.domain.model.Story
 import com.linker.app.domain.model.StoryAuthor
 import com.linker.app.domain.model.StoryMediaType
@@ -100,6 +101,7 @@ class StoryRepositoryImpl @Inject constructor(
                             duration = null,
                             caption = data.caption,
                             viewsCount = data.viewsCount,
+                            likesCount = data.likesCount,
                             isViewed = false, // To be determined below
                             createdAt = data.createdAt,
                             expiresAt = data.expiresAt
@@ -163,6 +165,7 @@ class StoryRepositoryImpl @Inject constructor(
                     duration = null,
                     caption = data.caption,
                     viewsCount = data.viewsCount,
+                    likesCount = data.likesCount,
                     isViewed = false,
                     createdAt = data.createdAt,
                     expiresAt = data.expiresAt
@@ -229,6 +232,7 @@ class StoryRepositoryImpl @Inject constructor(
             duration = null,
             caption = caption,
             viewsCount = 0,
+            likesCount = 0,
             isViewed = false,
             createdAt = now,
             expiresAt = expiresAt
@@ -295,6 +299,69 @@ class StoryRepositoryImpl @Inject constructor(
     override suspend fun getHighlights(userId: String): Result<List<com.linker.app.domain.repository.StoryHighlight>> = Result.Success(emptyList())
     override suspend fun createHighlight(title: String, coverStoryId: String?): Result<com.linker.app.domain.repository.StoryHighlight> = Result.Success(com.linker.app.domain.repository.StoryHighlight("", title, null, emptyList()))
 
+    // ── New: Engagement & Safety ───────────────────────────────────────────
+
+    override suspend fun toggleLikeStory(storyId: String): Result<Boolean> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val likesRef = storiesCollection
+            .document(storyId)
+            .collection("likes")
+            .document(currentUserId)
+
+        val likeDoc = likesRef.get().await()
+        val isLiked = likeDoc.exists()
+
+        val batch = firestore.batch()
+        if (isLiked) {
+            batch.delete(likesRef)
+            batch.update(storiesCollection.document(storyId), "likesCount",
+                com.google.firebase.firestore.FieldValue.increment(-1))
+        } else {
+            batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis()))
+            batch.update(storiesCollection.document(storyId), "likesCount",
+                com.google.firebase.firestore.FieldValue.increment(1))
+        }
+        batch.commit().await()
+        !isLiked
+    }
+
+    override suspend fun reactToStory(storyId: String, emoji: String?): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val reactionRef = storiesCollection
+            .document(storyId)
+            .collection("reactions")
+            .document(currentUserId)
+
+        if (emoji == null) {
+            reactionRef.delete().await()
+        } else {
+            reactionRef.set(mapOf(
+                "emoji" to emoji,
+                "reactedAt" to System.currentTimeMillis()
+            )).await()
+        }
+    }
+
+    override suspend fun reportStory(storyId: String, reason: ReportReason): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val reportId = "${currentUserId}_${storyId}"
+        firestore.collection("reports").document(reportId).set(
+            mapOf(
+                "reporterId" to currentUserId,
+                "contentId" to storyId,
+                "contentType" to "story",
+                "reason" to reason.name,
+                "createdAt" to System.currentTimeMillis()
+            )
+        ).await()
+    }
+
+    override suspend fun getShareableLink(storyId: String): Result<String> {
+        // Deep link format: linker://story/{storyId}
+        // In production, this would go through Firebase Dynamic Links
+        return Result.Success("https://linker.app/story/$storyId")
+    }
+
     @Keep
     private data class StoryDocument(
         val storyId: String = "",
@@ -304,6 +371,7 @@ class StoryRepositoryImpl @Inject constructor(
         val thumbnailUrl: String? = null,
         val caption: String? = null,
         val viewsCount: Int = 0,
+        val likesCount: Int = 0,
         val createdAt: Long = 0,
         val expiresAt: Long = 0
     )
