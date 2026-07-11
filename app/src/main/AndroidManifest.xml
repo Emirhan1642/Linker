@@ -52,6 +52,11 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- Required for Spotify SSO and App Remote on Android 11+ -->
+    <queries>
+        <package android:name="com.spotify.music" />
+    </queries>
+
     <application
         android:name="com.linker.app.LinkerApp"
         android:allowBackup="true"
@@ -76,6 +81,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Spotify browser auth callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="linker"
+                    android:host="spotify-callback" />
             </intent-filter>
         </activity>
 

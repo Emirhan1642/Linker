@@ -46,7 +46,7 @@ sealed class Note {
         init {
             require(noteId.isNotBlank()) { "noteId cannot be blank" }
             require(content.isNotBlank()) { "content cannot be blank" }
-            require(content.length <= MAX_TEXT_CONTENT_LENGTH) {
+            require(content.codePointCount(0, content.length) <= MAX_TEXT_CONTENT_LENGTH) {
                 "Text content exceeds maximum length of $MAX_TEXT_CONTENT_LENGTH"
             }
             require(likesCount >= 0) { "likesCount cannot be negative" }
@@ -60,7 +60,7 @@ sealed class Note {
         }
 
         companion object {
-            const val MAX_TEXT_CONTENT_LENGTH = 60
+            const val MAX_TEXT_CONTENT_LENGTH = 100
         }
     }
 
@@ -74,6 +74,9 @@ sealed class Note {
      * @property musicTrackName Track name.
      * @property musicArtistName Artist name.
      * @property musicAlbumArt Album art URL.
+     * @property previewUrl Audio preview URL.
+     * @property clipStartTime Clip start time in milliseconds.
+     * @property clipEndTime Clip end time in milliseconds.
      * @property backgroundColor Background color hex code.
      * @property textColor Text color hex code.
      * @property createdAt Creation timestamp (epoch ms).
@@ -87,6 +90,9 @@ sealed class Note {
         val musicTrackName: String,
         val musicArtistName: String,
         val musicAlbumArt: String?,
+        val previewUrl: String? = null,
+        val clipStartTime: Long = 0,
+        val clipEndTime: Long = 30000,
         override val backgroundColor: String? = null,
         override val textColor: String? = null,
         override val likesCount: Int = 0,
@@ -97,13 +103,14 @@ sealed class Note {
     ) : Note() {
         init {
             require(noteId.isNotBlank()) { "noteId cannot be blank" }
-            require(content.isNotBlank()) { "content cannot be blank" }
-            require(content.length <= MAX_MUSIC_CONTENT_LENGTH) {
+            require(content.codePointCount(0, content.length) <= MAX_MUSIC_CONTENT_LENGTH) {
                 "Music content exceeds maximum length of $MAX_MUSIC_CONTENT_LENGTH"
             }
             require(musicTrackId.isNotBlank()) { "musicTrackId cannot be blank" }
             require(musicTrackName.isNotBlank()) { "musicTrackName cannot be blank" }
             require(musicArtistName.isNotBlank()) { "musicArtistName cannot be blank" }
+            require(clipStartTime >= 0) { "clipStartTime cannot be negative" }
+            require(clipEndTime >= clipStartTime) { "clipEndTime must be >= clipStartTime" }
             require(likesCount >= 0) { "likesCount cannot be negative" }
             require(repliesCount >= 0) { "repliesCount cannot be negative" }
             require(createdAt > 0) { "createdAt must be positive" }
@@ -149,8 +156,7 @@ sealed class Note {
     ) : Note() {
         init {
             require(noteId.isNotBlank()) { "noteId cannot be blank" }
-            require(content.isNotBlank()) { "content cannot be blank" }
-            require(content.length <= MAX_COUNTDOWN_CONTENT_LENGTH) {
+            require(content.codePointCount(0, content.length) <= MAX_COUNTDOWN_CONTENT_LENGTH) {
                 "Countdown content exceeds maximum length of $MAX_COUNTDOWN_CONTENT_LENGTH"
             }
             require(countdownTargetTime > 0) { "countdownTargetTime must be positive" }
@@ -160,8 +166,8 @@ sealed class Note {
             require(repliesCount >= 0) { "repliesCount cannot be negative" }
             require(createdAt > 0) { "createdAt must be positive" }
             require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
-            require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
-                "Note cannot expire more than 24 hours after creation"
+            require(expiresAt - countdownTargetTime <= MAX_EXPIRATION_DURATION_MS) {
+                "Countdown note cannot expire more than 24 hours after target time"
             }
             validateColors()
         }
@@ -181,7 +187,7 @@ sealed class Note {
         fun hasCountdownExpired(): Boolean = System.currentTimeMillis() >= countdownTargetTime
 
         companion object {
-            const val MAX_COUNTDOWN_CONTENT_LENGTH = 40
+            const val MAX_COUNTDOWN_CONTENT_LENGTH = 100
         }
     }
 
@@ -227,6 +233,54 @@ sealed class Note {
                 "Note cannot expire more than 24 hours after creation"
             }
             validateColors()
+        }
+    }
+
+    /**
+     * GIF note with optional text content.
+     *
+     * @property noteId Unique note identifier.
+     * @property author Lightweight author reference.
+     * @property content Optional text content (up to 40 characters).
+     * @property gifUrl URL of the GIF.
+     * @property aspectRatio Aspect ratio (width / height) of the GIF if known.
+     * @property backgroundColor Background color hex code.
+     * @property textColor Text color hex code.
+     * @property createdAt Creation timestamp (epoch ms).
+     * @property expiresAt Expiration timestamp (epoch ms).
+     */
+    data class Gif(
+        override val noteId: String,
+        override val author: NoteAuthor,
+        val content: String,
+        val gifUrl: String,
+        val aspectRatio: Float?,
+        override val backgroundColor: String? = null,
+        override val textColor: String? = null,
+        override val likesCount: Int = 0,
+        override val isLiked: Boolean = false,
+        override val repliesCount: Int = 0,
+        override val createdAt: Long,
+        override val expiresAt: Long
+    ) : Note() {
+        init {
+            require(noteId.isNotBlank()) { "noteId cannot be blank" }
+            require(content.codePointCount(0, content.length) <= MAX_GIF_CONTENT_LENGTH) {
+                "Gif content exceeds maximum length of $MAX_GIF_CONTENT_LENGTH"
+            }
+            require(gifUrl.isNotBlank()) { "gifUrl cannot be blank" }
+            require(likesCount >= 0) { "likesCount cannot be negative" }
+            require(repliesCount >= 0) { "repliesCount cannot be negative" }
+            require(createdAt > 0) { "createdAt must be positive" }
+            require(expiresAt > createdAt) { "expiresAt must be after createdAt" }
+            require(expiresAt - createdAt <= MAX_EXPIRATION_DURATION_MS) {
+                "Note cannot expire more than 24 hours after creation"
+            }
+            validateColors()
+        }
+
+        companion object {
+            const val MAX_GIF_CONTENT_LENGTH = 40
         }
     }
 
@@ -294,11 +348,13 @@ enum class NoteType(
     val maxContentLength: Int
 ) {
     /** Plain text note. */
-    TEXT("Text", "ic_text", 60),
+    TEXT("Text", "ic_text", 100),
     /** Note with music attachment. */
     MUSIC("Music", "ic_music", 40),
     /** Countdown note with target time. */
     COUNTDOWN("Countdown", "ic_timer", 40),
     /** Location-sharing note. */
-    LOCATION("Location", "ic_location", 40)
+    LOCATION("Location", "ic_location", 40),
+    /** GIF note with optional text. */
+    GIF("GIF", "ic_gif", 40)
 }

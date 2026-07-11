@@ -9,19 +9,31 @@ import androidx.compose.ui.viewinterop.AndroidView
 @Composable
 fun WheelTimePicker(
     modifier: Modifier = Modifier,
+    days: Int,
     hours: Int,
     minutes: Int,
-    seconds: Int,
+    onDaysChange: (Int) -> Unit,
     onHoursChange: (Int) -> Unit,
-    onMinutesChange: (Int) -> Unit,
-    onSecondsChange: (Int) -> Unit
+    onMinutesChange: (Int) -> Unit
 ) {
     Row(modifier = modifier) {
         AndroidView(
             factory = { context ->
                 NumberPicker(context).apply {
                     minValue = 0
-                    maxValue = 99
+                    maxValue = 7
+                    value = days
+                    setOnValueChangedListener { _, _, newVal -> onDaysChange(newVal) }
+                }
+            },
+            update = { view -> view.value = days },
+            modifier = Modifier.weight(1f)
+        )
+        AndroidView(
+            factory = { context ->
+                NumberPicker(context).apply {
+                    minValue = 0
+                    maxValue = 23
                     value = hours
                     setOnValueChangedListener { _, _, newVal -> onHoursChange(newVal) }
                 }
@@ -39,18 +51,6 @@ fun WheelTimePicker(
                 }
             },
             update = { view -> view.value = minutes },
-            modifier = Modifier.weight(1f)
-        )
-        AndroidView(
-            factory = { context ->
-                NumberPicker(context).apply {
-                    minValue = 0
-                    maxValue = 59
-                    value = seconds
-                    setOnValueChangedListener { _, _, newVal -> onSecondsChange(newVal) }
-                }
-            },
-            update = { view -> view.value = seconds },
             modifier = Modifier.weight(1f)
         )
     }

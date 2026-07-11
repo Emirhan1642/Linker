@@ -94,6 +94,8 @@ articles/
 .kiro/
 .windsurf/
 
+libs/
+
 google-services.json
 linker-d02d0-f6e467e35636.json
 
@@ -108,3 +110,5 @@ apikey.properties
 
 build_log.txt
 build_errors.txt
+build_result.txt
+Files.txt

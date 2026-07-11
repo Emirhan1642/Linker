@@ -25,6 +25,7 @@ data class NominatimResponse(
 interface NominatimService {
     @GET("search")
     suspend fun search(
+        @retrofit2.http.Header("User-Agent") userAgent: String = "LinkerApp/1.0",
         @Query("q") query: String,
         @Query("format") format: String = "json",
         @Query("limit") limit: Int = 10,
@@ -48,7 +49,7 @@ class LocationRepositoryImpl @Inject constructor() : LocationRepository {
         if (query.isBlank()) return@withContext Result.Success(emptyList())
 
         try {
-            val response = api.search(query)
+            val response = api.search(query = query)
             val results = response.map {
                 LocationSearchResult(
                     name = it.name.ifBlank { it.displayName.split(",").firstOrNull() ?: "Unknown" },

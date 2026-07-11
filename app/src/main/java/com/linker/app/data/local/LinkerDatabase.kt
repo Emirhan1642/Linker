@@ -22,7 +22,7 @@ import kotlinx.coroutines.TimeoutCancellationException
         SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class,
         SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -315,6 +315,13 @@ abstract class LinkerDatabase : RoomDatabase() {
                 // Create indices for better query performance
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_kyber_prekeys_isUsed ON signal_kyber_prekeys(isUsed)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_signal_sender_keys_senderAddress ON signal_sender_keys(senderAddress)")
+            }
+        }
+
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Added lastSeen field for online presence
+                db.execSQL("ALTER TABLE users ADD COLUMN lastSeen INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

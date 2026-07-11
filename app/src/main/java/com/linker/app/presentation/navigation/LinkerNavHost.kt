@@ -24,6 +24,7 @@ import com.linker.app.presentation.screens.settings.OfflineMessagingSettingsScre
 import com.linker.app.presentation.screens.splash.SplashScreen
 import com.linker.app.presentation.screens.story.StoryGridScreen
 import com.linker.app.presentation.screens.story.StoryScreen
+import com.linker.app.presentation.screens.note.TrackClipPickerScreen
 import com.linker.app.presentation.screens.userprofile.UserProfileScreen
 import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.*
@@ -136,10 +137,11 @@ fun LinkerNavHost(
 
         composable<Route.Chat> {
             ChatListScreen(
-                onNavigateToChatDetail = { navController.navigate(Route.ChatDetail(it)) },
+                onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateBottomNav = onNavigateBottomNav,
-                onNavigateToNewChat = { navController.navigate(Route.NewChat) }
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) },
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) }
             )
         }
 
@@ -231,7 +233,9 @@ fun LinkerNavHost(
             com.linker.app.presentation.screens.note.NoteEditorScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSpotifySearch = { navController.navigate(Route.SpotifySearch) },
-                onNavigateToLocationPicker = { navController.navigate(Route.LocationPicker) },
+                onNavigateToLocationMap = { lat, lon, place ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, place))
+                },
                 navController = navController
             )
         }
@@ -240,15 +244,103 @@ fun LinkerNavHost(
             com.linker.app.presentation.screens.note.SpotifySearchScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onTrackSelected = { track ->
-                    navController.previousBackStackEntry
-                        ?.savedStateHandle
-                        ?.set("selected_track_id", track.id)
-                    navController.popBackStack()
+                    // Navigate to clip picker instead of going directly to editor
+                    navController.navigate(
+                        Route.TrackClipPicker(
+                            trackId = track.id,
+                            trackName = track.name,
+                            artistName = track.artistName,
+                            albumArtUrl = track.albumArtUrl ?: "",
+                            previewUrl = track.previewUrl ?: "",
+                            durationMs = track.durationMs,
+                            isExplicit = track.isExplicit
+                        )
+                    )
+                },
+                onArtistSelected = { artistId ->
+                    navController.navigate(Route.ArtistProfile(artistId))
+                },
+                onAlbumSelected = { albumId ->
+                    navController.navigate(Route.AlbumDetail(albumId))
+                }
+            )
+        }
+
+        composable<Route.ArtistProfile> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.ArtistProfile>()
+            com.linker.app.presentation.screens.note.ArtistProfileScreen(
+                artistId = route.artistId,
+                onNavigateBack = { navController.popBackStack() },
+                onTrackSelected = { track ->
+                    navController.navigate(
+                        Route.TrackClipPicker(
+                            trackId = track.id,
+                            trackName = track.name,
+                            artistName = track.artistName,
+                            albumArtUrl = track.albumArtUrl ?: "",
+                            previewUrl = track.previewUrl ?: "",
+                            durationMs = track.durationMs,
+                            isExplicit = track.isExplicit
+                        )
+                    )
+                },
+                onAlbumSelected = { albumId ->
+                    navController.navigate(Route.AlbumDetail(albumId))
+                }
+            )
+        }
+
+        composable<Route.AlbumDetail> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.AlbumDetail>()
+            com.linker.app.presentation.screens.note.AlbumDetailScreen(
+                albumId = route.albumId,
+                onNavigateBack = { navController.popBackStack() },
+                onTrackSelected = { track ->
+                    navController.navigate(
+                        Route.TrackClipPicker(
+                            trackId = track.id,
+                            trackName = track.name,
+                            artistName = track.artistName,
+                            albumArtUrl = track.albumArtUrl ?: "",
+                            previewUrl = track.previewUrl ?: "",
+                            durationMs = track.durationMs,
+                            isExplicit = track.isExplicit
+                        )
+                    )
+                }
+            )
+        }
+
+        composable<Route.TrackClipPicker> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.TrackClipPicker>()
+            TrackClipPickerScreen(
+                trackId = route.trackId,
+                trackName = route.trackName,
+                artistName = route.artistName,
+                albumArtUrl = route.albumArtUrl,
+                previewUrl = route.previewUrl,
+                trackDurationMs = route.durationMs,
+                isExplicit = route.isExplicit,
+                onNavigateBack = { navController.popBackStack() },
+                onClipConfirmed = { startMs, endMs ->
+                    // Write all track data to NoteEditor's saved state and pop back to it
+                    navController.getBackStackEntry(Route.NoteEditor).savedStateHandle.apply {
+                        set("selected_track_id", route.trackId)
+                        set("selected_track_name", route.trackName)
+                        set("selected_track_artist", route.artistName)
+                        set("selected_track_art", route.albumArtUrl)
+                        set("selected_track_preview", route.previewUrl.ifBlank { null })
+                        set("selected_clip_start_ms", startMs)
+                        set("selected_clip_end_ms", endMs)
+                        set("selected_track_explicit", route.isExplicit)
+                    }
+                    navController.popBackStack(Route.NoteEditor, inclusive = false)
                 }
             )
         }
 
         composable<Route.LocationPicker> {
+            // Legacy location search screen — kept for future use.
             com.linker.app.presentation.screens.note.LocationPickerScreen(
                 onNavigateBack = { navController.popBackStack() },
                 onLocationSelected = { location ->
@@ -263,6 +355,16 @@ fun LinkerNavHost(
                         ?.set("selected_location_name", location.name)
                     navController.popBackStack()
                 }
+            )
+        }
+
+        composable<Route.NoteLocationMap> { backStackEntry ->
+            val route = backStackEntry.toRoute<Route.NoteLocationMap>()
+            com.linker.app.presentation.screens.note.NoteLocationMapScreen(
+                latitude = route.latitude,
+                longitude = route.longitude,
+                placeName = route.placeName,
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 
@@ -364,10 +466,6 @@ fun LinkerNavHost(
                 showContentPicker = false
                 navController.navigate(Route.LinkEditor)
             },
-            onNoteSelected = {
-                showContentPicker = false
-                navController.navigate(Route.NoteEditor)
-            },
             onStorySelected = {
                 showContentPicker = false
                 // Handle story camera launch
@@ -381,7 +479,6 @@ fun LinkerNavHost(
 private fun ContentPickerBottomSheet(
     onDismiss: () -> Unit,
     onLinkSelected: () -> Unit,
-    onNoteSelected: () -> Unit,
     onStorySelected: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState()
@@ -404,7 +501,6 @@ private fun ContentPickerBottomSheet(
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 ContentPickerOption(icon = Icons.Default.Link, title = "Link", onClick = onLinkSelected)
-                ContentPickerOption(icon = Icons.Default.NoteAdd, title = "Not", onClick = onNoteSelected)
                 ContentPickerOption(icon = Icons.Default.PhotoCamera, title = "Hikaye", onClick = onStorySelected)
             }
         }

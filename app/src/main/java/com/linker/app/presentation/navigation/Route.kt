@@ -33,8 +33,42 @@ sealed interface Route {
     /** Spotify Search Screen */
     @Serializable data object SpotifySearch : Route
 
-    /** Location Picker Screen */
+    /** Artist Profile Screen */
+    @Serializable data class ArtistProfile(val artistId: String) : Route
+
+    /** Album Detail Screen */
+    @Serializable data class AlbumDetail(val albumId: String) : Route
+
+    /**
+     * Track Clip Picker Screen — shown after selecting a track, before returning to NoteEditor.
+     * Allows the user to listen and select a start/end clip range from the track.
+     */
+    @Serializable data class TrackClipPicker(
+        val trackId: String,
+        val trackName: String,
+        val artistName: String,
+        val albumArtUrl: String = "",
+        val previewUrl: String = "",
+        val durationMs: Long = 0L,
+        val isExplicit: Boolean = false
+    ) : Route
+
+    /** Location Picker Screen (legacy search — kept for potential future use) */
     @Serializable data object LocationPicker : Route
+
+    /**
+     * Full-screen map that displays the note author's shared GPS location.
+     * Navigated to from NoteEditorScreen (own preview) or from a NoteDetail card.
+     *
+     * @param latitude  GPS latitude.
+     * @param longitude GPS longitude.
+     * @param placeName Human-readable city / district string.
+     */
+    @Serializable data class NoteLocationMap(
+        val latitude: Double,
+        val longitude: Double,
+        val placeName: String
+    ) : Route
 
     @Serializable data object Settings : Route
     @Serializable data object OfflineMessagingSettings : Route

@@ -4,30 +4,7 @@ import com.linker.app.domain.model.Note
 import com.linker.app.core.util.Result
 import kotlinx.coroutines.flow.Flow
 
-/** Privacy tier for a Note. */
-enum class NotePrivacy {
-    /** Visible to all followers. */
-    FOLLOWERS,
-    /** Visible to everyone (public accounts). */
-    PUBLIC
-}
-
-/**
- * Type of media attached to a note.
- */
-enum class NoteMediaType {
-    IMAGE, VIDEO, AUDIO, NONE
-}
-
-/**
- * Viewer details for a Note.
- */
-data class NoteViewer(
-    val userId: String,
-    val username: String,
-    val avatarUrl: String?,
-    val viewedAt: Long
-)
+import com.linker.app.domain.model.NoteViewer
 
 /**
  * Repository interface for Note operations.
@@ -60,20 +37,9 @@ interface NoteRepository {
      * - Content is validated for prohibited words and spam.
      * - Maximum length is 280 characters.
      */
-    suspend fun postNote(content: String): Result<Note>
+    suspend fun postNote(content: String, backgroundColor: String? = null, textColor: String? = null): Result<Note>
 
-    /**
-     * Post a new media note that expires in 24 hours.
-     * 
-     * Security:
-     * - Media files are scanned for malware.
-     * - EXIF data is stripped before upload.
-     */
-    suspend fun postMediaNote(
-        mediaLocalPath: String,
-        mediaType: NoteMediaType,
-        caption: String? = null
-    ): Result<Note>
+    // Not: getMediaNote özelliği iptal edilmiştir ancak gerekirse eklenebilir.
 
     /**
      * Delete a note by ID.
@@ -106,7 +72,10 @@ interface NoteRepository {
     /** Add or remove an emoji reaction to a note. */
     suspend fun reactToNote(noteId: String, emoji: String?): Result<Unit>
 
-    /** Get reactions for a specific note. */
+    /** 
+     * Get reactions for a specific note. 
+     * @return Result containing a Map where Key is UserId and Value is Emoji String
+     */
     suspend fun getNoteReactions(noteId: String): Result<Map<String, String>>
 
     /** Reply to a note (creates a private message to the author). */
@@ -123,6 +92,11 @@ interface NoteRepository {
     // ── Specific Note Type Creation ──────────────────────────────────
 
     /**
+     * Posts a new GIF note.
+     */
+    suspend fun postGifNote(gifUrl: String, content: String, aspectRatio: Float?, backgroundColor: String? = null, textColor: String? = null): Result<Note.Gif>
+
+    /**
      * Posts a location note using GPS coordinates.
      * A Google Maps Static API thumbnail is generated server-side.
      * Requires ACCESS_FINE_LOCATION permission granted before calling.
@@ -134,7 +108,9 @@ interface NoteRepository {
     suspend fun postLocationNote(
         latitude: Double,
         longitude: Double,
-        placeName: String
+        placeName: String,
+        backgroundColor: String? = null,
+        textColor: String? = null
     ): Result<Note.Location>
 
     /**
@@ -145,7 +121,10 @@ interface NoteRepository {
      */
     suspend fun postCountdownNote(
         title: String,
-        targetTime: Long
+        targetTime: Long,
+        content: String,
+        backgroundColor: String? = null,
+        textColor: String? = null
     ): Result<Note.Countdown>
 
     /**
@@ -162,7 +141,12 @@ interface NoteRepository {
         trackName: String,
         artistName: String,
         albumArtUrl: String?,
-        caption: String = ""
+        previewUrl: String?,
+        clipStartMs: Long,
+        clipEndMs: Long,
+        caption: String = "",
+        backgroundColor: String? = null,
+        textColor: String? = null
     ): Result<Note.Music>
 
     // ── Countdown Subscriptions ────────────────────────────────────────

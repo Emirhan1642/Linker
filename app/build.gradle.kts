@@ -20,6 +20,11 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
+        manifestPlaceholders += mapOf(
+            "redirectSchemeName" to "linker",
+            "redirectHostName" to "spotify-callback"
+        )
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -40,6 +45,9 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${properties.getProperty("supabase.url", "")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${properties.getProperty("supabase.anonkey", "")}\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"${properties.getProperty("supabase.publishablekey", "")}\"")
+
+        // Giphy API Key (add giphy.apiKey to local.properties)
+        buildConfigField("String", "GIPHY_API_KEY", "\"${properties.getProperty("giphy.apiKey", "")}\"")
     }
 
     buildTypes {
@@ -113,6 +121,12 @@ ksp {
 
 dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    
+    // Spotify SDKs
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    implementation(files("libs/spotify-auth-release-2.1.0.aar"))
+    implementation("com.google.code.gson:gson:2.10.1") // auth SDK needs Gson
+
     // Core
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -135,6 +149,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.identity.jvm)
     implementation(libs.androidx.compose.remote.creation.core)
+    implementation(libs.androidx.compose.runtime)
     ksp(libs.hilt.compiler)
     ksp(libs.androidx.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
@@ -178,6 +193,7 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.gif)
 
     // Video Player
     implementation(libs.androidx.media3.exoplayer)
@@ -212,10 +228,11 @@ dependencies {
     coreLibraryDesugaring(libs.coreLibraryDesugaring)
 
     // Testing
-    // Google Play Services & Maps
+    // Google Play Services (location only — no billing required)
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    implementation("com.google.android.gms:play-services-maps:19.0.0")
-    implementation("com.google.maps.android:maps-compose:5.0.1")
+
+    // OpenStreetMap — osmdroid (free, no API key)
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 
     // Retrofit & Network (For Spotify API Integration)
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
@@ -228,6 +245,9 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    testImplementation(libs.mockito.core)
+    testImplementation(libs.mockito.kotlin)
+    testImplementation(libs.robolectric)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.androidx.room.testing)
     androidTestImplementation(libs.androidx.junit)

@@ -2,11 +2,11 @@
   "formatVersion": 1,
   "database": {
     "version": 12,
-    "identityHash": "f36af4fa7ba6a2894f74c8c351fb24d8",
+    "identityHash": "06f265d546d08a55f3f2cd7128eb8cdc",
     "entities": [
       {
         "tableName": "users",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `username` TEXT NOT NULL, `displayName` TEXT NOT NULL, `email` TEXT, `phoneNumber` TEXT, `bio` TEXT, `profileImageUrl` TEXT, `coverImageUrl` TEXT, `isVerified` INTEGER NOT NULL, `followersCount` INTEGER NOT NULL, `followingCount` INTEGER NOT NULL, `likesCount` INTEGER NOT NULL, `isFollowing` INTEGER NOT NULL, `isFollowedBy` INTEGER NOT NULL, `isBlocked` INTEGER NOT NULL, `isMuted` INTEGER NOT NULL, `isPrivate` INTEGER NOT NULL, `followRequestSent` INTEGER NOT NULL, `hideFollowLists` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastSyncedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`userId` TEXT NOT NULL, `username` TEXT NOT NULL, `displayName` TEXT NOT NULL, `email` TEXT, `phoneNumber` TEXT, `bio` TEXT, `profileImageUrl` TEXT, `coverImageUrl` TEXT, `isVerified` INTEGER NOT NULL, `followersCount` INTEGER NOT NULL, `followingCount` INTEGER NOT NULL, `likesCount` INTEGER NOT NULL, `isFollowing` INTEGER NOT NULL, `isFollowedBy` INTEGER NOT NULL, `isBlocked` INTEGER NOT NULL, `isMuted` INTEGER NOT NULL, `isPrivate` INTEGER NOT NULL, `followRequestSent` INTEGER NOT NULL, `hideFollowLists` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `lastSeen` INTEGER NOT NULL, `lastSyncedAt` INTEGER NOT NULL, PRIMARY KEY(`userId`))",
         "fields": [
           {
             "fieldPath": "userId",
@@ -131,6 +131,12 @@
           {
             "fieldPath": "updatedAt",
             "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeen",
+            "columnName": "lastSeen",
             "affinity": "INTEGER",
             "notNull": true
           },
@@ -2001,7 +2007,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f36af4fa7ba6a2894f74c8c351fb24d8')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '06f265d546d08a55f3f2cd7128eb8cdc')"
     ]
   }
 }

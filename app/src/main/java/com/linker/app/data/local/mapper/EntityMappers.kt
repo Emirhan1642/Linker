@@ -44,7 +44,8 @@ fun UserEntity.toDomain(): User = User(
         likesCount     = likesCount
     ),
     createdAt = createdAt,
-    updatedAt = updatedAt
+    updatedAt = updatedAt,
+    lastSeen = lastSeen
 )
 
 /**
@@ -73,6 +74,7 @@ fun User.toEntity(): UserEntity = UserEntity(
     hideFollowLists   = privacy.hideFollowLists,
     createdAt         = createdAt,
     updatedAt         = updatedAt,
+    lastSeen          = lastSeen,
     lastSyncedAt      = System.currentTimeMillis()
 )
 
@@ -302,6 +304,23 @@ fun NoteEntity.toDomain(author: User?): Note {
                 expiresAt = expiresAt
             )
         }
+        NoteType.GIF -> {
+            val parts = content.split("|", limit = 3)
+            val gifUrl = parts.getOrNull(0) ?: ""
+            val aspectRatio = parts.getOrNull(1)?.toFloatOrNull()
+            val textContent = parts.getOrNull(2) ?: ""
+            Note.Gif(
+                noteId = noteId,
+                author = noteAuthor,
+                content = textContent,
+                gifUrl = gifUrl,
+                aspectRatio = aspectRatio,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+        }
     }
 }
 
@@ -310,6 +329,7 @@ inline fun com.linker.app.data.local.entity.NoteType.toDomain(): NoteType = when
     com.linker.app.data.local.entity.NoteType.MUSIC     -> NoteType.MUSIC
     com.linker.app.data.local.entity.NoteType.COUNTDOWN -> NoteType.COUNTDOWN
     com.linker.app.data.local.entity.NoteType.LOCATION  -> NoteType.LOCATION
+    com.linker.app.data.local.entity.NoteType.GIF       -> NoteType.GIF
 }
 
 fun Note.toEntity(): NoteEntity = when (this) {
@@ -369,6 +389,23 @@ fun Note.toEntity(): NoteEntity = when (this) {
         authorId = author.userId,
         noteType = com.linker.app.data.local.entity.NoteType.LOCATION,
         content = "$latitude|$longitude|$placeName|${mapPreviewUrl ?: ""}",
+        musicTrackId = null,
+        musicTrackName = null,
+        musicArtistName = null,
+        musicAlbumArt = null,
+        countdownTargetTime = null,
+        countdownTitle = null,
+        backgroundColor = backgroundColor,
+        textColor = textColor,
+        createdAt = createdAt,
+        expiresAt = expiresAt,
+        lastSyncedAt = System.currentTimeMillis()
+    )
+    is Note.Gif -> NoteEntity(
+        noteId = noteId,
+        authorId = author.userId,
+        noteType = com.linker.app.data.local.entity.NoteType.GIF,
+        content = "$gifUrl|${aspectRatio ?: 1f}|$content",
         musicTrackId = null,
         musicTrackName = null,
         musicArtistName = null,

@@ -20,6 +20,7 @@ import com.linker.app.domain.repository.AuthRepository
 import com.linker.app.domain.repository.ChatRepository
 import com.linker.app.domain.repository.ChatSettingsRepository
 import com.linker.app.domain.repository.CommentRepository
+import com.linker.app.domain.repository.GifRepository
 import com.linker.app.domain.repository.LinkRepository
 import com.linker.app.domain.repository.MessageReactionRepository
 import com.linker.app.domain.repository.MessageRepository
@@ -30,8 +31,12 @@ import com.linker.app.domain.repository.StoryRepository
 import com.linker.app.domain.repository.UserPreferencesRepository
 import com.linker.app.data.repository.LocationRepositoryImpl
 import com.linker.app.domain.repository.LocationRepository
+import com.linker.app.data.repository.LiveLocationRepositoryImpl
+import com.linker.app.domain.repository.LiveLocationRepository
 import com.linker.app.data.repository.SpotifyRepositoryImpl
 import com.linker.app.domain.repository.SpotifyRepository
+import com.linker.app.data.repository.LyricsRepositoryImpl
+import com.linker.app.domain.repository.LyricsRepository
 import com.linker.app.domain.repository.UserRepository
 import dagger.Binds
 import dagger.Module
@@ -136,10 +141,21 @@ abstract class RepositoryModule {
     abstract fun bindNoteRepository(impl: NoteRepositoryImpl): NoteRepository
 
     @Binds @Singleton
+    abstract fun bindGifRepository(impl: com.linker.app.data.repository.GiphyGifRepositoryImpl): com.linker.app.domain.repository.GifRepository
+
+    @Binds @Singleton
     abstract fun bindLocationRepository(impl: LocationRepositoryImpl): LocationRepository
 
     @Binds @Singleton
+    abstract fun bindLiveLocationRepository(impl: LiveLocationRepositoryImpl): LiveLocationRepository
+
+    @Binds
+    @Singleton
     abstract fun bindSpotifyRepository(impl: SpotifyRepositoryImpl): SpotifyRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindLyricsRepository(impl: LyricsRepositoryImpl): LyricsRepository
 
     /**
      * Manages comments on posts, stories, and other content

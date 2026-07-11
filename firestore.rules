@@ -176,7 +176,8 @@ service cloud.firestore {
       allow read: if isSignedIn();
 
       allow create: if isSignedIn()
-        && request.resource.data.authorId == request.auth.uid;
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.noteType in ['TEXT', 'MUSIC', 'LOCATION', 'COUNTDOWN', 'GIF'];
 
       allow update, delete: if isSignedIn()
         && resource.data.authorId == request.auth.uid;

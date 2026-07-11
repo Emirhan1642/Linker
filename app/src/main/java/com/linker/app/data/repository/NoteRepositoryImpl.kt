@@ -14,7 +14,7 @@ import com.linker.app.domain.model.NoteType
 import com.linker.app.domain.model.User
 import com.linker.app.core.util.Result
 import com.linker.app.core.util.safeCall
-import com.linker.app.domain.repository.NoteMediaType
+import com.linker.app.domain.model.NoteViewer
 import com.linker.app.domain.repository.NoteRepository
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -74,11 +74,11 @@ class NoteRepositoryImpl @Inject constructor(
             .orderBy("expiresAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Result.Success(emptyList()))
+                    trySend(Result.Error(error.message ?: "Bilinmeyen hata", error.toString()))
                     return@addSnapshotListener
                 }
                 
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                launch {
                     val rawNotesData = snapshot?.documents?.mapNotNull { doc ->
                         doc.id to (doc.data ?: return@mapNotNull null)
                     } ?: emptyList()
@@ -93,9 +93,11 @@ class NoteRepositoryImpl @Inject constructor(
                         emptyMap()
                     }
 
-                    // Map to domain models with real user data
+                    // Map to domain models with real user data and filter by followers
                     val notes = rawNotesData.map { (docId, data) ->
                         mapToNoteWithUser(docId, data, usersMap)
+                    }.filter { note ->
+                        note.author.userId == currentUserId || usersMap[note.author.userId]?.isFollowing == true
                     }
                     
                     trySend(Result.Success(notes))
@@ -113,20 +115,14 @@ class NoteRepositoryImpl @Inject constructor(
         emptyList()
     }
 
-    override suspend fun postNote(content: String): Result<Note> {
+    override suspend fun postNote(content: String, backgroundColor: String?, textColor: String?): Result<Note> {
         return try {
             val trimmedContent = content.trim()
-            if (trimmedContent.isBlank()) {
-                return Result.Error("Note content cannot be empty")
-            }
-            if (trimmedContent.length > 500) {
-                return Result.Error("Note too long (max 500 characters)")
-            }
-
             val now = System.currentTimeMillis()
+
             val lastPostTime = lastNotePostTime[currentUserId] ?: 0L
-            if (now - lastPostTime < 60_000) { // 1 minute cooldown
-                return Result.Error("Please wait before posting another note")
+            if (now - lastPostTime < 1000L) {
+                return Result.Error("Please wait before posting again")
             }
 
             val noteId = UUID.randomUUID().toString()
@@ -136,27 +132,31 @@ class NoteRepositoryImpl @Inject constructor(
                 "authorId" to currentUserId,
                 "noteType" to "TEXT",
                 "content" to trimmedContent,
-                "backgroundColor" to null,
-                "textColor" to null,
+                "backgroundColor" to backgroundColor,
+                "textColor" to textColor,
                 "createdAt" to now,
                 "expiresAt" to expiresAt
             )
             notesCollection.document(noteId).set(noteData).await()
             lastNotePostTime[currentUserId] = now
 
+            val userEntity = userDao.getUserById(currentUserId)
+            val username = userEntity?.username?.takeIf { it.isNotBlank() } ?: "user"
+            val displayName = userEntity?.displayName?.takeIf { it.isNotBlank() } ?: "User"
+            
             val authorStub = NoteAuthor(
                 userId = currentUserId,
-                username = "",
-                displayName = "",
-                profileImageUrl = null
+                username = username,
+                displayName = displayName,
+                profileImageUrl = userEntity?.profileImageUrl
             )
             Result.Success(
                 Note.Text(
                     noteId = noteId,
                     author = authorStub,
                     content = trimmedContent,
-                    backgroundColor = null,
-                    textColor = null,
+                    backgroundColor = backgroundColor,
+                    textColor = textColor,
                     createdAt = now,
                     expiresAt = expiresAt
                 )
@@ -164,23 +164,6 @@ class NoteRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Result.Error(e.message ?: "Unknown error", e.toString())
         }
-    }
-
-    override suspend fun postMediaNote(
-        mediaLocalPath: String,
-        mediaType: com.linker.app.domain.repository.NoteMediaType,
-        caption: String?
-    ): Result<Note> = safeCall {
-        // Stub implementation for now
-        com.linker.app.domain.model.Note.Text(
-            noteId = UUID.randomUUID().toString(),
-            author = com.linker.app.domain.model.NoteAuthor(currentUserId ?: "", "", "", null),
-            content = caption ?: "",
-            backgroundColor = null,
-            textColor = null,
-            createdAt = System.currentTimeMillis(),
-            expiresAt = System.currentTimeMillis() + com.linker.app.core.util.TimeConstants.DAY_MS
-        )
     }
 
     /** Delete a note. */
@@ -205,8 +188,46 @@ class NoteRepositoryImpl @Inject constructor(
 
     override fun recordView(noteId: String) {}
     override suspend fun getViewCount(noteId: String): Result<Int> = safeCall { 0 }
-    override suspend fun getViewers(noteId: String): Result<List<com.linker.app.domain.repository.NoteViewer>> = safeCall { emptyList() }
-    override suspend fun toggleLikeNote(noteId: String): Result<Boolean> = safeCall { false }
+    override suspend fun getViewers(noteId: String): Result<List<NoteViewer>> = safeCall { emptyList() }
+    override suspend fun toggleLikeNote(noteId: String): Result<Boolean> {
+        return try {
+            val uid = currentUserId
+            if (uid.isEmpty()) return Result.Error("Not authenticated")
+
+            val noteRef = notesCollection.document(noteId)
+            var isNowLiked = false
+            
+            firestore.runTransaction { transaction ->
+                val noteDoc = transaction.get(noteRef)
+                if (!noteDoc.exists()) {
+                    throw Exception("Note not found")
+                }
+
+                val currentCount = noteDoc.getLong("likesCount") ?: 0L
+                val likedBy = noteDoc.get("likedBy") as? List<*> ?: emptyList<Any>()
+                
+                if (likedBy.contains(uid)) {
+                    // Unlike
+                    transaction.update(noteRef, 
+                        "likesCount", maxOf(0L, currentCount - 1),
+                        "likedBy", com.google.firebase.firestore.FieldValue.arrayRemove(uid)
+                    )
+                    isNowLiked = false
+                } else {
+                    // Like
+                    transaction.update(noteRef, 
+                        "likesCount", currentCount + 1,
+                        "likedBy", com.google.firebase.firestore.FieldValue.arrayUnion(uid)
+                    )
+                    isNowLiked = true
+                }
+            }.await()
+
+            Result.Success(isNowLiked)
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Failed to toggle like", e.toString())
+        }
+    }
     override suspend fun reactToNote(noteId: String, emoji: String?): Result<Unit> = safeCall {}
     override suspend fun getNoteReactions(noteId: String): Result<Map<String, String>> = safeCall { emptyMap() }
     override suspend fun replyToNote(noteId: String, content: String): Result<Unit> = safeCall {}
@@ -231,8 +252,8 @@ class NoteRepositoryImpl @Inject constructor(
         val authorId = data["authorId"] as? String ?: ""
         val authorStub = NoteAuthor(
             userId = authorId,
-            username = "",
-            displayName = "",
+            username = "unknown",
+            displayName = "Unknown",
             profileImageUrl = null
         )
 
@@ -245,6 +266,11 @@ class NoteRepositoryImpl @Inject constructor(
         val createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L
         val expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
 
+        val likesCount = (data["likesCount"] as? Number)?.toInt() ?: 0
+        val likedBy = data["likedBy"] as? List<*> ?: emptyList<Any>()
+        val isLiked = likedBy.contains(currentUserId)
+        val repliesCount = (data["repliesCount"] as? Number)?.toInt() ?: 0
+
         return when (noteType) {
             NoteType.TEXT -> Note.Text(
                 noteId = noteId,
@@ -252,6 +278,9 @@ class NoteRepositoryImpl @Inject constructor(
                 content = content,
                 backgroundColor = backgroundColor,
                 textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
@@ -263,6 +292,9 @@ class NoteRepositoryImpl @Inject constructor(
                 musicTrackName = data["musicTrackName"] as? String ?: "",
                 musicArtistName = data["musicArtistName"] as? String ?: "",
                 musicAlbumArt = data["musicAlbumArt"] as? String,
+                previewUrl = data["previewUrl"] as? String,
+                clipStartTime = (data["clipStartMs"] as? Number)?.toLong() ?: 0L,
+                clipEndTime = (data["clipEndMs"] as? Number)?.toLong() ?: 30000L,
                 backgroundColor = backgroundColor,
                 textColor = textColor,
                 createdAt = createdAt,
@@ -286,6 +318,17 @@ class NoteRepositoryImpl @Inject constructor(
                 longitude = (data["longitude"] as? Number)?.toDouble() ?: 0.0,
                 placeName = data["placeName"] as? String ?: "",
                 mapPreviewUrl = data["mapPreviewUrl"] as? String,
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.GIF -> Note.Gif(
+                noteId = noteId,
+                author = authorStub,
+                content = content,
+                gifUrl = data["gifUrl"] as? String ?: "",
+                aspectRatio = (data["aspectRatio"] as? Number)?.toFloat(),
                 backgroundColor = backgroundColor,
                 textColor = textColor,
                 createdAt = createdAt,
@@ -308,6 +351,11 @@ class NoteRepositoryImpl @Inject constructor(
         val createdAt = (data["createdAt"] as? Number)?.toLong() ?: 0L
         val expiresAt = (data["expiresAt"] as? Number)?.toLong() ?: 0L
 
+        val likesCount = (data["likesCount"] as? Number)?.toInt() ?: 0
+        val likedBy = data["likedBy"] as? List<*> ?: emptyList<Any>()
+        val isLiked = likedBy.contains(currentUserId)
+        val repliesCount = (data["repliesCount"] as? Number)?.toInt() ?: 0
+
         return when (noteType) {
             NoteType.TEXT -> Note.Text(
                 noteId = noteId,
@@ -315,6 +363,9 @@ class NoteRepositoryImpl @Inject constructor(
                 content = content,
                 backgroundColor = backgroundColor,
                 textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
@@ -326,8 +377,14 @@ class NoteRepositoryImpl @Inject constructor(
                 musicTrackName = data["musicTrackName"] as? String ?: "",
                 musicArtistName = data["musicArtistName"] as? String ?: "",
                 musicAlbumArt = data["musicAlbumArt"] as? String,
+                previewUrl = data["previewUrl"] as? String,
+                clipStartTime = (data["clipStartMs"] as? Number)?.toLong() ?: 0L,
+                clipEndTime = (data["clipEndMs"] as? Number)?.toLong() ?: 30000L,
                 backgroundColor = backgroundColor,
                 textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
@@ -339,6 +396,9 @@ class NoteRepositoryImpl @Inject constructor(
                 countdownTitle = data["countdownTitle"] as? String ?: "",
                 backgroundColor = backgroundColor,
                 textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
@@ -351,6 +411,23 @@ class NoteRepositoryImpl @Inject constructor(
                 mapPreviewUrl = data["mapPreviewUrl"] as? String,
                 backgroundColor = backgroundColor,
                 textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
+                createdAt = createdAt,
+                expiresAt = expiresAt
+            )
+            NoteType.GIF -> Note.Gif(
+                noteId = noteId,
+                author = authorRef,
+                content = content,
+                gifUrl = data["gifUrl"] as? String ?: "",
+                aspectRatio = (data["aspectRatio"] as? Number)?.toFloat(),
+                backgroundColor = backgroundColor,
+                textColor = textColor,
+                likesCount = likesCount,
+                isLiked = isLiked,
+                repliesCount = repliesCount,
                 createdAt = createdAt,
                 expiresAt = expiresAt
             )
@@ -360,7 +437,9 @@ class NoteRepositoryImpl @Inject constructor(
     override suspend fun postLocationNote(
         latitude: Double,
         longitude: Double,
-        placeName: String
+        placeName: String,
+        backgroundColor: String?,
+        textColor: String?
     ): Result<Note.Location> {
         return try {
             val now = System.currentTimeMillis()
@@ -374,12 +453,14 @@ class NoteRepositoryImpl @Inject constructor(
                 "latitude" to latitude,
                 "longitude" to longitude,
                 "placeName" to placeName,
+                "backgroundColor" to backgroundColor,
+                "textColor" to textColor,
                 "createdAt" to now,
                 "expiresAt" to expiresAt
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
             Result.Success(
                 Note.Location(
                     noteId = noteId,
@@ -388,8 +469,8 @@ class NoteRepositoryImpl @Inject constructor(
                     longitude = longitude,
                     placeName = placeName,
                     mapPreviewUrl = null,
-                    backgroundColor = null,
-                    textColor = null,
+                    backgroundColor = backgroundColor,
+                    textColor = textColor,
                     createdAt = now,
                     expiresAt = expiresAt
                 )
@@ -401,34 +482,39 @@ class NoteRepositoryImpl @Inject constructor(
 
     override suspend fun postCountdownNote(
         title: String,
-        targetTime: Long
+        targetTime: Long,
+        content: String,
+        backgroundColor: String?,
+        textColor: String?
     ): Result<Note.Countdown> {
         return try {
             val now = System.currentTimeMillis()
-            val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
+            val expiresAt = targetTime + com.linker.app.core.util.TimeConstants.DAY_MS
             val noteId = UUID.randomUUID().toString()
 
             val noteData = hashMapOf(
                 "authorId" to currentUserId,
                 "noteType" to "COUNTDOWN",
-                "content" to "",
+                "content" to content,
                 "countdownTitle" to title,
                 "countdownTargetTime" to targetTime,
+                "backgroundColor" to backgroundColor,
+                "textColor" to textColor,
                 "createdAt" to now,
                 "expiresAt" to expiresAt
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
             Result.Success(
                 Note.Countdown(
                     noteId = noteId,
                     author = authorStub,
-                    content = "",
+                    content = content,
                     countdownTitle = title,
                     countdownTargetTime = targetTime,
-                    backgroundColor = null,
-                    textColor = null,
+                    backgroundColor = backgroundColor,
+                    textColor = textColor,
                     createdAt = now,
                     expiresAt = expiresAt
                 )
@@ -443,7 +529,12 @@ class NoteRepositoryImpl @Inject constructor(
         trackName: String,
         artistName: String,
         albumArtUrl: String?,
-        caption: String
+        previewUrl: String?,
+        clipStartMs: Long,
+        clipEndMs: Long,
+        caption: String,
+        backgroundColor: String?,
+        textColor: String?
     ): Result<Note.Music> {
         return try {
             val now = System.currentTimeMillis()
@@ -458,12 +549,17 @@ class NoteRepositoryImpl @Inject constructor(
                 "musicTrackName" to trackName,
                 "musicArtistName" to artistName,
                 "musicAlbumArt" to albumArtUrl,
+                "previewUrl" to previewUrl,
+                "clipStartMs" to clipStartMs,
+                "clipEndMs" to clipEndMs,
+                "backgroundColor" to backgroundColor,
+                "textColor" to textColor,
                 "createdAt" to now,
                 "expiresAt" to expiresAt
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "", displayName = "", profileImageUrl = null)
+            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
             Result.Success(
                 Note.Music(
                     noteId = noteId,
@@ -473,8 +569,11 @@ class NoteRepositoryImpl @Inject constructor(
                     musicTrackName = trackName,
                     musicArtistName = artistName,
                     musicAlbumArt = albumArtUrl,
-                    backgroundColor = null,
-                    textColor = null,
+                    previewUrl = previewUrl,
+                    clipStartTime = clipStartMs,
+                    clipEndTime = clipEndMs,
+                    backgroundColor = backgroundColor ?: "#FF1DB954",
+                    textColor = textColor,
                     createdAt = now,
                     expiresAt = expiresAt
                 )
@@ -484,7 +583,51 @@ class NoteRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun subscribeToCountdown(noteId: String): Result<Unit> = safeCall { throw NotImplementedError() }
-    override suspend fun unsubscribeFromCountdown(noteId: String): Result<Unit> = safeCall { throw NotImplementedError() }
-    override suspend fun isSubscribedToCountdown(noteId: String): Result<Boolean> = safeCall { throw NotImplementedError() }
+    override suspend fun postGifNote(
+        gifUrl: String,
+        content: String,
+        aspectRatio: Float?,
+        backgroundColor: String?,
+        textColor: String?
+    ): Result<Note.Gif> {
+        return try {
+            val now = System.currentTimeMillis()
+            val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
+            val noteId = UUID.randomUUID().toString()
+
+            val noteData = hashMapOf(
+                "authorId" to currentUserId,
+                "noteType" to "GIF",
+                "content" to content,
+                "gifUrl" to gifUrl,
+                "aspectRatio" to aspectRatio,
+                "backgroundColor" to backgroundColor,
+                "textColor" to textColor,
+                "createdAt" to now,
+                "expiresAt" to expiresAt
+            )
+            notesCollection.document(noteId).set(noteData).await()
+
+            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
+            Result.Success(
+                Note.Gif(
+                    noteId = noteId,
+                    author = authorStub,
+                    content = content,
+                    gifUrl = gifUrl,
+                    aspectRatio = aspectRatio,
+                    backgroundColor = backgroundColor,
+                    textColor = textColor,
+                    createdAt = now,
+                    expiresAt = expiresAt
+                )
+            )
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Unknown error", e.toString())
+        }
+    }
+
+    override suspend fun subscribeToCountdown(noteId: String): Result<Unit> = Result.Error("Yakında geliyor")
+    override suspend fun unsubscribeFromCountdown(noteId: String): Result<Unit> = Result.Error("Yakında geliyor")
+    override suspend fun isSubscribedToCountdown(noteId: String): Result<Boolean> = Result.Error("Yakında geliyor")
 }

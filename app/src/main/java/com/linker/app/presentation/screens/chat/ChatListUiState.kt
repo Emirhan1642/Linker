@@ -9,6 +9,7 @@ data class ChatListUiState(
     val selectedFilter: String = "All",
     val userNote: Note? = null,
     val otherNotes: List<Note> = emptyList(),
+    val onlineUsers: List<com.linker.app.domain.model.User> = emptyList(),
     val error: String? = null
 )
 

@@ -33,7 +33,7 @@ class ExpiredNotesCleanupWorker @AssistedInject constructor(
             }
         } catch (e: Exception) {
             Log.e("ExpiredNotesWorker", "Exception during expired notes cleanup: ${e.message}", e)
-            Result.retry()
+            Result.failure()
         }
     }
 }

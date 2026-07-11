@@ -436,6 +436,14 @@ class UserRepositoryImpl @Inject constructor(
         if (local != null) userDao.updateUser(local.copy(hideFollowLists = hide))
     }
 
+    override suspend fun updatePresence(): Result<Unit> = safeCall {
+        val uid = currentUid ?: return@safeCall
+        val now = System.currentTimeMillis()
+        firestore.collection("users").document(uid).update("lastSeen", now).await()
+        val local = userDao.getUserById(uid)
+        if (local != null) userDao.updateUser(local.copy(lastSeen = now))
+    }
+
     override fun observeFollowing(): Flow<Result<List<User>>> =
         userDao.observeFollowing().map { Result.Success(it.map { e -> e.toDomain() }) }
 
@@ -543,6 +551,7 @@ class UserRepositoryImpl @Inject constructor(
         isFollowing       = false, isFollowedBy = false, followRequestSent = false,
         createdAt  = (data["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
         updatedAt  = (data["updatedAt"] as? Number)?.toLong() ?: System.currentTimeMillis(),
+        lastSeen   = (data["lastSeen"] as? Number)?.toLong() ?: 0L,
         lastSyncedAt = System.currentTimeMillis()
     )
 }

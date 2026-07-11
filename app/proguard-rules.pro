@@ -190,6 +190,13 @@
 -keep class com.linker.app.data.connectivity.** { *; }
 -keep class android.net.** { *; }
 
+# ── Spotify App Remote SDK / Jackson ───────────────────────────────────────
+-dontwarn com.spotify.**
+-dontwarn com.fasterxml.jackson.**
+
+# ── Play Services Location ───────────────────────────────────────────────────
+-dontwarn com.google.android.gms.internal.location.**
+
 # ============================================================================
 # End of ProGuard Configuration
 # ============================================================================

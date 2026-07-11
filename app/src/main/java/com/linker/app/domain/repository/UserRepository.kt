@@ -157,4 +157,7 @@ interface UserRepository {
     
     /** Toggles whether to hide follow/following lists from other users. */
     suspend fun setHideFollowLists(hide: Boolean): UserResult<Unit>
+    
+    /** Updates the user's online presence (lastSeen timestamp). */
+    suspend fun updatePresence(): UserResult<Unit>
 }

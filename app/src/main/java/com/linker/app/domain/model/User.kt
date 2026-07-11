@@ -139,7 +139,8 @@ data class User(
     val privacy: UserPrivacy = UserPrivacy(),
     val metrics: UserMetrics = UserMetrics(),
     val createdAt: Long = 0,
-    val updatedAt: Long = 0
+    val updatedAt: Long = 0,
+    val lastSeen: Long = 0
 ) {
     /**
      * Gets the user's email address (PII).

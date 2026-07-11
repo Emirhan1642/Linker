@@ -21,6 +21,8 @@ import com.linker.app.domain.model.Note
 import com.linker.app.presentation.theme.DarkGray
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
+import androidx.compose.ui.draw.clip
+import coil3.request.crossfade
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -46,10 +48,14 @@ fun NoteCard(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Box(
+                coil3.compose.AsyncImage(
+                    model = note.author.profileImageUrl?.takeIf { it.isNotBlank() } ?: "https://ui-avatars.com/api/?name=${note.author.displayName}&background=random",
+                    contentDescription = "Profile Picture",
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     modifier = Modifier
                         .size(24.dp)
                         .background(Color.Gray, shape = CircleShape)
+                        .clip(CircleShape)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
                 Text(
@@ -113,7 +119,13 @@ fun NoteCard(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
-                            val remainingStr = getRemainingTime(note.countdownTargetTime)
+                            var remainingStr by remember { mutableStateOf(getRemainingTime(note.countdownTargetTime)) }
+                            LaunchedEffect(note.countdownTargetTime) {
+                                while(true) {
+                                    remainingStr = getRemainingTime(note.countdownTargetTime)
+                                    kotlinx.coroutines.delay(1000)
+                                }
+                            }
                             Text(
                                 text = remainingStr,
                                 color = TextSecondary,
@@ -146,7 +158,45 @@ fun NoteCard(
                             )
                         }
                     }
+                    is Note.Gif -> {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .background(Color.DarkGray, shape = MaterialTheme.shapes.small),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(text = "GIF", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (note.gifUrl.isNotBlank()) {
+                                coil3.compose.AsyncImage(
+                                    model = coil3.request.ImageRequest.Builder(coil3.compose.LocalPlatformContext.current)
+                                        .data(note.gifUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "GIF",
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(MaterialTheme.shapes.small)
+                                )
+                            }
+                            if (note.content.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = note.content,
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
                 }
+
             }
         }
     }
@@ -155,7 +205,8 @@ fun NoteCard(
 private fun getRemainingTime(targetTime: Long): String {
     val diff = targetTime - System.currentTimeMillis()
     if (diff <= 0) return "Süre doldu"
-    val hours = TimeUnit.MILLISECONDS.toHours(diff)
-    val mins = TimeUnit.MILLISECONDS.toMinutes(diff) % 60
-    return "${hours}s ${mins}dk"
+    val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(diff)
+    val hours = java.util.concurrent.TimeUnit.MILLISECONDS.toHours(diff) % 24
+    val mins = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(diff) % 60
+    return if (days > 0) "${days}g ${hours}s" else "${hours}s ${mins}dk"
 }

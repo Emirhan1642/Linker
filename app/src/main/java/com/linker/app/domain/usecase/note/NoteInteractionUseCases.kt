@@ -14,12 +14,14 @@ class PostLocationNoteUseCase @Inject constructor(
     suspend operator fun invoke(
         latitude: Double,
         longitude: Double,
-        placeName: String
+        placeName: String,
+        backgroundColor: String? = null,
+        textColor: String? = null
     ): Result<Note.Location> {
         if (latitude !in -90.0..90.0) return Result.Error("Latitude must be between -90 and 90")
         if (longitude !in -180.0..180.0) return Result.Error("Longitude must be between -180 and 180")
         if (placeName.isBlank()) return Result.Error("Place name cannot be empty")
-        return noteRepository.postLocationNote(latitude, longitude, placeName)
+        return noteRepository.postLocationNote(latitude, longitude, placeName, backgroundColor, textColor)
     }
 }
 
@@ -29,15 +31,24 @@ class PostLocationNoteUseCase @Inject constructor(
 class PostCountdownNoteUseCase @Inject constructor(
     private val noteRepository: NoteRepository
 ) {
-    suspend operator fun invoke(title: String, targetTime: Long): Result<Note.Countdown> {
-        if (title.isBlank()) return Result.Error("Title cannot be empty")
-        if (title.length > Note.Countdown.MAX_COUNTDOWN_CONTENT_LENGTH) {
-            return Result.Error("Title exceeds maximum length of ${Note.Countdown.MAX_COUNTDOWN_CONTENT_LENGTH}")
+    suspend operator fun invoke(
+        title: String, 
+        targetTime: Long,
+        content: String,
+        backgroundColor: String? = null,
+        textColor: String? = null
+    ): Result<Note.Countdown> {
+        if (title.isBlank()) {
+            return Result.Error("Title cannot be empty")
         }
+        if (content.codePointCount(0, content.length) > Note.Countdown.MAX_COUNTDOWN_CONTENT_LENGTH) {
+            return Result.Error("Content exceeds maximum length of ${Note.Countdown.MAX_COUNTDOWN_CONTENT_LENGTH}")
+        }
+        // Note: Bu kontrol istemci taraflıdır. Asıl güvenlik için sunucu/Firebase kurallarında da "targetTime > now" kısıtlaması olmalıdır.
         if (targetTime <= System.currentTimeMillis()) {
             return Result.Error("Target time must be in the future")
         }
-        return noteRepository.postCountdownNote(title, targetTime)
+        return noteRepository.postCountdownNote(title, targetTime, content, backgroundColor, textColor)
     }
 }
 
@@ -52,15 +63,20 @@ class PostMusicNoteUseCase @Inject constructor(
         trackName: String,
         artistName: String,
         albumArtUrl: String?,
-        caption: String = ""
+        previewUrl: String?,
+        clipStartMs: Long,
+        clipEndMs: Long,
+        caption: String = "",
+        backgroundColor: String? = null,
+        textColor: String? = null
     ): Result<Note.Music> {
-        if (trackId.isBlank()) return Result.Error("Track ID cannot be empty")
-        if (trackName.isBlank()) return Result.Error("Track name cannot be empty")
-        if (artistName.isBlank()) return Result.Error("Artist name cannot be empty")
-        if (caption.length > Note.Music.MAX_MUSIC_CONTENT_LENGTH) {
+        if (trackId.isBlank() || trackName.isBlank() || artistName.isBlank()) {
+            return Result.Error("Track ID, Name, and Artist cannot be blank")
+        }
+        if (caption.codePointCount(0, caption.length) > Note.Music.MAX_MUSIC_CONTENT_LENGTH) {
             return Result.Error("Caption exceeds maximum length of ${Note.Music.MAX_MUSIC_CONTENT_LENGTH}")
         }
-        return noteRepository.postMusicNote(trackId, trackName, artistName, albumArtUrl, caption)
+        return noteRepository.postMusicNote(trackId, trackName, artistName, albumArtUrl, previewUrl, clipStartMs, clipEndMs, caption, backgroundColor, textColor)
     }
 }
 
@@ -114,11 +130,33 @@ class ReplyToNoteUseCase @Inject constructor(
     }
 }
 
+/**
+ * Posts a GIF note.
+ */
+class PostGifNoteUseCase @Inject constructor(
+    private val noteRepository: NoteRepository
+) {
+    suspend operator fun invoke(
+        gifUrl: String,
+        content: String = "",
+        aspectRatio: Float? = null,
+        backgroundColor: String? = null,
+        textColor: String? = null
+    ): Result<Note.Gif> {
+        if (gifUrl.isBlank()) return Result.Error("GIF URL cannot be empty")
+        if (content.codePointCount(0, content.length) > Note.Gif.MAX_GIF_CONTENT_LENGTH) {
+            return Result.Error("Content exceeds maximum length of ${Note.Gif.MAX_GIF_CONTENT_LENGTH}")
+        }
+        return noteRepository.postGifNote(gifUrl, content, aspectRatio, backgroundColor, textColor)
+    }
+}
+
 data class NoteInteractionUseCases @Inject constructor(
     val postNote: PostNoteUseCase,
     val postLocationNote: PostLocationNoteUseCase,
     val postCountdownNote: PostCountdownNoteUseCase,
     val postMusicNote: PostMusicNoteUseCase,
+    val postGifNote: PostGifNoteUseCase,
     val subscribeToCountdown: SubscribeToCountdownUseCase,
     val unsubscribeFromCountdown: UnsubscribeFromCountdownUseCase,
     val likeNote: LikeNoteUseCase,

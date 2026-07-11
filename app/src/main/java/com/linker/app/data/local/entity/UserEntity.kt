@@ -34,6 +34,7 @@ data class UserEntity(
     val hideFollowLists: Boolean = false,
     val createdAt: Long,
     val updatedAt: Long,
+    val lastSeen: Long = 0L,
     val lastSyncedAt: Long = System.currentTimeMillis()
 ) {
     init {

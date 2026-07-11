@@ -58,5 +58,6 @@ enum class NoteType {
     TEXT,
     MUSIC,
     COUNTDOWN,
-    LOCATION
+    LOCATION,
+    GIF
 }

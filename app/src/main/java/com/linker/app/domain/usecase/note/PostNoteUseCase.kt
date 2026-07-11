@@ -8,10 +8,12 @@ import javax.inject.Inject
 class PostNoteUseCase @Inject constructor(
     private val noteRepository: NoteRepository
 ) {
-    suspend operator fun invoke(content: String): Result<Note> {
+    suspend operator fun invoke(content: String, backgroundColor: String? = null, textColor: String? = null): Result<Note> {
         if (content.isBlank()) return Result.Error("Note content cannot be empty")
-        if (content.length > 500) return Result.Error("Note content too long (max 500)")
-        val sanitized = content.replace(Regex("<[^>]*>"), "").trim()
-        return noteRepository.postNote(sanitized)
+        if (content.codePointCount(0, content.length) > Note.Text.MAX_TEXT_CONTENT_LENGTH) {
+            return Result.Error("Note content too long (max ${Note.Text.MAX_TEXT_CONTENT_LENGTH})")
+        }
+        val sanitized = content.replace("<", "&lt;").replace(">", "&gt;").trim()
+        return noteRepository.postNote(sanitized, backgroundColor, textColor)
     }
 }

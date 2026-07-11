@@ -23,6 +23,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
@@ -48,7 +49,8 @@ class ChatViewModel @Inject constructor(
     private val getUserDisplayNameUseCase: GetUserDisplayNameUseCase,
     private val loadMessageInfoUseCase: LoadMessageInfoUseCase,
     private val getUserByIdUseCase: GetUserByIdUseCase,
-    private val syncMessagesFromFirestoreUseCase: com.linker.app.domain.usecase.chat.SyncMessagesFromFirestoreUseCase
+    private val syncMessagesFromFirestoreUseCase: com.linker.app.domain.usecase.chat.SyncMessagesFromFirestoreUseCase,
+    private val userRepository: com.linker.app.domain.repository.UserRepository
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -72,6 +74,7 @@ class ChatViewModel @Inject constructor(
     private var chatsJob: Job? = null
     private var messagesJob: Job? = null
     private var notesJob: Job? = null
+    private var presenceJob: Job? = null
     
     private val displayNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val avatarCache = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -96,7 +99,18 @@ class ChatViewModel @Inject constructor(
         observeChats()
         observeNotes()
         observeFilters()
+        startPresencePing()
         com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(authListener)
+    }
+
+    private fun startPresencePing() {
+        presenceJob?.cancel()
+        presenceJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            while (isActive) {
+                userRepository.updatePresence()
+                kotlinx.coroutines.delay(60_000L) // Ping every minute
+            }
+        }
     }
 
     private fun observeFilters() {
@@ -214,6 +228,7 @@ class ChatViewModel @Inject constructor(
         chatsJob?.cancel()
         messagesJob?.cancel()
         notesJob?.cancel()
+        presenceJob?.cancel()
         com.google.firebase.auth.FirebaseAuth.getInstance().removeAuthStateListener(authListener)
     }
 
@@ -222,11 +237,13 @@ class ChatViewModel @Inject constructor(
         chatsJob?.cancel()
         messagesJob?.cancel()
         notesJob?.cancel()
+        presenceJob?.cancel()
         lastMarkedReadAtByChat.clear()
         _chatListState.value = ChatListUiState(isLoading = true)
         _messageState.value = ChatMessageUiState(isLoading = true)
         observeChats()
         observeNotes()
+        startPresencePing()
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
@@ -256,18 +273,36 @@ class ChatViewModel @Inject constructor(
     private fun observeNotes() {
         notesJob?.cancel()
         notesJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-            observeActiveNotesUseCase().collect { result ->
-                if (result is Result.Success) {
-                    val allNotes = result.data
-                    val me = currentUserId
-                    val userNote = allNotes.firstOrNull { it.author.userId == me }
-                    val otherNotes = allNotes.filter { it.author.userId != me }
-                    _chatListState.update { 
-                        it.copy(
-                            userNote = userNote,
-                            otherNotes = otherNotes
-                        )
-                    }
+            kotlinx.coroutines.flow.combine(
+                observeActiveNotesUseCase(),
+                userRepository.observeFollowing()
+            ) { notesResult, followingResult ->
+                val allNotes = if (notesResult is Result.Success) notesResult.data else emptyList()
+                val following = if (followingResult is Result.Success) followingResult.data else emptyList()
+                
+                val me = currentUserId
+                val userNote = allNotes.firstOrNull { it.author.userId == me }
+                val otherNotes = allNotes.filter { it.author.userId != me }
+                
+                // Get online users who DO NOT have a note
+                val now = System.currentTimeMillis()
+                val fiveMinsMs = 5 * 60 * 1000L
+                val authorsWithNotes = otherNotes.map { it.author.userId }.toSet()
+                
+                val onlineUsers = following.filter { user ->
+                    user.userId != me && 
+                    !authorsWithNotes.contains(user.userId) &&
+                    (now - user.lastSeen) < fiveMinsMs
+                }
+                
+                Triple(userNote, otherNotes, onlineUsers)
+            }.collect { (userNote, otherNotes, onlineUsers) ->
+                _chatListState.update { 
+                    it.copy(
+                        userNote = userNote,
+                        otherNotes = otherNotes,
+                        onlineUsers = onlineUsers
+                    )
                 }
             }
         }

@@ -25,6 +25,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import com.linker.app.core.notification.PushTokenRegistrar
 import com.linker.app.core.notification.ChatNotificationHelper
 import com.linker.app.core.session.HybridAccountManager
+import com.linker.app.core.util.SpotifyAuthManager
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.core.util.Result as LinkerResult
 import javax.inject.Inject
@@ -47,6 +48,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var accountRepository: AccountRepository
     @Inject lateinit var hybridAccountManager: HybridAccountManager
     @Inject lateinit var connectivityMonitor: com.linker.app.data.connectivity.ConnectivityMonitor
+    @Inject lateinit var spotifyAuthManager: SpotifyAuthManager
 
     companion object {
         private const val TAG = "MainActivity"
@@ -120,6 +122,14 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        // Handle Spotify browser auth callback (linker://spotify-callback)
+        if (intent.data?.scheme == "linker" && intent.data?.host == "spotify-callback") {
+            android.util.Log.d(TAG, "Spotify browser auth callback received")
+            spotifyAuthManager.handleBrowserCallback(intent)
+            return
+        }
+
         lifecycleScope.launch {
             try {
                 applyLaunchIntent(intent)
