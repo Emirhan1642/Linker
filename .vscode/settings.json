@@ -1,5 +1,0 @@
-{
-    "kiroAgent.configureMCP": "Enabled",
-    "java.configuration.updateBuildConfiguration": "automatic",
-    "kiroAgent.enableCodebaseIndexing": true
-}
