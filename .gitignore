@@ -112,3 +112,6 @@ build_log.txt
 build_errors.txt
 build_result.txt
 Files.txt
+log_full.txt
+log.txt
+debug_install.bat

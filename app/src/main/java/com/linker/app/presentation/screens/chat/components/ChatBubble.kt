@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -48,12 +49,15 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
 import com.linker.app.domain.model.MessageStatus
 import com.linker.app.domain.model.MessageType
+import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.StoryState
 import com.linker.app.presentation.screens.chat.MessageItem
 import com.linker.app.presentation.theme.AccentGreen
 import com.linker.app.presentation.theme.TextPrimary
@@ -81,6 +85,7 @@ fun ChatBubble(
     onSwipeReply: () -> Unit,
     isHighlighted: Boolean,
     onHaptic: () -> Unit,
+    onNoteReplyClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val haptic = LocalHapticFeedback.current
@@ -138,7 +143,8 @@ fun ChatBubble(
         MessageBubbleContent(
             message = message,
             highlightAlpha = highlightAlpha.value,
-            onBubblePositioned = onBubblePositioned
+            onBubblePositioned = onBubblePositioned,
+            onNoteReplyClick = onNoteReplyClick
         )
     }
 }
@@ -148,6 +154,7 @@ fun MessageBubbleContent(
     message: MessageItem,
     highlightAlpha: Float = 0f,
     onBubblePositioned: ((Rect) -> Unit)? = null,
+    onNoteReplyClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val bubbleColor = if (message.isSelf) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -169,8 +176,17 @@ fun MessageBubbleContent(
                 .widthIn(max = 280.dp)
                 .onGloballyPositioned { coordinates ->
                     onBubblePositioned?.invoke(coordinates.boundsInRoot())
-                }
+                },
+            horizontalAlignment = if (message.isSelf) Alignment.End else Alignment.Start
         ) {
+            if (message.replyToNote != null) {
+                NoteReplyBubble(
+                    noteRef = message.replyToNote,
+                    isSelf = message.isSelf,
+                    onClick = { onNoteReplyClick?.invoke(it) }
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             Box(
                 modifier = Modifier
                     .clip(
@@ -184,13 +200,15 @@ fun MessageBubbleContent(
                     .background(bubbleColor.copy(alpha = finalAlpha))
                     .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                Text(
-                    text = message.text,
-                    color = if (message.isDeleted) TextSecondary else TextPrimary,
-                    fontSize = 15.sp,
-                    lineHeight = 20.sp,
-                    fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
-                )
+                Column {
+                    Text(
+                        text = message.text,
+                        color = if (message.isDeleted) TextSecondary else TextPrimary,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp,
+                        fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
+                    )
+                }
             }
         }
     }
@@ -237,6 +255,86 @@ fun MessageStatusIcon(status: MessageStatus) {
                 tint = MaterialTheme.colorScheme.error,
                 modifier = Modifier.size(14.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun NoteReplyBubble(
+    noteRef: com.linker.app.domain.model.NoteReference,
+    isSelf: Boolean,
+    onClick: (String) -> Unit
+) {
+    val isExpired = System.currentTimeMillis() > noteRef.expiresAt
+    val bgColor = noteRef.backgroundColor?.let {
+        try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { com.linker.app.presentation.theme.LightGray }
+    } ?: com.linker.app.presentation.theme.LightGray
+    
+    val txtColor = noteRef.textColor?.let {
+        try { Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { TextPrimary }
+    } ?: TextPrimary
+
+    Column(
+        horizontalAlignment = if (isSelf) Alignment.End else Alignment.Start,
+        modifier = Modifier
+            .padding(bottom = 6.dp)
+            .alpha(0.7f)
+            .clickable {
+                if (!isExpired) {
+                    onClick(noteRef.noteId)
+                }
+            }
+    ) {
+        val replyText = if (isSelf) {
+            "${noteRef.authorName} adlı kullanıcının notuna yanıt verdin"
+        } else {
+            "${noteRef.authorName} adlı kullanıcının notuna yanıt verdi"
+        }
+        
+        Text(
+            text = replyText,
+            color = TextPrimary.copy(alpha = 0.8f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        
+        Box(contentAlignment = Alignment.TopCenter) {
+            LinkerAvatar(
+                imageUrl = null, // Backend'den gelene kadar default
+                size = 64.dp,
+                storyState = StoryState.NONE,
+                modifier = Modifier.padding(top = 20.dp)
+            )
+            
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                    .widthIn(min = 40.dp, max = 120.dp)
+            ) {
+                val desc = when (noteRef.noteType) {
+                    "MUSIC" -> "🎵 ${noteRef.musicArtistName} - ${noteRef.musicTrackName}"
+                    "TEXT" -> noteRef.content ?: "Durum"
+                    "COUNTDOWN" -> "⏳ ${noteRef.content}"
+                    "LOCATION" -> "📍 ${noteRef.content}"
+                    "GIF" -> "GIF"
+                    else -> "Durum"
+                }
+                Text(
+                    text = if (isExpired) "Bu içeriğe ulaşılamıyor" else desc,
+                    color = txtColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 12.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
         }
     }
 }

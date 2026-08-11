@@ -48,6 +48,9 @@ android {
 
         // Giphy API Key (add giphy.apiKey to local.properties)
         buildConfigField("String", "GIPHY_API_KEY", "\"${properties.getProperty("giphy.apiKey", "")}\"")
+
+        // Foursquare API Key
+        buildConfigField("String", "FOURSQUARE_API_KEY", "\"${properties.getProperty("foursquare.apiKey", "")}\"")
     }
 
     buildTypes {

@@ -1,5 +1,8 @@
 package com.linker.app.presentation.screens.note
 
+import kotlinx.coroutines.delay
+import androidx.compose.ui.text.style.TextOverflow
+
 import android.Manifest
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -211,7 +214,7 @@ fun NoteEditorScreen(
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
-                                overflow = androidx.compose.material3.Text.OverflowEllipsis
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = uiState.artistName,
@@ -219,7 +222,7 @@ fun NoteEditorScreen(
                                 fontSize = 14.sp,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
-                                overflow = androidx.compose.material3.Text.OverflowEllipsis
+                                overflow = TextOverflow.Ellipsis
                             )
                             
                             if (uiState.textContent.isNotBlank()) {
@@ -230,7 +233,7 @@ fun NoteEditorScreen(
                                     fontSize = 14.sp,
                                     textAlign = TextAlign.Center,
                                     maxLines = 2,
-                                    overflow = androidx.compose.material3.Text.OverflowEllipsis
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

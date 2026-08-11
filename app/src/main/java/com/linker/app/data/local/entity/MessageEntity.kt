@@ -41,6 +41,7 @@ data class MessageEntity(
     val mediaDuration: Int? = null, // For video/audio in seconds
     val sharedLinkId: String? = null, // If sharing a Link post
     val replyToMessageId: String? = null,
+    val replyToNoteJson: String? = null, // JSON serialized NoteReference
     val forwardedFromMessageId: String? = null,
     val reactions: Map<String, String> = emptyMap(), // userId to emoji
     val isEdited: Boolean = false,

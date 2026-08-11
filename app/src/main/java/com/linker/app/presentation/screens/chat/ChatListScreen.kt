@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.linker.app.R
@@ -91,9 +92,11 @@ fun ChatListScreen(
     onNavigateBottomNav: (BottomNavItem) -> Unit,
     onNavigateToNewChat: () -> Unit,
     onNavigateToNoteEditor: () -> Unit,
+    onNavigateToNoteLocationMap: (Double, Double, String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.chatListState.collectAsState()
+    val context = LocalContext.current
     
     val filters = listOf(
         stringResource(R.string.chat_list_filter_all),
@@ -319,7 +322,8 @@ fun ChatListScreen(
         if (selectedNoteForDetail != null) {
             NoteDetailBottomSheet(
                 note = selectedNoteForDetail!!,
-                onDismiss = { selectedNoteForDetailState.value = null }
+                onDismiss = { selectedNoteForDetailState.value = null },
+                onNavigateToNoteLocationMap = onNavigateToNoteLocationMap
             )
         }
     }
@@ -498,6 +502,7 @@ fun ChatItem(
 fun NoteDetailBottomSheet(
     note: com.linker.app.domain.model.Note,
     onDismiss: () -> Unit,
+    onNavigateToNoteLocationMap: ((Double, Double, String) -> Unit)? = null,
     viewModel: com.linker.app.presentation.screens.note.NoteDetailViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -525,8 +530,11 @@ fun NoteDetailBottomSheet(
         try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(it)) } catch (e: Exception) { Color.White }
     } ?: Color.White
 
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = bgColor,
         modifier = Modifier.wrapContentHeight()
     ) {
@@ -537,7 +545,8 @@ fun NoteDetailBottomSheet(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Cleanup on dismiss
@@ -768,22 +777,69 @@ fun NoteDetailBottomSheet(
                     }
                 }
                 is com.linker.app.domain.model.Note.Location -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(com.linker.app.presentation.theme.Black, shape = RoundedCornerShape(12.dp))
-                            .padding(16.dp),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = Color(0xFF9C27B0),
-                                modifier = Modifier.size(32.dp)
+                        val geoPoint = remember(note.latitude, note.longitude) { org.osmdroid.util.GeoPoint(note.latitude, note.longitude) }
+                        
+                        LaunchedEffect(Unit) {
+                            org.osmdroid.config.Configuration.getInstance().load(
+                                context,
+                                context.getSharedPreferences("osmdroid", android.content.Context.MODE_PRIVATE)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = note.placeName, color = Color.White, fontWeight = FontWeight.Bold)
+                            org.osmdroid.config.Configuration.getInstance().userAgentValue = "LinkerApp/1.0"
+                        }
+                        
+                        Text(text = note.placeName, color = Color.White, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(250.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                        ) {
+                            androidx.compose.ui.viewinterop.AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { ctx ->
+                                    org.osmdroid.views.MapView(ctx).apply {
+                                        val cartoVoyagerTileSource = org.osmdroid.tileprovider.tilesource.XYTileSource(
+                                            "CartoVoyager",
+                                            0, 20, 256, ".png", arrayOf("https://basemaps.cartocdn.com/rastertiles/voyager/")
+                                        )
+                                        setTileSource(cartoVoyagerTileSource)
+                                        setMultiTouchControls(true)
+                                        controller.setZoom(15.0)
+                                        controller.setCenter(geoPoint)
+
+                                        val marker = org.osmdroid.views.overlay.Marker(this).apply {
+                                            position = geoPoint
+                                            title = note.placeName.ifBlank { "Konum" }
+                                            snippet = "Paylaşılan konum"
+                                            setAnchor(org.osmdroid.views.overlay.Marker.ANCHOR_CENTER, org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM)
+                                        }
+                                        overlays.add(marker)
+                                    }
+                                },
+                                update = { mapView ->
+                                    if (mapView.mapCenter.latitude != geoPoint.latitude || mapView.mapCenter.longitude != geoPoint.longitude) {
+                                        mapView.controller.animateTo(geoPoint)
+                                    }
+                                }
+                            )
+                            
+                            // Harita tıklamalarını yakalayıp tam ekrana gitmek için Overlay
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clickable {
+                                        if (onNavigateToNoteLocationMap != null) {
+                                            onDismiss()
+                                            onNavigateToNoteLocationMap.invoke(note.latitude, note.longitude, note.placeName)
+                                        }
+                                    }
+                            )
                         }
                     }
                 }
@@ -847,14 +903,7 @@ fun NoteDetailBottomSheet(
                         trailingIcon = {
                             if (replyText.isNotBlank()) {
                                 IconButton(onClick = {
-                                    val contextText = when (note) {
-                                        is com.linker.app.domain.model.Note.Music -> "${note.musicArtistName} - ${note.musicTrackName}"
-                                        is com.linker.app.domain.model.Note.Text -> note.content
-                                        is com.linker.app.domain.model.Note.Countdown -> note.countdownTitle
-                                        is com.linker.app.domain.model.Note.Location -> note.placeName
-                                        is com.linker.app.domain.model.Note.Gif -> "GIF Yanıtı"
-                                    }
-                                    viewModel.replyToNote(note.author.userId, contextText, replyText) { success, err ->
+                                    viewModel.replyToNote(note, replyText) { success, err ->
                                         if (success) {
                                             android.widget.Toast.makeText(context, "Yanıt gönderildi", android.widget.Toast.LENGTH_SHORT).show()
                                             replyText = ""

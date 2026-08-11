@@ -195,10 +195,15 @@ private class RetryInterceptor(
     
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
+        
+        // Sadece idempotent (tekrarlanabilir) metodlar için retry yap (POST vb. tekrarlanmaz)
+        val isIdempotent = request.method == "GET" || request.method == "HEAD" || request.method == "OPTIONS"
+        val actualMaxRetries = if (isIdempotent) maxRetries else 0
+        
         var response: Response? = null
         var exception: IOException? = null
         
-        for (attempt in 0..maxRetries) {
+        for (attempt in 0..actualMaxRetries) {
             try {
                 // Clear previous response
                 response?.close()
@@ -212,11 +217,11 @@ private class RetryInterceptor(
                 }
                 
                 // Server error - retry with backoff
-                if (attempt < maxRetries) {
+                if (attempt < actualMaxRetries) {
                     val delayMs = calculateBackoffDelay(attempt)
                     android.util.Log.w(
                         "RetryInterceptor",
-                        "Request failed with ${response.code}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$maxRetries)"
+                        "Request failed with ${response.code}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)"
                     )
                     Thread.sleep(delayMs)
                 }
@@ -225,11 +230,11 @@ private class RetryInterceptor(
                 exception = e
                 
                 // Network error - retry with backoff
-                if (attempt < maxRetries) {
+                if (attempt < actualMaxRetries) {
                     val delayMs = calculateBackoffDelay(attempt)
                     android.util.Log.w(
                         "RetryInterceptor",
-                        "Network error: ${e.message}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$maxRetries)"
+                        "Network error: ${e.message}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)"
                     )
                     Thread.sleep(delayMs)
                 } else {

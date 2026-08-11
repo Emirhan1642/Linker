@@ -1,5 +1,7 @@
 package com.linker.app.presentation.screens.note
 
+import kotlinx.coroutines.isActive
+
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel

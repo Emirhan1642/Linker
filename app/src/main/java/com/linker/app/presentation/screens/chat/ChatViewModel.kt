@@ -329,6 +329,11 @@ class ChatViewModel @Inject constructor(
     // ── Messages ───────────────────────────────────────────────────────────
 
     fun openChat(chatId: String) {
+        if (_messageState.value.chatId == chatId && messagesJob?.isActive == true) {
+            android.util.Log.d("ChatViewModel", "openChat ignored, already observing chatId: $chatId")
+            return
+        }
+        
         android.util.Log.d("ChatViewModel", "openChat called with chatId: $chatId")
         _messageState.value = ChatMessageUiState(isLoading = true, chatId = chatId)
 
@@ -482,6 +487,7 @@ class ChatViewModel @Inject constructor(
                                     timestamp = msg.createdAt,
                                     status = msg.messageStatus,
                                     replyToMessageId = msg.replyToMessage?.messageId,
+                                    replyToNote = msg.replyToNote,
                                     readAt = msg.readAt,
                                     reactions = msg.reactions,
                                     readReceipts = msg.readReceipts,

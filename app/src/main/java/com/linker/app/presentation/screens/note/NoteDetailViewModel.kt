@@ -130,15 +130,41 @@ class NoteDetailViewModel @Inject constructor(
         }
     }
 
-    fun replyToNote(authorId: String, noteContextText: String, replyContent: String, onResult: (Boolean, String?) -> Unit) {
+    fun replyToNote(note: com.linker.app.domain.model.Note, replyContent: String, onResult: (Boolean, String?) -> Unit) {
         viewModelScope.launch {
             // First create or get the private chat with the author
-            when (val chatRes = chatRepository.createPrivateChat(authorId)) {
+            when (val chatRes = chatRepository.createPrivateChat(note.author.userId)) {
                 is com.linker.app.core.util.Result.Success -> {
                     val chatId = chatRes.data.chatId
-                    val sanitizedContextText = noteContextText.replace("<", "&lt;").replace(">", "&gt;")
-                    val textToSend = "Nota Yanıt:\n> $sanitizedContextText\n\n$replyContent"
-                    when (val msgRes = messageRepository.sendMessage(chatId = chatId, content = textToSend)) {
+                    val noteRef = com.linker.app.domain.model.NoteReference(
+                        noteId = note.noteId,
+                        authorId = note.author.userId,
+                        authorName = note.author.displayName,
+                        noteType = when (note) {
+                            is com.linker.app.domain.model.Note.Text -> "TEXT"
+                            is com.linker.app.domain.model.Note.Music -> "MUSIC"
+                            is com.linker.app.domain.model.Note.Countdown -> "COUNTDOWN"
+                            is com.linker.app.domain.model.Note.Location -> "LOCATION"
+                            is com.linker.app.domain.model.Note.Gif -> "GIF"
+                        },
+                        content = when(note) {
+                            is com.linker.app.domain.model.Note.Text -> note.content
+                            is com.linker.app.domain.model.Note.Music -> note.content
+                            is com.linker.app.domain.model.Note.Countdown -> note.countdownTitle
+                            is com.linker.app.domain.model.Note.Location -> note.placeName
+                            else -> null
+                        },
+                        musicTrackName = if (note is com.linker.app.domain.model.Note.Music) note.musicTrackName else null,
+                        musicArtistName = if (note is com.linker.app.domain.model.Note.Music) note.musicArtistName else null,
+                        musicAlbumArt = if (note is com.linker.app.domain.model.Note.Music) note.musicAlbumArt else null,
+                        latitude = if (note is com.linker.app.domain.model.Note.Location) note.latitude else null,
+                        longitude = if (note is com.linker.app.domain.model.Note.Location) note.longitude else null,
+                        backgroundColor = note.backgroundColor,
+                        textColor = note.textColor,
+                        expiresAt = note.expiresAt
+                    )
+                    
+                    when (val msgRes = messageRepository.sendMessage(chatId = chatId, content = replyContent, replyToNote = noteRef)) {
                         is com.linker.app.core.util.Result.Success -> onResult(true, null)
                         is com.linker.app.core.util.Result.Error -> onResult(false, msgRes.message)
                         else -> {}

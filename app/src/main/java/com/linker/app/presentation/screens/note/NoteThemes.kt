@@ -141,3 +141,4 @@ object NoteThemes {
         val darker = minOf(l1, l2)
         return (lighter + 0.05f) / (darker + 0.05f)
     }
+}

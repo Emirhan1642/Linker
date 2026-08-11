@@ -1,5 +1,7 @@
 package com.linker.app.presentation.screens.note
 
+import kotlinx.coroutines.isActive
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linker.app.core.util.Result

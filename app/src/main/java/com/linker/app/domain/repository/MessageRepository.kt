@@ -52,7 +52,8 @@ interface MessageRepository {
         messageType: MessageType = MessageType.TEXT,
         content: String? = null,
         mediaLocalPath: String? = null,
-        replyToMessageId: String? = null
+        replyToMessageId: String? = null,
+        replyToNote: com.linker.app.domain.model.NoteReference? = null
     ): Result<Message>
 
     /** 

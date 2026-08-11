@@ -26,6 +26,7 @@ data class MessageUiModel(
     val timestamp: Long,
     val status: MessageStatus,
     val replyToMessageId: String? = null,
+    val replyToNote: com.linker.app.domain.model.NoteReference? = null,
     val readAt: Long? = null,
     val reactions: Map<String, String> = emptyMap(),
     val readReceipts: Map<String, Long> = emptyMap(),
@@ -54,5 +55,6 @@ data class MessageItem(
     val status: MessageStatus = MessageStatus.SENT,
     val prevIsSelf: Boolean = false,
     val nextIsSelf: Boolean = false,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val replyToNote: com.linker.app.domain.model.NoteReference? = null
 )

@@ -141,7 +141,10 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateBottomNav = onNavigateBottomNav,
                 onNavigateToNewChat = { navController.navigate(Route.NewChat) },
-                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) }
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
+                }
             )
         }
 
@@ -169,6 +172,9 @@ fun LinkerNavHost(
                     } else {
                         navController.navigate(Route.UserProfile(userId))
                     }
+                },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
                 }
             )
         }

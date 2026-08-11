@@ -84,6 +84,7 @@ fun ChatMessageScreen(
     onNavigateBack: () -> Unit,
     onNavigateToInfo: () -> Unit,
     onNavigateToUserProfile: (String) -> Unit,
+    onNavigateToNoteLocationMap: (Double, Double, String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     var messageText by remember { mutableStateOf("") }
@@ -101,6 +102,7 @@ fun ChatMessageScreen(
     var selectedMessageBounds by remember { mutableStateOf<Rect?>(null) }
     val messageBounds = remember { mutableMapOf<String, Rect>() }
     var showEmojiPicker by remember { mutableStateOf(false) }
+    var selectedNoteRef by remember { mutableStateOf<com.linker.app.domain.model.NoteReference?>(null) }
     var showMessageInfo by remember { mutableStateOf(false) }
     var showReactionsSheet by remember { mutableStateOf(false) }
     var showSeenBySheet by remember { mutableStateOf(false) }
@@ -187,6 +189,84 @@ fun ChatMessageScreen(
         SeenByBottomSheet(
             seenByUsers = seenByUsersForSheet,
             onDismiss = { showSeenBySheet = false }
+        )
+    }
+
+    if (selectedNoteRef != null) {
+        val noteRef = selectedNoteRef!!
+        val fakeAuthor = com.linker.app.domain.model.NoteAuthor(
+            userId = noteRef.authorId.ifBlank { "unknown" },
+            username = noteRef.authorName.ifBlank { "User" },
+            displayName = noteRef.authorName.ifBlank { "User" },
+            profileImageUrl = null
+        )
+        val fakeCreatedAt = (noteRef.expiresAt - 86400000L).coerceAtLeast(1L)
+        val fakeNote = when (noteRef.noteType) {
+            "MUSIC" -> com.linker.app.domain.model.Note.Music(
+                noteId = noteRef.noteId.ifBlank { "unknown" },
+                author = fakeAuthor,
+                content = noteRef.content ?: "",
+                musicTrackId = "unknown",
+                musicTrackName = noteRef.musicTrackName?.ifBlank { "Bilinmeyen" } ?: "Bilinmeyen",
+                musicArtistName = noteRef.musicArtistName?.ifBlank { "Bilinmeyen" } ?: "Bilinmeyen",
+                musicAlbumArt = noteRef.musicAlbumArt,
+                previewUrl = null,
+                clipStartTime = 0L,
+                clipEndTime = 30000L,
+                backgroundColor = noteRef.backgroundColor,
+                textColor = noteRef.textColor,
+                createdAt = fakeCreatedAt,
+                expiresAt = noteRef.expiresAt.coerceAtLeast(fakeCreatedAt + 1L)
+            )
+            "COUNTDOWN" -> com.linker.app.domain.model.Note.Countdown(
+                noteId = noteRef.noteId.ifBlank { "unknown" },
+                author = fakeAuthor,
+                content = "Süre",
+                countdownTitle = noteRef.content?.ifBlank { "Süre" } ?: "Süre",
+                countdownTargetTime = noteRef.expiresAt,
+                backgroundColor = noteRef.backgroundColor,
+                textColor = noteRef.textColor,
+                createdAt = fakeCreatedAt,
+                expiresAt = noteRef.expiresAt.coerceAtLeast(fakeCreatedAt + 1L)
+            )
+            "LOCATION" -> com.linker.app.domain.model.Note.Location(
+                noteId = noteRef.noteId.ifBlank { "unknown" },
+                author = fakeAuthor,
+                latitude = noteRef.latitude ?: 0.0,
+                longitude = noteRef.longitude ?: 0.0,
+                placeName = noteRef.content?.ifBlank { "Konum" } ?: "Konum",
+                mapPreviewUrl = null,
+                backgroundColor = noteRef.backgroundColor,
+                textColor = noteRef.textColor,
+                createdAt = fakeCreatedAt,
+                expiresAt = noteRef.expiresAt.coerceAtLeast(fakeCreatedAt + 1L)
+            )
+            "GIF" -> com.linker.app.domain.model.Note.Gif(
+                noteId = noteRef.noteId.ifBlank { "unknown" },
+                author = fakeAuthor,
+                gifUrl = "unknown",
+                aspectRatio = 1f,
+                content = noteRef.content ?: "",
+                backgroundColor = noteRef.backgroundColor,
+                textColor = noteRef.textColor,
+                createdAt = fakeCreatedAt,
+                expiresAt = noteRef.expiresAt.coerceAtLeast(fakeCreatedAt + 1L)
+            )
+            else -> com.linker.app.domain.model.Note.Text(
+                noteId = noteRef.noteId.ifBlank { "unknown" },
+                author = fakeAuthor,
+                content = noteRef.content?.ifBlank { "Durum" } ?: "Durum",
+                backgroundColor = noteRef.backgroundColor,
+                textColor = noteRef.textColor,
+                createdAt = fakeCreatedAt,
+                expiresAt = noteRef.expiresAt.coerceAtLeast(fakeCreatedAt + 1L)
+            )
+        }
+        
+        NoteDetailBottomSheet(
+            note = fakeNote,
+            onDismiss = { selectedNoteRef = null },
+            onNavigateToNoteLocationMap = onNavigateToNoteLocationMap
         )
     }
 
@@ -384,7 +464,8 @@ fun ChatMessageScreen(
                                         status = msg.status,
                                         prevIsSelf = msg.prevIsSelf,
                                         nextIsSelf = msg.nextIsSelf,
-                                        isDeleted = msg.isDeleted
+                                        isDeleted = msg.isDeleted,
+                                        replyToNote = msg.replyToNote
                                     ),
                                     coroutineScope = coroutineScope,
                                     onBubblePositioned = { bounds ->
@@ -404,6 +485,9 @@ fun ChatMessageScreen(
                                     isHighlighted = highlightMessageId == msg.messageId,
                                     onHaptic = {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    },
+                                    onNoteReplyClick = { _ ->
+                                        selectedNoteRef = msg.replyToNote
                                     }
                                 )
                             }

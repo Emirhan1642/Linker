@@ -37,6 +37,12 @@ object CertificatePins {
     // Google Trust Services (GTS) Root R2 (backup)
     const val GTS_ROOT_R2 = "sha256/f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk="
     
+    // Google Trust Services (GTS) Root R4 (new)
+    const val GTS_ROOT_R4 = "sha256/mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c="
+    
+    // Google Trust Services WE1 (Intermediate)
+    const val GTS_WE1 = "sha256/kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4="
+    
     // GlobalSign Root CA - R2 (backup)
     const val GLOBALSIGN_ROOT_R2 = "sha256/r/mIkG3eEpVdm+u/ko/cwxzOMo1bk4TyHIlByibiA5E="
     
@@ -56,6 +62,8 @@ class CertificatePinMonitor @Inject constructor(
     private val pinExpirationDates = mapOf(
         CertificatePins.GTS_ROOT_R1 to 2099836800000L, // 2036-06-22
         CertificatePins.GTS_ROOT_R2 to 2099836800000L, // 2036-06-22
+        CertificatePins.GTS_ROOT_R4 to 2099836800000L, // 2036-06-22
+        CertificatePins.GTS_WE1 to 2099836800000L, // 2036-06-22
         CertificatePins.GLOBALSIGN_ROOT_R2 to 1832889600000L, // 2028-01-28
         CertificatePins.SUPABASE_ROOT_CA to 1969065600000L, // 2032-05-31
         CertificatePins.CLOUDINARY_ROOT_CA to 1969065600000L 
@@ -183,10 +191,10 @@ class CertificatePinningInterceptor @Inject constructor(
         
         private fun buildCertificatePinner(): CertificatePinner {
             return CertificatePinner.Builder()
-                .add("*.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GLOBALSIGN_ROOT_R2)
-                .add("*.google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
-                .add("firestore.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2)
-                .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA, CertificatePins.SUPABASE_EDGE_CERT, CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GLOBALSIGN_ROOT_R2)
+                .add("*.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GLOBALSIGN_ROOT_R2)
+                .add("*.google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4)
+                .add("firestore.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4)
+                .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA, CertificatePins.SUPABASE_EDGE_CERT, CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GTS_WE1, CertificatePins.GLOBALSIGN_ROOT_R2)
                 .add("*.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .add("res.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .build()

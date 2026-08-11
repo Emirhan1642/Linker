@@ -22,10 +22,10 @@ import kotlinx.coroutines.TimeoutCancellationException
         SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class,
         SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
-@TypeConverters(Converters::class)
+@TypeConverters(Converters::class, com.linker.app.data.local.converter.NoteReferenceConverter::class)
 abstract class LinkerDatabase : RoomDatabase() {
 
     abstract fun userDao(): UserDao
@@ -322,6 +322,13 @@ abstract class LinkerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Added lastSeen field for online presence
                 db.execSQL("ALTER TABLE users ADD COLUMN lastSeen INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Added replyToNoteJson for note reply previews in Chat
+                db.execSQL("ALTER TABLE messages ADD COLUMN replyToNoteJson TEXT")
             }
         }
     }

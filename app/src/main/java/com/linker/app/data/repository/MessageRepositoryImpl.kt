@@ -257,7 +257,8 @@ class MessageRepositoryImpl @Inject constructor(
         messageType: MessageType,
         content: String?,
         mediaLocalPath: String?,
-        replyToMessageId: String?
+        replyToMessageId: String?,
+        replyToNote: com.linker.app.domain.model.NoteReference?
     ): Result<Message> {
         // Get chat directly from Firestore to avoid dependency cycle
         val chatDoc = try {
@@ -323,6 +324,7 @@ class MessageRepositoryImpl @Inject constructor(
                 mediaDuration = null,
                 sharedLinkId = null,
                 replyToMessageId = replyToMessageId,
+                replyToNote = replyToNote,
                 forwardedFromMessageId = null,
                 participantIds = participantIds,
                 deliveryMethod = deliveryMethod,
@@ -348,11 +350,11 @@ class MessageRepositoryImpl @Inject constructor(
             val sender = getSender()
             val message = createMessageDomainObject(
                 messageId, chatId, sender, messageType, content,
-                mediaLocalPath, domainMsgStatus, deliveryMethod, now
+                mediaLocalPath, domainMsgStatus, deliveryMethod, replyToNote, now
             )
 
             saveMessageLocally(messageId, chatId, messageType, content,
-                entityMsgStatus, deliveryMethod, replyToMessageId, now)
+                entityMsgStatus, deliveryMethod, replyToMessageId, replyToNote, now)
 
             updateChatLastMessage(chatId, messageId, content, now)
 
@@ -481,6 +483,7 @@ class MessageRepositoryImpl @Inject constructor(
         mediaUrl: String?,
         domainMsgStatus: MessageStatus,
         deliveryMethod: DeliveryMethod,
+        replyToNote: com.linker.app.domain.model.NoteReference?,
         now: Long
     ): Message {
         return Message(
@@ -502,6 +505,7 @@ class MessageRepositoryImpl @Inject constructor(
             mediaDuration = null,
             sharedLink = null,
             replyToMessage = null,
+            replyToNote = replyToNote,
             reactions = emptyMap(),
             isEdited = false,
             isDeleted = false,
@@ -523,6 +527,7 @@ class MessageRepositoryImpl @Inject constructor(
         entityMsgStatus: EntityMessageStatus,
         deliveryMethod: DeliveryMethod,
         replyToMessageId: String?,
+        replyToNote: com.linker.app.domain.model.NoteReference?,
         now: Long
     ) {
         val localMessage = MessageEntity(
@@ -538,6 +543,7 @@ class MessageRepositoryImpl @Inject constructor(
             mediaDuration = null,
             sharedLinkId = null,
             replyToMessageId = replyToMessageId,
+            replyToNoteJson = replyToNote?.let { com.google.gson.Gson().toJson(it) },
             forwardedFromMessageId = null,
             reactions = emptyMap(),
             isEdited = false,
@@ -578,6 +584,7 @@ class MessageRepositoryImpl @Inject constructor(
                 isDeleted = message.isDeleted,
                 deletedForEveryone = message.deletedForEveryone,
                 replyToMessageId = message.replyToMessage?.messageId,
+                replyToNoteJson = message.replyToNote?.let { com.google.gson.Gson().toJson(it) },
                 reactions = message.reactions,
                 readAt = message.readAt,
                 deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
@@ -632,7 +639,8 @@ class MessageRepositoryImpl @Inject constructor(
                 deliveryMethod = DeliveryMethod.BLE,
                 messageStatus = MessageStatus.SENDING,
                 createdAt = now,
-                updatedAt = now
+                updatedAt = now,
+                replyToNote = null
             )
             
             val messageWithDelivery = messageData.toMutableMap()
@@ -1067,7 +1075,11 @@ class MessageRepositoryImpl @Inject constructor(
                     deliveryMethod = DeliveryMethod.ONLINE,
                     messageStatus = MessageStatus.SENT,
                     createdAt = messageEntity.createdAt,
-                    updatedAt = now
+                    updatedAt = now,
+                    replyToNote = messageEntity.replyToNoteJson?.let { 
+                        try { com.google.gson.Gson().fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
+                        catch(e: Exception) { null } 
+                    }
                 )
                 sendMessageOnline(
                     chatId = messageEntity.chatId,
@@ -1201,6 +1213,23 @@ class MessageRepositoryImpl @Inject constructor(
                 mediaDuration = (data["mediaDuration"] as? Number)?.toInt(),
                 sharedLink = null,
                 replyToMessage = replyStub,
+                replyToNote = (data["replyToNote"] as? Map<String, Any?>)?.let { map ->
+                    com.linker.app.domain.model.NoteReference(
+                        noteId = map["noteId"] as? String ?: "",
+                        authorId = map["authorId"] as? String ?: "",
+                        authorName = map["authorName"] as? String ?: "",
+                        noteType = map["noteType"] as? String ?: "",
+                        content = map["content"] as? String,
+                        musicTrackName = map["musicTrackName"] as? String,
+                        musicArtistName = map["musicArtistName"] as? String,
+                        musicAlbumArt = map["musicAlbumArt"] as? String,
+                        latitude = (map["latitude"] as? Number)?.toDouble(),
+                        longitude = (map["longitude"] as? Number)?.toDouble(),
+                        backgroundColor = map["backgroundColor"] as? String,
+                        textColor = map["textColor"] as? String,
+                        expiresAt = (map["expiresAt"] as? Number)?.toLong() ?: 0L
+                    )
+                },
                 reactions = (data["reactions"] as? Map<String, String>) ?: emptyMap(),
                 isEdited = data["isEdited"] as? Boolean ?: false,
                 isDeleted = data["isDeleted"] as? Boolean ?: false,
@@ -1266,6 +1295,10 @@ class MessageRepositoryImpl @Inject constructor(
             mediaDuration = entity.mediaDuration,
             sharedLink = null,
             replyToMessage = replyStub,
+            replyToNote = entity.replyToNoteJson?.let { 
+                try { com.google.gson.Gson().fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
+                catch(e: Exception) { null } 
+            },
             reactions = entity.reactions,
             isEdited = entity.isEdited,
             isDeleted = entity.isDeleted,
@@ -1359,6 +1392,7 @@ class MessageRepositoryImpl @Inject constructor(
         mediaDuration: Int?,
         sharedLinkId: String?,
         replyToMessageId: String?,
+        replyToNote: com.linker.app.domain.model.NoteReference?,
         forwardedFromMessageId: String?,
         participantIds: List<String>,
         deliveryMethod: DeliveryMethod,
@@ -1385,6 +1419,23 @@ class MessageRepositoryImpl @Inject constructor(
             "mediaDuration" to mediaDuration,
             "sharedLinkId" to sharedLinkId,
             "replyToMessageId" to replyToMessageId,
+            "replyToNote" to replyToNote?.let { ref ->
+                mapOf(
+                    "noteId" to ref.noteId,
+                    "authorId" to ref.authorId,
+                    "authorName" to ref.authorName,
+                    "noteType" to ref.noteType,
+                    "content" to ref.content,
+                    "musicTrackName" to ref.musicTrackName,
+                    "musicArtistName" to ref.musicArtistName,
+                    "musicAlbumArt" to ref.musicAlbumArt,
+                    "latitude" to ref.latitude,
+                    "longitude" to ref.longitude,
+                    "backgroundColor" to ref.backgroundColor,
+                    "textColor" to ref.textColor,
+                    "expiresAt" to ref.expiresAt
+                )
+            },
             "forwardedFromMessageId" to forwardedFromMessageId,
             "participantIds" to participantIds,
             "reactions" to emptyMap<String, String>(),

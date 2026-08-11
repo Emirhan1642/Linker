@@ -24,6 +24,27 @@ data class MessageReference(
 )
 
 /**
+ * Lightweight note reference for note replies.
+ * 
+ * Used to render a preview of the note being replied to.
+ */
+data class NoteReference(
+    val noteId: String,
+    val authorId: String,
+    val authorName: String,
+    val noteType: String, // TEXT, MUSIC, COUNTDOWN, etc.
+    val content: String?,
+    val musicTrackName: String? = null,
+    val musicArtistName: String? = null,
+    val musicAlbumArt: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val backgroundColor: String? = null,
+    val textColor: String? = null,
+    val expiresAt: Long // To check if the note is still accessible without fetching it
+)
+
+/**
  * Type-safe group chat permissions.
  *
  * Replaces raw `Map<String, Any>` to ensure compile-time safety
@@ -209,6 +230,7 @@ data class Message(
     val mediaDuration: Int? = null,
     val sharedLink: Link? = null,
     val replyToMessage: MessageReference? = null,
+    val replyToNote: NoteReference? = null,
     val reactions: Map<String, String> = emptyMap(), // userId → emoji
     val isEdited: Boolean = false,
     val isDeleted: Boolean = false,

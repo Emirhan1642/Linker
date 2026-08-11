@@ -93,7 +93,13 @@ class ConnectivityMonitorImpl @Inject constructor(
     }
     
     private fun cleanup() {
-        ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+        try {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+        } catch (e: Exception) {
+            // LifecycleRegistry throws IllegalStateException if not called on main thread.
+            // Since this is called from a JVM shutdown hook (Thread-5) during test teardown,
+            // we can safely ignore the observer removal.
+        }
         stopMonitoring()
         coroutineScope.cancel()
     }

@@ -102,7 +102,8 @@ object DatabaseModule {
                     LinkerDatabase.MIGRATION_9_10,
                     LinkerDatabase.MIGRATION_10_11,
                     LinkerDatabase.MIGRATION_11_12,
-                    LinkerDatabase.MIGRATION_12_13
+                    LinkerDatabase.MIGRATION_12_13,
+                    LinkerDatabase.MIGRATION_13_14
                 )
                 .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : androidx.room.RoomDatabase.Callback() {
