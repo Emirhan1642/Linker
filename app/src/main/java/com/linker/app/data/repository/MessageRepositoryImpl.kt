@@ -260,20 +260,32 @@ class MessageRepositoryImpl @Inject constructor(
         replyToMessageId: String?,
         replyToNote: com.linker.app.domain.model.NoteReference?
     ): Result<Message> {
-        // Get chat directly from Firestore to avoid dependency cycle
-        val chatDoc = try {
-            chatsCollection.document(chatId).get().await()
-        } catch (e: Exception) {
-            return Result.Error(e.toString())
+        // 1. First check local Room database for chat metadata to support offline-first mode
+        val localChatEntity = chatDao.getChatById(chatId)
+        val chat = if (localChatEntity != null) {
+            val participants = localChatEntity.participantIds.map { uid ->
+                userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
+            }
+            val lastMessage = localChatEntity.lastMessageId?.let { mid ->
+                messageDao.getMessageById(mid)?.let { it.toDomain(userDao.getUserById(it.senderId)?.toDomain()) }
+            }
+            localChatEntity.toDomain(participants, lastMessage)
+        } else {
+            // Fallback to remote Firestore if not cached locally
+            val chatDoc = try {
+                chatsCollection.document(chatId).get().await()
+            } catch (e: Exception) {
+                return Result.Error(e.toString())
+            }
+            
+            if (!chatDoc.exists()) {
+                return Result.Error(Exception("Chat not found").toString())
+            }
+            
+            val chatData = chatDoc.data
+                ?: return Result.Error(Exception("Failed to parse chat").toString())
+            mapToChatSync(chatId, chatData)
         }
-        
-        if (!chatDoc.exists()) {
-            return Result.Error(Exception("Chat not found").toString())
-        }
-        
-        val chatData = chatDoc.data
-            ?: return Result.Error(Exception("Failed to parse chat").toString())
-        val chat = mapToChatSync(chatId, chatData)
         if (chat.chatType == ChatType.GROUP) {
             val restrictToAdmins = !chat.groupPermissions.canSendMessages
             val isCurrentUserAdmin = chat.groupAdminIds.contains(currentUserId) || chat.groupCreatedBy == currentUserId

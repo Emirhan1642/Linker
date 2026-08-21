@@ -25,7 +25,7 @@ service cloud.firestore {
     }
 
     function isChatParticipant(chatId) {
-      let chatDoc = getAfter(/databases/$(database)/documents/chats/$(chatId));
+      let chatDoc = get(/databases/$(database)/documents/chats/$(chatId));
       return isSignedIn()
         && chatDoc != null
         && request.auth.uid in chatDoc.data.participantIds;
@@ -118,55 +118,44 @@ service cloud.firestore {
       allow create: if isChatParticipant(chatId)
         && request.resource.data.senderId == request.auth.uid;
       // Update rules:
-      // 1. Sender can edit/delete own message (including deletedForEveryone)
-      // 2. Any participant can mark message as deleted for themselves (isDeleted only, not deletedForEveryone)
-      // 3. Any participant can update reactions and read receipts
+      // 1. Sender can edit/delete own message (including deletedForEveryone & isDeleted)
+      // 2. Any participant can update reactions and read receipts
       allow update: if isChatParticipant(chatId)
         && request.resource.data.chatId == resource.data.chatId
         && request.resource.data.senderId == resource.data.senderId
         && request.resource.data.messageId == resource.data.messageId
         && (
-      // Sender can update their own message (including deletedForEveryone)
-      (
-      resource.data.senderId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-      'content',
-      'isEdited',
-      'updatedAt',
-      'isDeleted',
-      'deletedForEveryone',
-      'reactions',
-      'readReceipts',
-      'deliveryReceipts',
-      'messageStatus',
-      'readAt',
-      'deliveredAt'
-      ])
-      )
-        ||
-      // Any participant can update reactions and read receipts
-      (
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-      'reactions',
-      'readReceipts',
-      'deliveryReceipts',
-      'messageStatus',
-      'readAt',
-      'deliveredAt',
-      'updatedAt'
-      ])
-      )
-        ||
-      // Any participant can mark message as deleted for themselves (Delete for Me)
-      // But cannot set deletedForEveryone (only sender can do that)
-      (
-      request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-      'isDeleted',
-      'updatedAt'
-      ])
-        && request.resource.data.deletedForEveryone == resource.data.deletedForEveryone
-      )
-      );
+          // Sender can update their own message
+          (
+            resource.data.senderId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'content',
+              'isEdited',
+              'updatedAt',
+              'isDeleted',
+              'deletedForEveryone',
+              'reactions',
+              'readReceipts',
+              'deliveryReceipts',
+              'messageStatus',
+              'readAt',
+              'deliveredAt'
+            ])
+          )
+          ||
+          // Any participant can update reactions, receipts, and delivery timestamps
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'reactions',
+              'readReceipts',
+              'deliveryReceipts',
+              'messageStatus',
+              'readAt',
+              'deliveredAt',
+              'updatedAt'
+            ])
+          )
+        );
       allow delete: if isChatParticipant(chatId)
         && resource.data.senderId == request.auth.uid;
     }

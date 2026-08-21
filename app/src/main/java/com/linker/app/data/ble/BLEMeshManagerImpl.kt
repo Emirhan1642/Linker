@@ -614,14 +614,20 @@ class BLEMeshManagerImpl @Inject constructor(
                 }
             }
             
-            // Check for duplicates
-            if (messageIdCache.contains(packet.messageId)) {
-                Log.d(TAG, "Duplicate packet ${packet.messageId}, ignoring")
+            // Check for duplicates (use fragment-aware key for fragmented messages)
+            val packetDedupKey = if (packet.totalFragments > 1) {
+                "${packet.messageId}_frag_${packet.fragmentIndex}"
+            } else {
+                packet.messageId
+            }
+            
+            if (messageIdCache.contains(packetDedupKey)) {
+                Log.d(TAG, "Duplicate packet $packetDedupKey, ignoring")
                 return
             }
             
             // Add to cache
-            messageIdCache.add(packet.messageId, packet.senderId)
+            messageIdCache.add(packetDedupKey, packet.senderId)
             
             // Update routing table with sender's user ID
             // This allows us to send messages back to the sender

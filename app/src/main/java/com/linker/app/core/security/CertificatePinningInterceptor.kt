@@ -112,38 +112,36 @@ class CertificatePinningConfig @Inject constructor(
     }
     private val PREF_PINNING_ENABLED = "cert_pinning_enabled"
     private val PREF_PINNING_FAILURES = "cert_pinning_failures"
-    private val MAX_FAILURES_BEFORE_DISABLE = 3
     
-    suspend fun isPinningEnabled(): Boolean {
-        try {
-            remoteConfig.fetchAndActivate().await()
+    /**
+     * Non-blocking check for whether certificate pinning is enabled.
+     * Uses cached RemoteConfig and local preference without blocking network fetches.
+     */
+    fun isPinningEnabled(): Boolean {
+        val remoteEnabled = try {
+            if (remoteConfig.all.containsKey("cert_pinning_enabled")) {
+                remoteConfig.getBoolean("cert_pinning_enabled")
+            } else true
         } catch (e: Exception) {
-            // Ignore fetch failure and proceed with local
+            true
         }
-        val remoteEnabled = remoteConfig.getBoolean("cert_pinning_enabled")
         
-        if (!remoteEnabled && remoteConfig.all.containsKey("cert_pinning_enabled")) {
+        if (!remoteEnabled) {
             Log.w("CertPinConfig", "Certificate pinning disabled via remote config")
-            return false
-        }
-        
-        val failures = prefs.getInt(PREF_PINNING_FAILURES, 0)
-        if (failures >= MAX_FAILURES_BEFORE_DISABLE) {
-            Log.w("CertPinConfig", "Certificate pinning disabled due to repeated failures")
             return false
         }
         
         return prefs.getBoolean(PREF_PINNING_ENABLED, true)
     }
     
-    fun recordPinningFailure() {
+    fun recordPinningFailure(host: String) {
         val failures = prefs.getInt(PREF_PINNING_FAILURES, 0) + 1
         prefs.edit().putInt(PREF_PINNING_FAILURES, failures).apply()
         
-        if (failures >= MAX_FAILURES_BEFORE_DISABLE) {
-            Log.e("CertPinConfig", "Too many pinning failures, disabling certificate pinning")
-            prefs.edit().putBoolean(PREF_PINNING_ENABLED, false).apply()
-        }
+        SecurityLogger.logEvent(
+            SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+            "Certificate pinning failure detected on host: $host (total failures: $failures)"
+        )
     }
     
     fun resetFailures() {
@@ -204,7 +202,7 @@ class CertificatePinningInterceptor @Inject constructor(
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         
-        val pinningEnabled = runBlocking { pinningConfig.isPinningEnabled() }
+        val pinningEnabled = pinningConfig.isPinningEnabled()
         if (!pinningEnabled || testMode) {
             return chain.proceed(request)
         }
@@ -221,7 +219,7 @@ class CertificatePinningInterceptor @Inject constructor(
         } catch (e: IOException) {
             if (e.message?.contains("Certificate pinning failure") == true) {
                 handlePinningFailure(request.url.host, e)
-                pinningConfig.recordPinningFailure()
+                pinningConfig.recordPinningFailure(request.url.host)
                 throw SecurityException("Certificate pinning failed for ${request.url.host}", e)
             }
             throw e

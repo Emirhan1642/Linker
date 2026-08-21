@@ -125,10 +125,6 @@ class PacketFragmenter {
                 logger.e("Reassembly failed: recipientId mismatch for $messageId")
                 throw IllegalArgumentException("Fragment recipientId mismatch")
             }
-            if (fragment.ttl != ttl) {
-                logger.e("Reassembly failed: ttl mismatch for $messageId")
-                throw IllegalArgumentException("Fragment ttl mismatch")
-            }
         }
         
         // Sort fragments by index

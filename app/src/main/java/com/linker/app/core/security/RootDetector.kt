@@ -107,7 +107,7 @@ object RootDetector {
     private fun checkForRootApps(): Boolean {
         val allApps = KNOWN_ROOT_APPS + KNOWN_DANGEROUS_APPS
         return allApps.any { packageName ->
-            File("/data/data/\$packageName").exists() || File("/data/user/0/\$packageName").exists()
+            File("/data/data/$packageName").exists() || File("/data/user/0/$packageName").exists()
         }
     }
 

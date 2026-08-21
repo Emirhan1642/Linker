@@ -419,8 +419,12 @@ object InputValidator {
      */
     fun isAllowedDomain(url: String, allowedDomains: List<String>): Boolean {
         return try {
-            val domain = java.net.URL(url).host
-            allowedDomains.any { domain.endsWith(it) }
+            val domain = java.net.URL(url).host ?: return false
+            allowedDomains.any { allowed ->
+                val normalizedAllowed = allowed.removePrefix(".")
+                domain.equals(normalizedAllowed, ignoreCase = true) || 
+                    domain.endsWith(".$normalizedAllowed", ignoreCase = true)
+            }
         } catch (e: Exception) {
             false
         }

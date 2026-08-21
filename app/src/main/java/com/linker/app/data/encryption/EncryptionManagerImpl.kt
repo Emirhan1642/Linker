@@ -11,6 +11,7 @@ import org.signal.libsignal.protocol.message.SignalMessage
 import org.signal.libsignal.protocol.state.PreKeyBundle
 import org.signal.libsignal.protocol.state.PreKeyRecord
 import org.signal.libsignal.protocol.state.SignedPreKeyRecord
+import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.util.KeyHelper
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
@@ -281,11 +282,13 @@ class EncryptionManagerImpl @Inject constructor(
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }
             ?: throw IllegalStateException("No signed pre-key available")
 
-        // Generate a temporary Kyber pre-key for this bundle
+        // Generate Kyber pre-key for this bundle and persist in protocolStore
         // libsignal 0.86.5 requires Kyber parameters in PreKeyBundle
         val kyberPreKeyId = (System.currentTimeMillis() / 1000).toInt()
         val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
         val kyberSignature = identityKeyPair.privateKey.calculateSignature(kyberKeyPair.publicKey.serialize())
+        val kyberPreKeyRecord = KyberPreKeyRecord(kyberPreKeyId, System.currentTimeMillis(), kyberKeyPair, kyberSignature)
+        protocolStore.storeKyberPreKey(kyberPreKeyId, kyberPreKeyRecord)
 
         // Create PQXDH PreKeyBundle with Kyber support
         PreKeyBundle(

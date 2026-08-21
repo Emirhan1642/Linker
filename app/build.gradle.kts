@@ -109,6 +109,10 @@ android {
         noCompress += listOf(".so")
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     lint {
         abortOnError = false
         checkReleaseBuilds = false
