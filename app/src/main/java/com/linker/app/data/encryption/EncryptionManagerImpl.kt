@@ -180,8 +180,12 @@ class EncryptionManagerImpl @Inject constructor(
      * @return Hex-encoded SHA-256 fingerprint of the identity key
      */
     override fun getIdentityKeyFingerprint(): String {
-        val identityKey = protocolStore.getIdentityKeyPair().publicKey
-        val publicKey = identityKey.serialize()
+        val identityKeyPair = try {
+            protocolStore.getIdentityKeyPair()
+        } catch (e: Exception) {
+            null
+        } ?: return ""
+        val publicKey = identityKeyPair.publicKey.serialize()
 
         // Generate SHA-256 fingerprint
         val digest = MessageDigest.getInstance("SHA-256")
@@ -272,10 +276,14 @@ class EncryptionManagerImpl @Inject constructor(
         val identityKeyPair = protocolStore.getIdentityKeyPair()
         val registrationId = protocolStore.getLocalRegistrationId()
 
-        // Get the oldest unused pre-key (lowest ID) to hand out
-        val preKeys = protocolStore.loadAllPreKeys()
+        // Get the oldest unused pre-key (lowest ID) to hand out, auto-replenish if empty
+        var preKeys = protocolStore.loadAllPreKeys()
+        if (preKeys.isEmpty()) {
+            generatePreKeys()
+            preKeys = protocolStore.loadAllPreKeys()
+        }
         val preKeyRecord = preKeys.minByOrNull { record -> record.id }
-            ?: throw IllegalStateException("No pre-keys available; call generatePreKeys() first")
+            ?: throw IllegalStateException("No pre-keys available")
 
         // Get the current signed pre-key
         val signedPreKeys = protocolStore.loadSignedPreKeys()

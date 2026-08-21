@@ -31,17 +31,35 @@ class CommentSheetViewModel @Inject constructor(
     val uiState: StateFlow<CommentSheetUiState> = _uiState.asStateFlow()
 
     private var currentTargetId: String? = null
+    private var commentsJob: kotlinx.coroutines.Job? = null
 
     fun observeComments(targetId: String) {
         currentTargetId = targetId
         _uiState.value = _uiState.value.copy(isLoading = true)
         
-        // TODO: Replace with real observation when implemented
-        // For now simulate loaded empty list
-        _uiState.value = _uiState.value.copy(
-            isLoading = false,
-            comments = emptyList()
-        )
+        commentsJob?.cancel()
+        commentsJob = viewModelScope.launch {
+            commentUseCases.observeComments(targetId).collect { result ->
+                when (result) {
+                    is Result.Success -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            comments = result.data,
+                            error = null
+                        )
+                    }
+                    is Result.Error -> {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = result.message
+                        )
+                    }
+                    is Result.Loading -> {
+                        _uiState.value = _uiState.value.copy(isLoading = true)
+                    }
+                }
+            }
+        }
     }
 
     fun submitComment(content: String) {
@@ -67,7 +85,11 @@ class CommentSheetViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(error = result.message)
                 }
             } else {
-                // TODO: New top-level comment. Need a UseCase for it.
+                // New top-level comment
+                val result = commentUseCases.addComment(targetId, content)
+                if (result is Result.Error) {
+                    _uiState.value = _uiState.value.copy(error = result.message)
+                }
             }
         }
     }

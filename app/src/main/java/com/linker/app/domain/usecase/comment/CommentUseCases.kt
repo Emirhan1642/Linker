@@ -95,6 +95,45 @@ class ReplyToCommentUseCase @Inject constructor(
 }
 
 /**
+ * Adds a new top-level comment to a link.
+ */
+class AddCommentUseCase @Inject constructor(
+    private val commentRepository: CommentRepository
+) {
+    suspend operator fun invoke(
+        linkId: String,
+        content: String,
+        gifUrl: String? = null
+    ): Result<Comment> {
+        if (linkId.isBlank()) return Result.Error("Link ID cannot be empty")
+        if (content.isBlank() && gifUrl.isNullOrBlank()) return Result.Error("Comment cannot be empty")
+        if (content.length > Comment.MAX_CONTENT_LENGTH) {
+            return Result.Error("Content exceeds maximum length of ${Comment.MAX_CONTENT_LENGTH}")
+        }
+
+        val sanitized = content.replace(Regex("<[^>]*>"), "").trim()
+
+        return commentRepository.addComment(
+            linkId = linkId,
+            content = sanitized,
+            gifUrl = gifUrl,
+            parentCommentId = null
+        )
+    }
+}
+
+/**
+ * Observes comments for a link.
+ */
+class ObserveCommentsUseCase @Inject constructor(
+    private val commentRepository: CommentRepository
+) {
+    operator fun invoke(linkId: String): kotlinx.coroutines.flow.Flow<Result<List<Comment>>> {
+        return commentRepository.observeComments(linkId)
+    }
+}
+
+/**
  * Reports a comment for policy violations.
  */
 class ReportCommentUseCase @Inject constructor(
@@ -107,6 +146,8 @@ class ReportCommentUseCase @Inject constructor(
 }
 
 data class CommentUseCases @Inject constructor(
+    val addComment: AddCommentUseCase,
+    val observeComments: ObserveCommentsUseCase,
     val editComment: EditCommentUseCase,
     val getCommentEditHistory: GetCommentEditHistoryUseCase,
     val deleteComment: DeleteCommentUseCase,

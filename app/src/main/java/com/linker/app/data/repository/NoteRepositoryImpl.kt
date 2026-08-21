@@ -240,11 +240,13 @@ class NoteRepositoryImpl @Inject constructor(
             .await()
 
         if (!snapshot.isEmpty) {
-            val batch = firestore.batch()
-            snapshot.documents.forEach { doc ->
-                batch.delete(doc.reference)
+            snapshot.documents.chunked(500).forEach { chunk ->
+                val batch = firestore.batch()
+                chunk.forEach { doc ->
+                    batch.delete(doc.reference)
+                }
+                batch.commit().await()
             }
-            batch.commit().await()
         }
     }
 

@@ -280,11 +280,13 @@ class StoryRepositoryImpl @Inject constructor(
             .get()
             .await()
 
-        val batch = firestore.batch()
-        snapshot.documents.forEach { doc ->
-            batch.delete(doc.reference)
+        snapshot.documents.chunked(500).forEach { chunk ->
+            val batch = firestore.batch()
+            chunk.forEach { doc ->
+                batch.delete(doc.reference)
+            }
+            batch.commit().await()
         }
-        batch.commit().await()
     }
 
     override suspend fun getViewCount(storyId: String): Result<Int> = Result.Success(0)

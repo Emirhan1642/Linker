@@ -83,6 +83,23 @@ data class BLEPacket(
          * @param packet The packet to serialize
          * @return Byte array representation of the packet
          */
+        private fun encodeIdToBytes(id: String): ByteArray {
+            val bytes = id.toByteArray(Charsets.UTF_8)
+            return if (bytes.size >= 36) {
+                bytes.copyOf(36)
+            } else {
+                ByteArray(36).apply {
+                    System.arraycopy(bytes, 0, this, 0, bytes.size)
+                }
+            }
+        }
+
+        private fun decodeIdFromBytes(bytes: ByteArray): String {
+            val zeroIndex = bytes.indexOf(0.toByte())
+            val length = if (zeroIndex >= 0) zeroIndex else bytes.size
+            return String(bytes, 0, length, Charsets.UTF_8).trim()
+        }
+
         fun serialize(packet: BLEPacket): ByteArray {
             val capacity = HEADER_SIZE + packet.payloadLength.toInt()
             val buffer = getBuffer(capacity)
@@ -90,9 +107,9 @@ data class BLEPacket(
             try {
                 // Write header
                 buffer.put(packet.version)
-                buffer.put(packet.messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(packet.senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(packet.recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(encodeIdToBytes(packet.messageId))
+                buffer.put(encodeIdToBytes(packet.senderId))
+                buffer.put(encodeIdToBytes(packet.recipientId))
                 buffer.put(packet.ttl)
                 buffer.put(packet.hopCount)
                 buffer.putShort(packet.fragmentIndex)
@@ -130,15 +147,15 @@ data class BLEPacket(
             
             val messageIdBytes = ByteArray(36)
             buffer.get(messageIdBytes)
-            val messageId = String(messageIdBytes, Charsets.UTF_8).trim()
+            val messageId = decodeIdFromBytes(messageIdBytes)
             
             val senderIdBytes = ByteArray(36)
             buffer.get(senderIdBytes)
-            val senderId = String(senderIdBytes, Charsets.UTF_8).trim()
+            val senderId = decodeIdFromBytes(senderIdBytes)
             
             val recipientIdBytes = ByteArray(36)
             buffer.get(recipientIdBytes)
-            val recipientId = String(recipientIdBytes, Charsets.UTF_8).trim()
+            val recipientId = decodeIdFromBytes(recipientIdBytes)
             
             val ttl = buffer.get()
             val hopCount = buffer.get()

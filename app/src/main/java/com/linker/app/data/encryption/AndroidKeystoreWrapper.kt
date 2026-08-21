@@ -215,10 +215,13 @@ class AndroidKeystoreWrapper @Inject constructor(
     
                 val aliases = keyStore.aliases().toList()
                 aliases.forEach { alias ->
-                    try {
-                        keyStore.deleteEntry(alias)
-                    } catch (e: Exception) {
-                        SecureLogger.w(TAG, "Failed to delete keystore entry: $alias", e)
+                    // Do NOT delete the AndroidX Security MasterKey used by EncryptedSharedPreferences
+                    if (!alias.startsWith("_androidx_security_master_key_")) {
+                        try {
+                            keyStore.deleteEntry(alias)
+                        } catch (e: Exception) {
+                            SecureLogger.w(TAG, "Failed to delete keystore entry: $alias", e)
+                        }
                     }
                 }
                 

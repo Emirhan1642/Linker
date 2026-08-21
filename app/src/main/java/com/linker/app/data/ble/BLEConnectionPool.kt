@@ -113,8 +113,9 @@ class BLEConnectionPool @Inject constructor() {
         }
         
         if (connectionInfo != null) {
-            // Close GATT connection
+            // Disconnect and Close GATT connection properly to avoid HCI stack leak
             try {
+                connectionInfo.gatt.disconnect()
                 connectionInfo.gatt.close()
             } catch (e: Exception) {
                 logger.e("Error closing GATT connection", e)
@@ -254,6 +255,7 @@ class BLEConnectionPool @Inject constructor() {
         if (evictedInfo != null) {
             scope.launch(Dispatchers.IO) {
                 try {
+                    evictedInfo.gatt.disconnect()
                     evictedInfo.gatt.close()
                 } catch (e: Exception) {
                     logger.e("Error closing evicted GATT connection", e)

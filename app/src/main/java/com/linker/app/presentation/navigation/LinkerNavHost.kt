@@ -379,7 +379,12 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToSettings = { navController.navigate(Route.Settings) },
                 onNavigateBottomNav = onNavigateBottomNav,
-                onNavigateToStory = { navController.navigate(Route.StoryViewer("my_id")) },
+                onNavigateToStory = {
+                    val uid = currentUserId ?: ""
+                    if (uid.isNotBlank()) {
+                        navController.navigate(Route.StoryViewer(uid))
+                    }
+                },
                 // followers/following sayısı 0 ise FollowList'e gitme
                 onNavigateToFollowers = { uid ->
                     navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS))
@@ -474,7 +479,7 @@ fun LinkerNavHost(
             },
             onStorySelected = {
                 showContentPicker = false
-                // Handle story camera launch
+                navController.navigate(Route.StoryGrid)
             }
         )
     }

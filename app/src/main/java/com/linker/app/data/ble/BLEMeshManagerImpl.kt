@@ -55,6 +55,7 @@ class BLEMeshManagerImpl @Inject constructor(
     
     private var isScanning = false
     private var isAdvertising = false
+    private val packetFragmenter = PacketFragmenter()
     
     // Track connection attempts to avoid duplicate retries
     private val connectionAttempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -455,13 +456,32 @@ class BLEMeshManagerImpl @Inject constructor(
             return Result.failure(Exception("TTL exhausted"))
         }
         
-        // Decrement TTL and increment hop count
-        val forwardedPacket = packet.copy(
-            ttl = (packet.ttl - 1).toByte(),
-            hopCount = (packet.hopCount + 1).toByte()
-        )
-        
-        return sendMessage(forwardedPacket)
+        val newTtl = (packet.ttl - 1).toByte()
+        val newHopCount = (packet.hopCount + 1).toByte()
+
+        // If the payload exceeds single packet capacity, re-fragment it
+        return if (packet.encryptedPayload.size > BLEPacket.MAX_PAYLOAD_SIZE) {
+            val fragments = packetFragmenter.fragment(
+                messageId = packet.messageId,
+                senderId = packet.senderId,
+                recipientId = packet.recipientId,
+                ttl = newTtl,
+                encryptedPayload = packet.encryptedPayload
+            )
+            var allSuccessful = true
+            for (fragment in fragments) {
+                val fragmentToSend = fragment.copy(hopCount = newHopCount)
+                val res = sendMessage(fragmentToSend)
+                if (res.isFailure) allSuccessful = false
+            }
+            if (allSuccessful) Result.success(Unit) else Result.failure(Exception("Failed to forward all fragments"))
+        } else {
+            val forwardedPacket = packet.copy(
+                ttl = newTtl,
+                hopCount = newHopCount
+            )
+            sendMessage(forwardedPacket)
+        }
     }
     
     override fun onMessageReceived(callback: (BLEPacket) -> Unit) {

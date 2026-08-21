@@ -52,7 +52,8 @@ class ChatRepositoryImpl @Inject constructor(
     private val userDao: UserDao,
     // ✅ DELEGATED: Message operations moved to MessageRepository
     private val messageRepository: MessageRepository,
-    private val chatSettingsRepository: ChatSettingsRepository
+    private val chatSettingsRepository: ChatSettingsRepository,
+    private val userCache: com.linker.app.data.cache.UserCache
 ) : ChatRepository {
 
     private val chatsCollection = firestore.collection("chats")
@@ -720,7 +721,7 @@ class ChatRepositoryImpl @Inject constructor(
                         followersCount = user.metrics.followersCount,
                         followingCount = user.metrics.followingCount,
                         likesCount = user.metrics.likesCount,
-                        isFollowing = user.relationship.isFollowedBy,
+                        isFollowing = user.relationship.isFollowing,
                         isFollowedBy = user.relationship.isFollowedBy,
                         isBlocked = user.relationship.isBlocked,
                         isMuted = user.relationship.isMuted,
@@ -731,6 +732,9 @@ class ChatRepositoryImpl @Inject constructor(
                         updatedAt = user.updatedAt
                     )
                     userDao.insertUser(userEntity)
+                    userCache.putUser(user)
+                    userCache.putDisplayName(user.userId, user.displayName)
+                    user.profileImageUrl?.let { userCache.putAvatarUrl(user.userId, it) }
                 } catch (e: Exception) {
                     // Ignore user save errors
                 }

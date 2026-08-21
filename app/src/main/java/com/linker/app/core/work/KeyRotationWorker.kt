@@ -77,6 +77,10 @@ class KeyRotationWorker @AssistedInject constructor(
             val suffix = if (args.isNotEmpty()) " - $args" else ""
             SecureLogger.d(TAG, message + suffix)
         }
+        fun w(message: String, throwable: Throwable? = null, args: Map<String, Any?> = emptyMap()) {
+            val suffix = if (args.isNotEmpty()) " - $args" else ""
+            SecureLogger.w(TAG, message + suffix)
+        }
         fun e(message: String, throwable: Throwable? = null, args: Map<String, Any?> = emptyMap()) {
             val suffix = if (args.isNotEmpty()) " - $args" else ""
             SecureLogger.e(TAG, message + suffix, throwable)
@@ -260,8 +264,32 @@ class KeyRotationWorker @AssistedInject constructor(
     private fun notifyKeyRotationFailure() {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         
-        // Assuming R.drawable.ic_security_warning and R.string.key_rotation_failed_title/message exist.
-        // Fallbacks are handled properly if not, but typically we assume them.
+        // Ensure channel is registered on Android O+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            if (notificationManager.getNotificationChannel(SECURITY_CHANNEL_ID) == null) {
+                val channel = android.app.NotificationChannel(
+                    SECURITY_CHANNEL_ID,
+                    "Security Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Critical security and encryption notifications"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+        }
+
+        // Check POST_NOTIFICATIONS permission on Android 13+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                logger.w("POST_NOTIFICATIONS permission not granted, skipping key rotation notification")
+                return
+            }
+        }
+        
         val resourceIdIcon = context.resources.getIdentifier("ic_security_warning", "drawable", context.packageName)
         val icon = if (resourceIdIcon != 0) resourceIdIcon else android.R.drawable.ic_dialog_alert
         
@@ -279,7 +307,11 @@ class KeyRotationWorker @AssistedInject constructor(
             .setAutoCancel(true)
             .build()
         
-        notificationManager.notify(KEY_ROTATION_FAILURE_NOTIFICATION_ID, notification)
+        try {
+            notificationManager.notify(KEY_ROTATION_FAILURE_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            logger.e("Failed to post key rotation failure notification", e)
+        }
     }
     
     private fun scheduleEmergencyRotation() {

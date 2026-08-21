@@ -327,8 +327,8 @@ class BLERoutingTable @Inject constructor(
             .coerceIn(0f, 1f)
         
         // Penalize higher hop counts
-        // 1 hop = 1.0, 2 hops = 0.8, 3 hops = 0.6, etc.
-        val hopPenalty = 1f / hopCount.toFloat()
+        // 0 or 1 hop = 1.0, 2 hops = 0.5, 3 hops = 0.33, etc.
+        val hopPenalty = if (hopCount <= 1) 1f else (1f / hopCount.toFloat())
         
         // Weighted combination: 70% RSSI, 30% hop count
         return (0.7f * normalizedRssi + 0.3f * hopPenalty).coerceIn(0f, 1f)

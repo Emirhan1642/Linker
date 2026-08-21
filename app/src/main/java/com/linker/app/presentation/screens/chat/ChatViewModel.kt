@@ -50,7 +50,8 @@ class ChatViewModel @Inject constructor(
     private val loadMessageInfoUseCase: LoadMessageInfoUseCase,
     private val getUserByIdUseCase: GetUserByIdUseCase,
     private val syncMessagesFromFirestoreUseCase: com.linker.app.domain.usecase.chat.SyncMessagesFromFirestoreUseCase,
-    private val userRepository: com.linker.app.domain.repository.UserRepository
+    private val userRepository: com.linker.app.domain.repository.UserRepository,
+    private val userCache: com.linker.app.data.cache.UserCache
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -75,9 +76,6 @@ class ChatViewModel @Inject constructor(
     private var messagesJob: Job? = null
     private var notesJob: Job? = null
     private var presenceJob: Job? = null
-    
-    private val displayNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val avatarCache = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val currentUserId: String
         get() = currentUserProvider.getCurrentUserId() ?: ""
@@ -89,8 +87,7 @@ class ChatViewModel @Inject constructor(
         val newUid = auth.currentUser?.uid ?: ""
         if (newUid != lastObservedUserId) {
             lastObservedUserId = newUid
-            displayNameCache.clear()
-            avatarCache.clear()
+            userCache.clear()
             restartObserversAfterAccountSwitch()
         }
     }
@@ -247,13 +244,16 @@ class ChatViewModel @Inject constructor(
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
-        return displayNameCache.getOrPut(userId) {
-            getUserDisplayNameUseCase(userId)
+        userCache.getDisplayName(userId)?.let { return it }
+        val name = getUserDisplayNameUseCase(userId)
+        if (name.isNotBlank()) {
+            userCache.putDisplayName(userId, name)
         }
+        return name
     }
 
     private suspend fun resolveUserAvatarUrl(userId: String): String? {
-        avatarCache[userId]?.let { return it }
+        userCache.getAvatarUrl(userId)?.let { return it }
         val avatar = try {
             when (val result = getUserByIdUseCase(userId)) {
                 is Result.Success -> result.data.profileImageUrl
@@ -263,7 +263,7 @@ class ChatViewModel @Inject constructor(
             null
         }
         if (!avatar.isNullOrBlank()) {
-            avatarCache[userId] = avatar
+            userCache.putAvatarUrl(userId, avatar)
         }
         return avatar
     }
@@ -446,70 +446,86 @@ class ChatViewModel @Inject constructor(
             observeMessagesUseCase(actualChatId).collect { result ->
                 if (result is Result.Success) {
                     val messages = result.data
-                    val uiMessages = coroutineScope {
-                        val processed = messages.mapIndexed { index, msg ->
+                    
+                    // Pre-resolve unique user IDs from read receipts in parallel
+                    val allReceiptUids = messages.flatMap { it.readReceipts.keys }
+                        .filter { it != currentUserId }
+                        .distinct()
+
+                    coroutineScope {
+                        allReceiptUids.map { uid ->
                             async {
-                                val isSelf = msg.sender.userId == currentUserId
-                                val prevIsSelf = if (index > 0) messages[index - 1].sender.userId == currentUserId else !isSelf
-                                val nextIsSelf = if (index < messages.size - 1) messages[index + 1].sender.userId == currentUserId else !isSelf
-                                
-                                val displayContent = if (msg.isDeleted) {
-                                    when {
-                                        isSelf -> "You deleted this message"
-                                        !isSelf && !msg.deletedForEveryone -> "You deleted this message"
-                                        !isSelf && msg.deletedForEveryone -> "This message was deleted"
-                                        else -> msg.content ?: ""
-                                    }
-                                } else {
-                                    msg.content ?: ""
+                                if (userCache.getDisplayName(uid) == null) {
+                                    resolveUserDisplayName(uid)
                                 }
+                                if (userCache.getAvatarUrl(uid) == null) {
+                                    resolveUserAvatarUrl(uid)
+                                }
+                            }
+                        }.awaitAll()
+                    }
 
-                                val formattedReactions = msg.reactions.values.groupBy { it }
-                                    .map { (emoji, list) -> if (list.size > 1) "$emoji ${list.size}" else emoji }
-                                    .take(3)
+                    val uiMessages = messages.mapIndexed { index, msg ->
+                        val isSelf = msg.sender.userId == currentUserId
+                        val prevIsSelf = if (index > 0) messages[index - 1].sender.userId == currentUserId else !isSelf
+                        val nextIsSelf = if (index < messages.size - 1) messages[index + 1].sender.userId == currentUserId else !isSelf
+                        
+                        val displayContent = if (msg.isDeleted) {
+                            if (msg.deletedForEveryone) {
+                                if (isSelf) "You deleted this message for everyone" else "This message was deleted"
+                            } else {
+                                "You deleted this message"
+                            }
+                        } else {
+                            msg.content ?: ""
+                        }
 
-                                val seenByUsers = msg.readReceipts
-                                    .filterKeys { uid -> uid != msg.sender.userId }
-                                    .entries
-                                    .sortedByDescending { it.value }
-                                    .map { (uid, seenAt) ->
-                                        SeenByUserUi(
-                                            userId = uid,
-                                            displayName = if (uid == currentUserId) "You" else resolveUserDisplayName(uid),
-                                            avatarUrl = resolveUserAvatarUrl(uid),
-                                            seenAt = seenAt
-                                        )
-                                    }
-                                MessageUiModel(
-                                    messageId = msg.messageId,
-                                    content = msg.content,
-                                    isSelf = isSelf,
-                                    timestamp = msg.createdAt,
-                                    status = msg.messageStatus,
-                                    replyToMessageId = msg.replyToMessage?.messageId,
-                                    replyToNote = msg.replyToNote,
-                                    readAt = msg.readAt,
-                                    reactions = msg.reactions,
-                                    readReceipts = msg.readReceipts,
-                                    seenByUsers = seenByUsers,
-                                    senderId = msg.sender.userId,
-                                    senderDisplayName = if (isSelf) {
-                                        "You"
-                                    } else {
-                                        msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
-                                    },
-                                    senderAvatarUrl = msg.sender.profileImageUrl,
-                                    isDeleted = msg.isDeleted,
-                                    deletedForEveryone = msg.deletedForEveryone,
-                                    prevIsSelf = prevIsSelf,
-                                    nextIsSelf = nextIsSelf,
-                                    displayContent = displayContent,
-                                    formattedReactions = formattedReactions
+                        val formattedReactions = msg.reactions.values.groupBy { it }
+                            .map { (emoji, list) -> if (list.size > 1) "$emoji ${list.size}" else emoji }
+                            .take(3)
+
+                        val seenByUsers = msg.readReceipts
+                            .filterKeys { uid -> uid != msg.sender.userId }
+                            .entries
+                            .sortedByDescending { it.value }
+                            .map { (uid, seenAt) ->
+                                SeenByUserUi(
+                                    userId = uid,
+                                    displayName = if (uid == currentUserId) "You" else (userCache.getDisplayName(uid) ?: uid),
+                                    avatarUrl = userCache.getAvatarUrl(uid),
+                                    seenAt = seenAt
                                 )
                             }
-                        }
-                        processed.awaitAll()
+
+                        MessageUiModel(
+                            messageId = msg.messageId,
+                            chatId = actualChatId,
+                            content = msg.content,
+                            isSelf = isSelf,
+                            timestamp = msg.createdAt,
+                            status = msg.messageStatus,
+                            replyToMessageId = msg.replyToMessage?.messageId,
+                            replyToNote = msg.replyToNote,
+                            readAt = msg.readAt,
+                            reactions = msg.reactions,
+                            readReceipts = msg.readReceipts,
+                            seenByUsers = seenByUsers,
+                            senderId = msg.sender.userId,
+                            senderDisplayName = if (isSelf) {
+                                "You"
+                            } else {
+                                msg.sender.displayName.ifBlank { msg.sender.username }.ifBlank { "User" }
+                            },
+                            senderAvatarUrl = msg.sender.profileImageUrl,
+                            isDeleted = msg.isDeleted,
+                            deletedForEveryone = msg.deletedForEveryone,
+                            prevIsSelf = prevIsSelf,
+                            nextIsSelf = nextIsSelf,
+                            displayContent = displayContent,
+                            formattedReactions = formattedReactions
+                        )
                     }
+
                     _messageState.value = _messageState.value.copy(
                         isLoading = false,
                         messages = uiMessages

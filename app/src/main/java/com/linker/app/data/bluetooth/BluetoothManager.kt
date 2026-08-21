@@ -240,7 +240,21 @@ class BluetoothManagerImpl @Inject constructor(
                 return true
             }
 
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                logWarning("On Android 13+, starting ACTION_REQUEST_ENABLE system intent to request Bluetooth enabling")
+                val intent = android.content.Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    return true
+                } catch (e: Exception) {
+                    logWarning("Could not launch ACTION_REQUEST_ENABLE intent: ${e.message}")
+                }
+            }
+
             logDebug("Attempting to enable Bluetooth")
+            @Suppress("DEPRECATION")
             val result = adapter.enable()
             if (!result) {
                 logWarning("Bluetooth enable() returned false; async enable may still proceed")

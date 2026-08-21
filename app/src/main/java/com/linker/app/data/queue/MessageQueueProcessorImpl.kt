@@ -62,11 +62,12 @@ class MessageQueueProcessorImpl @Inject constructor(
     private var totalProcessed = 0L
     private var totalSucceeded = 0L
     private var totalFailed = 0L
-    private val processingTimes = mutableListOf<Long>()
+    private val processingTimes = java.util.concurrent.CopyOnWriteArrayList<Long>()
     
     fun getMetrics(): QueueMetrics {
-        val avgProcessingTime = if (processingTimes.isNotEmpty()) {
-            processingTimes.average().toLong()
+        val timesSnapshot = processingTimes.toList()
+        val avgProcessingTime = if (timesSnapshot.isNotEmpty()) {
+            timesSnapshot.average().toLong()
         } else {
             0L
         }
@@ -370,8 +371,8 @@ class MessageQueueProcessorImpl @Inject constructor(
                 messageQueueDao.updateQueueItem(sent)
                 
                 try {
-                    messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.DELIVERED)
-                    Log.d(TAG, "Updated message ${message.messageId} status to DELIVERED")
+                    messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.SENT)
+                    Log.d(TAG, "Updated message ${message.messageId} status to SENT")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating message status: ${e.message}")
                 }

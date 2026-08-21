@@ -97,7 +97,7 @@ class MessageQueueWorker @AssistedInject constructor(
 
     companion object {
         private const val TAG = "MessageQueueWorker"
-        private const val WORK_NAME = "MessageQueueSyncWork"
+        const val WORK_NAME = "linker_message_queue_sync"
         private const val BATCH_SIZE = 50
         private const val WORKER_TIMEOUT_MS = 5 * 60 * 1000L // 5 minutes
 

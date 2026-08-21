@@ -90,8 +90,9 @@ class NoteEditorViewModel @Inject constructor(
                 )
             }
             codePointCount > maxLength -> {
-                // Truncate to max length
-                val truncated = text.substring(0, text.length - (codePointCount - maxLength))
+                // Truncate to max length safely across surrogate pairs (emojis)
+                val offset = text.offsetByCodePoints(0, maxLength)
+                val truncated = text.substring(0, offset)
                 _uiState.value = _uiState.value.copy(
                     textContent = truncated,
                     error = "Metin limite ulaştı ($maxLength karakter)"

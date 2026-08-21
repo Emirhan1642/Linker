@@ -366,7 +366,7 @@ class MessageRepositoryImpl @Inject constructor(
             )
 
             saveMessageLocally(messageId, chatId, messageType, content,
-                entityMsgStatus, deliveryMethod, replyToMessageId, replyToNote, now)
+                mediaLocalPath, entityMsgStatus, deliveryMethod, replyToMessageId, replyToNote, now)
 
             updateChatLastMessage(chatId, messageId, content, now)
 
@@ -536,6 +536,7 @@ class MessageRepositoryImpl @Inject constructor(
         chatId: String,
         messageType: MessageType,
         content: String?,
+        mediaUrl: String?,
         entityMsgStatus: EntityMessageStatus,
         deliveryMethod: DeliveryMethod,
         replyToMessageId: String?,
@@ -548,7 +549,7 @@ class MessageRepositoryImpl @Inject constructor(
             senderId = currentUserId,
             messageType = domainMessageTypeToEntity(messageType),
             content = content,
-            mediaUrl = null,
+            mediaUrl = mediaUrl,
             thumbnailUrl = null,
             mediaWidth = null,
             mediaHeight = null,
@@ -834,13 +835,18 @@ class MessageRepositoryImpl @Inject constructor(
         val createdAt = snap.getLong("createdAt") ?: 0L
         val now = System.currentTimeMillis()
         
-        // Check if message can be deleted for everyone (within 1 hour)
-        val canDeleteForEveryone = senderId == currentUserId && (now - createdAt) <= 3600000 // 1 hour in ms
+        if (forEveryone) {
+            if (senderId != currentUserId) {
+                throw SecurityException("Only the sender can delete a message for everyone")
+            }
+            if ((now - createdAt) > 3600000) {
+                throw IllegalStateException("Messages older than 1 hour cannot be deleted for everyone")
+            }
+        }
         
-        // Determine actual deletion type
-        val actualForEveryone = forEveryone && canDeleteForEveryone
+        val actualForEveryone = forEveryone
         
-        android.util.Log.d("MessageRepository", "Delete type: actualForEveryone=$actualForEveryone, canDeleteForEveryone=$canDeleteForEveryone")
+        android.util.Log.d("MessageRepository", "Delete type: actualForEveryone=$actualForEveryone")
         
         if (actualForEveryone) {
             android.util.Log.d("MessageRepository", "Deleting for everyone - updating Firestore")
@@ -1571,7 +1577,6 @@ class MessageRepositoryImpl @Inject constructor(
         // Listen to all messages across all chats using collectionGroup
         globalMessageListener = firestore.collectionGroup("messages")
             .whereArrayContains("participantIds", currentUserId)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
             .limit(1000) // Limit to last 1000 messages for performance
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {

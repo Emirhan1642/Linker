@@ -25,7 +25,7 @@ data class NominatimResponse(
 interface NominatimService {
     @GET("search")
     suspend fun search(
-        @retrofit2.http.Header("User-Agent") userAgent: String = "LinkerApp/1.0",
+        @retrofit2.http.Header("User-Agent") userAgent: String = "LinkerApp/1.0 (android-app@linker.app)",
         @Query("q") query: String,
         @Query("format") format: String = "json",
         @Query("limit") limit: Int = 10,

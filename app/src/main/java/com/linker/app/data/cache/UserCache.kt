@@ -110,9 +110,14 @@ class UserCache @Inject constructor(
         }
     }
 
+    private val avatarCache = object : LruCache<String, CacheEntry<String>>(config.displayNameCacheSize) {
+        override fun entryRemoved(evicted: Boolean, key: String?, oldValue: CacheEntry<String>?, newValue: CacheEntry<String>?) {}
+    }
+
     // Read-write locks for thread-safe access
     private val displayNameLock = ReentrantReadWriteLock()
     private val userLock = ReentrantReadWriteLock()
+    private val avatarLock = ReentrantReadWriteLock()
 
     // Metrics
     private val displayNameHits = AtomicLong(0)
@@ -214,6 +219,29 @@ class UserCache @Inject constructor(
         userLock.write {
             userCache.put(user.userId, CacheEntry(user))
             if (config.enableLogging) SecureLogger.d(TAG, "User cached")
+        }
+    }
+
+    /**
+     * Get avatar URL from cache
+     */
+    fun getAvatarUrl(userId: String): String? {
+        if (userId.isBlank()) return null
+        return avatarLock.read {
+            val entry = avatarCache.get(userId)
+            if (entry != null && !entry.isExpired(config.displayNameTtlMs)) {
+                entry.value
+            } else null
+        }
+    }
+
+    /**
+     * Put avatar URL into cache
+     */
+    fun putAvatarUrl(userId: String, url: String) {
+        if (userId.isBlank() || url.isBlank()) return
+        avatarLock.write {
+            avatarCache.put(userId, CacheEntry(url))
         }
     }
 
@@ -340,6 +368,15 @@ class UserCache @Inject constructor(
                 }
             }
         }
+        avatarLock.write {
+            val snapshot = avatarCache.snapshot()
+            snapshot.forEach { (key, entry) ->
+                if (entry.isExpired(config.displayNameTtlMs)) {
+                    avatarCache.remove(key)
+                    removedCount++
+                }
+            }
+        }
         if (removedCount > 0 && config.enableLogging) {
             SecureLogger.d(TAG, "Cleaned up $removedCount expired cache entries")
         }
@@ -348,7 +385,7 @@ class UserCache @Inject constructor(
     /**
      * Clear all caches
      * 
-     * Removes all display names and user objects from memory.
+     * Removes all display names, avatars and user objects from memory.
      * This operation is thread-safe.
      */
     fun clear() {
@@ -357,6 +394,7 @@ class UserCache @Inject constructor(
         
         displayNameLock.write { displayNameCache.evictAll() }
         userLock.write { userCache.evictAll() }
+        avatarLock.write { avatarCache.evictAll() }
         
         if (config.enableLogging) SecureLogger.d(TAG, "Cache cleared: $displayNameSize display names, $userSize users")
     }
@@ -459,52 +497,23 @@ class UserCache @Inject constructor(
     }
 
     /**
-     * Save cache to disk for persistence
+     * Save cache to disk - No-op as Room DB handles persistent disk caching securely
      */
     suspend fun saveToDisk() {
-        withContext(Dispatchers.IO) {
-            try {
-                val cacheData = CacheSnapshot(
-                    displayNames = displayNameLock.read { displayNameCache.snapshot() },
-                    users = userLock.read { userCache.snapshot() }
-                )
-                val file = File(context.cacheDir, "user_cache.json")
-                file.writeText(Json.encodeToString(cacheData))
-                if (config.enableLogging) SecureLogger.d(TAG, "Cache saved to disk")
-            } catch (e: Exception) {
-                if (config.enableLogging) SecureLogger.e(TAG, "Error saving cache to disk", e)
-            }
-        }
+        // Persistent caching is securely handled by Room LinkerDatabase
     }
 
     /**
-     * Load cache from disk
+     * Load cache from disk - Cleans up legacy plaintext file if present
      */
     suspend fun loadFromDisk() {
         withContext(Dispatchers.IO) {
             try {
-                val file = File(context.cacheDir, "user_cache.json")
-                if (!file.exists()) return@withContext
-                val cacheData = Json.decodeFromString<CacheSnapshot>(file.readText())
-                
-                displayNameLock.write {
-                    cacheData.displayNames.forEach { (key, entry) ->
-                        if (!entry.isExpired(config.displayNameTtlMs)) {
-                            displayNameCache.put(key, entry)
-                        }
-                    }
+                val legacyFile = File(context.cacheDir, "user_cache.json")
+                if (legacyFile.exists()) {
+                    legacyFile.delete()
                 }
-                userLock.write {
-                    cacheData.users.forEach { (key, entry) ->
-                        if (!entry.isExpired(config.userTtlMs)) {
-                            userCache.put(key, entry)
-                        }
-                    }
-                }
-                if (config.enableLogging) SecureLogger.d(TAG, "Cache loaded from disk")
-            } catch (e: Exception) {
-                if (config.enableLogging) SecureLogger.e(TAG, "Error loading cache from disk", e)
-            }
+            } catch (_: Exception) {}
         }
     }
 

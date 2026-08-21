@@ -75,23 +75,7 @@ class AccountRepositoryImpl @Inject constructor(
             android.os.StrictMode.setThreadPolicy(oldPolicy)
         }
     } catch (e: Exception) {
-        Log.e(TAG, "EncryptedSharedPreferences init failed: ${e.message}", e)
-        
-        try {
-            val backup = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-                .getString(KEY_JSON, null)
-            if (backup != null) {
-                context.getSharedPreferences("${PREFS_FILE}_backup", Context.MODE_PRIVATE)
-                    .edit()
-                    .putString("backup_data", backup)
-                    .putLong("backup_timestamp", System.currentTimeMillis())
-                    .apply()
-                Log.w(TAG, "Account data backed up before reset")
-            }
-        } catch (backupError: Exception) {
-            Log.e(TAG, "Failed to backup account data: ${backupError.message}")
-        }
-        
+        Log.e(TAG, "EncryptedSharedPreferences init failed, recreating: ${e.message}", e)
         context.deleteSharedPreferences(PREFS_FILE)
         buildEncryptedPrefs()
     }
@@ -331,21 +315,7 @@ class AccountRepositoryImpl @Inject constructor(
      * 
      * @return Pair of (email, password) or null if session not found
      */
-    private val authorizedCallers = setOf(
-        "com.linker.app.core.session.HybridAccountManager",
-        "com.linker.app.data.repository.AccountRepositoryImpl"
-    )
-
     suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
-        val caller = Thread.currentThread().stackTrace
-            .firstOrNull { it.className in authorizedCallers }
-        
-        if (caller == null) {
-            val actualCaller = Thread.currentThread().stackTrace.getOrNull(3)?.className ?: "Unknown"
-            Log.e(TAG, "Unauthorized access to getDecryptedCredentials from: $actualCaller")
-            throw SecurityException("Unauthorized access to credentials")
-        }
-
         try {
             val sessions = loadSessionsFromDisk()
             val dto = sessions.firstOrNull { it.uid == uid }
@@ -433,24 +403,7 @@ class AccountRepositoryImpl @Inject constructor(
             validSessions
         } catch (e: Exception) {
             Log.e(TAG, "loadSessionsFromDisk hatası: ${e.message}", e)
-            tryRecoverFromBackup() ?: emptyList()
-        }
-    }
-
-    private fun tryRecoverFromBackup(): List<SessionDto>? {
-        return try {
-            val backup = context.getSharedPreferences("${PREFS_FILE}_backup", Context.MODE_PRIVATE)
-                .getString("backup_data", null)
-            
-            if (backup != null) {
-                Log.i(TAG, "Attempting to recover from backup")
-                jsonSerializer.decodeFromString<List<SessionDto>>(backup)
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Backup recovery failed: ${e.message}")
-            null
+            emptyList()
         }
     }
 

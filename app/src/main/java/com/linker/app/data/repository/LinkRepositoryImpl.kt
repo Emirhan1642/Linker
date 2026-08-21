@@ -29,14 +29,53 @@ class LinkRepositoryImpl @Inject constructor(
 ) : LinkRepository {
 
     // Helper to resolve a single UserEntity into a domain User
-    private suspend fun resolveAuthor(authorId: String) =
-        userDao.getUserById(authorId)?.toDomain()
-            ?: throw Exception("Author $authorId not found in local cache")
+    private suspend fun resolveAuthor(authorId: String): com.linker.app.domain.model.User {
+        val local = userDao.getUserById(authorId)?.toDomain()
+        if (local != null) return local
+        
+        try {
+            val doc = firestore.collection("users").document(authorId).get().await()
+            if (doc.exists()) {
+                val user = com.linker.app.domain.model.User(
+                    userId = authorId,
+                    username = doc.getString("username") ?: "user",
+                    displayName = doc.getString("displayName") ?: "User",
+                    profileImageUrl = doc.getString("profileImageUrl"),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+                userDao.insertUser(user.toEntity())
+                return user
+            }
+        } catch (_: Exception) {}
+
+        return com.linker.app.domain.model.User(
+            userId = authorId,
+            username = "user_${authorId.take(6)}",
+            displayName = "User",
+            createdAt = System.currentTimeMillis(),
+            updatedAt = System.currentTimeMillis()
+        )
+    }
+
+    private fun com.linker.app.domain.model.User.toEntity() = com.linker.app.data.local.entity.UserEntity(
+        userId = userId,
+        username = username,
+        displayName = displayName,
+        profileImageUrl = profileImageUrl,
+        email = getEmail(),
+        phoneNumber = getPhoneNumber(),
+        bio = bio,
+        coverImageUrl = coverImageUrl,
+        isVerified = isVerified,
+        createdAt = createdAt,
+        updatedAt = updatedAt
+    )
 
     override fun observeFeed(): Flow<Result<List<Link>>> =
         linkDao.observeAllLinks().map { entities ->
-            val links = entities.mapNotNull { entity ->
-                runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
+            val links = entities.map { entity ->
+                entity.toDomain(resolveAuthor(entity.authorId))
             }
             Result.Success(links)
         }
@@ -260,8 +299,9 @@ class LinkRepositoryImpl @Inject constructor(
         RetryUtil.retrySafeCall {
             val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
 
-            // Find or create DM chat between currentUser and recipientUser
-            val chatId = listOf(currentUserId, recipientUserId).sorted().joinToString("_")
+            // Standard private chat ID format used across ChatRepository
+            val sortedIds = listOf(currentUserId, recipientUserId).sorted()
+            val chatId = "private_${sortedIds[0]}_${sortedIds[1]}"
             val messageId = java.util.UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
 
@@ -273,19 +313,19 @@ class LinkRepositoryImpl @Inject constructor(
                     "messageId" to messageId,
                     "chatId" to chatId,
                     "senderId" to currentUserId,
-                    "type" to "LINK",
+                    "messageType" to "LINK",
                     "linkId" to linkId,
-                    "content" to "", // Empty content for link messages
+                    "content" to "🔗 Link",
                     "createdAt" to now,
                     "updatedAt" to now,
-                    "status" to "SENT"
+                    "messageStatus" to "SENT"
                 )).await()
 
             // Update chat's last message metadata
             firestore.collection("chats").document(chatId)
                 .update(mapOf(
                     "lastMessageAt" to now,
-                    "lastMessagePreview" to "🔗 Link paylaşıldı"
+                    "lastMessageText" to "🔗 Link paylaşıldı"
                 )).await()
         }
 

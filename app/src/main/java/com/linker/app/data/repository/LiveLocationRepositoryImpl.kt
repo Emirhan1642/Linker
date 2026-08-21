@@ -55,7 +55,7 @@ private data class NominatimAddress(
 private interface NominatimReverseService {
     @GET("reverse")
     suspend fun reverse(
-        @Header("User-Agent") userAgent: String = "LinkerApp/1.0",
+        @Header("User-Agent") userAgent: String = "LinkerApp/1.0 (android-app@linker.app)",
         @Query("lat") lat: Double,
         @Query("lon") lon: Double,
         @Query("format") format: String = "json",
@@ -109,7 +109,7 @@ class LiveLocationRepositoryImpl @Inject constructor(
                         if (loc != null) {
                             cont.resume(DeviceLocation(loc.latitude, loc.longitude, System.currentTimeMillis()))
                         } else {
-                            cont.cancel(Exception("Location result was null"))
+                            cont.resumeWith(kotlin.Result.failure(Exception("Location result was null")))
                         }
                     }
                 }

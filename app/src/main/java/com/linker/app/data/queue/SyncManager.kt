@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import javax.inject.Inject
@@ -99,10 +100,11 @@ sealed class SyncStatus {
  * Token Bucket Rate Limiter
  */
 class RateLimiter(private val maxOperations: Int, private val timeWindowMs: Long) {
+    private val mutex = Mutex()
     private var tokens = maxOperations
     private var lastRefillTimestamp = System.currentTimeMillis()
 
-    suspend fun acquire() {
+    suspend fun acquire() = mutex.withLock {
         val now = System.currentTimeMillis()
         val timePassed = now - lastRefillTimestamp
         val tokensToAdd = (timePassed / timeWindowMs).toInt() * maxOperations
@@ -115,7 +117,7 @@ class RateLimiter(private val maxOperations: Int, private val timeWindowMs: Long
         if (tokens > 0) {
             tokens--
         } else {
-            val waitTime = timeWindowMs - timePassed
+            val waitTime = timeWindowMs - (now - lastRefillTimestamp)
             if (waitTime > 0) delay(waitTime)
             tokens = maxOperations - 1
             lastRefillTimestamp = System.currentTimeMillis()
@@ -210,12 +212,16 @@ class SyncManagerImpl @Inject constructor(
 
                     messageDeduplicationManager.markAsProcessed(queueItem.messageId)
 
+                    val localMsg = messageDao.getMessageById(queueItem.messageId)
+                    val mediaPath = localMsg?.mediaUrl
+                    val replyToId = localMsg?.replyToMessageId
+
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
-                        mediaLocalPath = null,
-                        replyToMessageId = null
+                        mediaLocalPath = mediaPath,
+                        replyToMessageId = replyToId
                     )
 
                     when (result) {

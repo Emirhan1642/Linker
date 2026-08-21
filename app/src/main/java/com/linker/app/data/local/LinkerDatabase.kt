@@ -75,16 +75,13 @@ abstract class LinkerDatabase : RoomDatabase() {
             withTimeout(timeout) {
                 withTransaction {
                     val queueUpdated = messageQueueDao().updateQueueStatus(queueId, queueStatus, sentAt)
-                    if (queueUpdated == 0) {
-                        android.util.Log.w("LinkerDatabase", "Queue not found: $queueId")
-                    }
-                    
                     val messageUpdated = messageDao().updateDeliveryMethod(messageId, deliveryMethod)
-                    if (messageUpdated == 0) {
-                        android.util.Log.w("LinkerDatabase", "Message not found: $messageId")
+                    
+                    if (queueUpdated == 0 && messageUpdated == 0) {
+                        throw IllegalStateException("Neither queue ($queueId) nor message ($messageId) were found to update")
                     }
                     
-                    android.util.Log.d("LinkerDatabase", "Atomic update successful - Queue: $queueId, Message: $messageId")
+                    android.util.Log.d("LinkerDatabase", "Atomic update successful - Queue: $queueId (rows: $queueUpdated), Message: $messageId (rows: $messageUpdated)")
                 }
             }
             Result.success(Unit)

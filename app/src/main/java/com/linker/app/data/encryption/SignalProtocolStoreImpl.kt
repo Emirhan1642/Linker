@@ -48,15 +48,15 @@ class SignalProtocolStoreImpl @Inject constructor(
     private var identityKeyPair: IdentityKeyPair? = null
     private var localRegistrationId: Int = 0
 
-    private val dbExecutor = Executors.newFixedThreadPool(4)
-    
-    private val _identityChanges = MutableSharedFlow<IdentityChangeEvent>(extraBufferCapacity = 10)
-    val identityChanges: SharedFlow<IdentityChangeEvent> = _identityChanges.asSharedFlow()
+    private val _identityChanges = kotlinx.coroutines.flow.MutableSharedFlow<IdentityChangeEvent>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+    val identityChanges: kotlinx.coroutines.flow.SharedFlow<IdentityChangeEvent> = _identityChanges.asSharedFlow()
 
     private fun <T> runOnDbThread(block: suspend () -> T): T {
-        return dbExecutor.submit(Callable {
-            runBlocking { block() }
-        }).get()
+        return runBlocking(Dispatchers.IO) { block() }
     }
 
     

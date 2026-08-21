@@ -33,7 +33,8 @@ import com.linker.app.domain.model.UserRelationship
 class AuthRepositoryImpl @Inject constructor(
     private val firebaseAuth: FirebaseAuth,
     private val firestore: FirebaseFirestore,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val database: com.linker.app.data.local.LinkerDatabase
 ) : AuthRepository {
 
     override fun observeCurrentUser(): Flow<User?> = callbackFlow {
@@ -170,12 +171,15 @@ class AuthRepositoryImpl @Inject constructor(
         displayName: String,
         profileImageLocalPath: String?
     ): Result<User> = safeCall {
-        if (!username.matches(Regex("^[a-zA-Z0-9_.]{3,20}$"))) {
+        val sanitizedUsername = username.trim().lowercase()
+        val sanitizedDisplayName = displayName.trim()
+
+        if (!sanitizedUsername.matches(Regex("^[a-zA-Z0-9_.]{3,20}$"))) {
             throw IllegalArgumentException("Username must be 3-20 alphanumeric characters, dots or underscores")
         }
         
         val existingUser = firestore.collection("users")
-            .whereEqualTo("username", username)
+            .whereEqualTo("username", sanitizedUsername)
             .get()
             .await()
         
@@ -183,12 +187,9 @@ class AuthRepositoryImpl @Inject constructor(
             throw IllegalStateException("Username already taken")
         }
         
-        if (displayName.isBlank() || displayName.length > 50) {
+        if (sanitizedDisplayName.isBlank() || sanitizedDisplayName.length > 50) {
             throw IllegalArgumentException("Display name must be 1-50 characters")
         }
-        
-        val sanitizedUsername = username.trim().lowercase()
-        val sanitizedDisplayName = displayName.trim()
 
         val request = com.google.firebase.auth.UserProfileChangeRequest.Builder()
             .setDisplayName(sanitizedDisplayName)
@@ -240,6 +241,13 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun signOut(): Result<Unit> = safeCall {
         firebaseAuth.signOut()
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                database.clearAllTables()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("AuthRepositoryImpl", "Failed to clear local database on sign out", e)
+        }
     }
 
     override suspend fun deleteAccount(): Result<Unit> = safeCall {
