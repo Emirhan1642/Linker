@@ -19,28 +19,44 @@ class LocalTrackCache @Inject constructor(
     private val gson = Gson()
     private val KEY_RECENT_TRACKS = "recent_tracks"
     private val MAX_HISTORY = 30
+    private val lock = Any()
+    @Volatile
+    private var memoryCache: List<SpotifyTrack>? = null
 
     fun getRecentTracks(): List<SpotifyTrack> {
-        val json = prefs.getString(KEY_RECENT_TRACKS, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<SpotifyTrack>>() {}.type
-            gson.fromJson(json, type) ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
+        memoryCache?.let { return it }
+        synchronized(lock) {
+            memoryCache?.let { return it }
+            val json = prefs.getString(KEY_RECENT_TRACKS, null)
+            val list = if (json != null) {
+                try {
+                    val type = object : TypeToken<List<SpotifyTrack>>() {}.type
+                    gson.fromJson<List<SpotifyTrack>>(json, type) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+            memoryCache = list
+            return list
         }
     }
 
     fun saveTrack(track: SpotifyTrack) {
-        val currentTracks = getRecentTracks().toMutableList()
-        // Remove if it already exists to move it to the top
-        currentTracks.removeAll { it.id == track.id }
-        // Add to the top
-        currentTracks.add(0, track)
-        // Trim to max history
-        if (currentTracks.size > MAX_HISTORY) {
-            currentTracks.subList(MAX_HISTORY, currentTracks.size).clear()
+        synchronized(lock) {
+            val currentTracks = getRecentTracks().toMutableList()
+            // Remove if it already exists to move it to the top
+            currentTracks.removeAll { it.id == track.id }
+            // Add to the top
+            currentTracks.add(0, track)
+            // Trim to max history
+            if (currentTracks.size > MAX_HISTORY) {
+                currentTracks.subList(MAX_HISTORY, currentTracks.size).clear()
+            }
+            
+            memoryCache = currentTracks.toList()
+            prefs.edit().putString(KEY_RECENT_TRACKS, gson.toJson(currentTracks)).apply()
         }
-        
-        prefs.edit().putString(KEY_RECENT_TRACKS, gson.toJson(currentTracks)).apply()
     }
 }

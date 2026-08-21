@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.DarkGray
 import com.linker.app.presentation.theme.TextPrimary
@@ -41,11 +42,11 @@ fun AlbumDetailScreen(
     onNavigateBack: () -> Unit,
     onTrackSelected: (SpotifyTrack) -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val isPlaying by viewModel.audioPlayerManager.isPlaying.collectAsState()
-    val isRemotePlaying by viewModel.spotifyAppRemoteManager.isPlaying.collectAsState()
-    val currentRemoteTrackId by viewModel.currentRemoteTrackId.collectAsState()
-    val loadingPreviewTrackId by viewModel.loadingPreviewTrackId.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.audioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+    val isRemotePlaying by viewModel.spotifyAppRemoteManager.isPlaying.collectAsStateWithLifecycle()
+    val currentRemoteTrackId by viewModel.currentRemoteTrackId.collectAsStateWithLifecycle()
+    val loadingPreviewTrackId by viewModel.loadingPreviewTrackId.collectAsStateWithLifecycle()
     val playingPreviewTrackId = remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current as Activity
 

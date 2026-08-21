@@ -74,8 +74,8 @@ class LyricsRepositoryImpl @Inject constructor(
     }
     private val gson = Gson()
 
-    // Simple memory cache to prevent reloading the same lyrics
-    private val lyricsCache = mutableMapOf<String, List<SyncedLyricLine>>()
+    // Thread-safe memory cache to prevent reloading the same lyrics across coroutines
+    private val lyricsCache = java.util.concurrent.ConcurrentHashMap<String, List<SyncedLyricLine>>()
 
     override fun getCachedLyrics(trackName: String, artistName: String): List<SyncedLyricLine>? {
         val cacheKey = "$trackName-$artistName"

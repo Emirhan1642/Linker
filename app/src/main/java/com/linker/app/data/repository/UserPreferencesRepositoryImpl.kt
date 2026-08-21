@@ -51,15 +51,26 @@ class UserPreferencesRepositoryImpl @Inject constructor(
     // ── Observe ────────────────────────────────────────────────────────────
 
     override fun observePreferences(): Flow<Result<UserPreference>> = callbackFlow {
-        val listener = prefsDoc().addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                trySend(Result.Success(UserPreference.EMPTY))
-                return@addSnapshotListener
-            }
-            val prefs = snapshot?.toObject(PrefsDocument::class.java)?.toDomain()
-                ?: UserPreference.EMPTY
-            trySend(Result.Success(prefs))
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            trySend(Result.Success(UserPreference.EMPTY))
+            awaitClose { }
+            return@callbackFlow
         }
+
+        val listener = usersCollection
+            .document(uid)
+            .collection("preferences")
+            .document("prefs")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(Result.Success(UserPreference.EMPTY))
+                    return@addSnapshotListener
+                }
+                val prefs = snapshot?.toObject(PrefsDocument::class.java)?.toDomain()
+                    ?: UserPreference.EMPTY
+                trySend(Result.Success(prefs))
+            }
         awaitClose { listener.remove() }
     }
 

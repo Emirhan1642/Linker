@@ -1,5 +1,10 @@
 package com.linker.app.core.util
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
 /**
  * Standardized error codes for application-wide error handling
  */
@@ -229,44 +234,62 @@ sealed class Result<out T> {
 
 /** Wraps a suspending [block] in a try/catch, returning [Result.Success] or
  *  [Result.Error] with standardized error classification.
+ *  Dispatches on [Dispatchers.IO] by default and preserves Kotlin Structured Concurrency
+ *  by rethrowing [CancellationException].
  */
-suspend fun <T> safeCall(block: suspend () -> T): Result<T> = try {
-    Result.Success(block())
-} catch (e: Exception) {
-    val (code, isRetryable, userMessage) = when (e) {
-        is java.net.UnknownHostException -> 
-            Triple(ErrorCodes.NETWORK, true, "No internet connection")
-        is java.net.SocketTimeoutException -> 
-            Triple(ErrorCodes.TIMEOUT, true, "Connection timeout")
-        is java.util.concurrent.CancellationException,
-        is kotlinx.coroutines.CancellationException -> 
-            Triple(ErrorCodes.CANCELLED, false, null)
-        is retrofit2.HttpException -> when (e.code()) {
-            401, 403 -> Triple(ErrorCodes.AUTH, false, "Authentication failed")
-            404 -> Triple(ErrorCodes.NOT_FOUND, false, "Resource not found")
-            408, 504 -> Triple(ErrorCodes.TIMEOUT, true, "Request timeout")
-            in 500..599 -> Triple(ErrorCodes.NETWORK, true, "Server error")
+suspend fun <T> safeCall(block: suspend () -> T): Result<T> = safeCall(Dispatchers.IO, block)
+
+suspend fun <T> safeCall(
+    dispatcher: CoroutineDispatcher,
+    block: suspend () -> T
+): Result<T> = withContext(dispatcher) {
+    try {
+        Result.Success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        val (code, isRetryable, userMessage) = when (e) {
+            is java.net.UnknownHostException -> 
+                Triple(ErrorCodes.NETWORK, true, "No internet connection")
+            is java.net.SocketTimeoutException -> 
+                Triple(ErrorCodes.TIMEOUT, true, "Connection timeout")
+            is retrofit2.HttpException -> when (e.code()) {
+                401, 403 -> Triple(ErrorCodes.AUTH, false, "Authentication failed")
+                404 -> Triple(ErrorCodes.NOT_FOUND, false, "Resource not found")
+                408, 504 -> Triple(ErrorCodes.TIMEOUT, true, "Request timeout")
+                in 500..599 -> Triple(ErrorCodes.NETWORK, true, "Server error")
+                else -> Triple(ErrorCodes.UNKNOWN, true, null)
+            }
             else -> Triple(ErrorCodes.UNKNOWN, true, null)
         }
-        else -> Triple(ErrorCodes.UNKNOWN, true, null)
+        
+        Result.Error(
+            message = e.message ?: "Unknown error",
+            code = code,
+            cause = e,
+            isRetryable = isRetryable,
+            userMessage = userMessage
+        )
     }
-    
-    Result.Error(
-        message = e.message ?: "Unknown error",
-        code = code,
-        cause = e,
-        isRetryable = isRetryable,
-        userMessage = userMessage
-    )
 }
 
 /** Wraps a suspending [block] in a try/catch with custom error mapper. */
 suspend fun <T> safeCall(
     errorMapper: (Exception) -> Result.Error,
     block: suspend () -> T
-): Result<T> = try {
-    Result.Success(block())
-} catch (e: Exception) {
-    errorMapper(e)
+): Result<T> = safeCall(Dispatchers.IO, errorMapper, block)
+
+suspend fun <T> safeCall(
+    dispatcher: CoroutineDispatcher,
+    errorMapper: (Exception) -> Result.Error,
+    block: suspend () -> T
+): Result<T> = withContext(dispatcher) {
+    try {
+        Result.Success(block())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        errorMapper(e)
+    }
 }
 

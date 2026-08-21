@@ -1,5 +1,6 @@
 package com.linker.app.core.util
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlin.math.pow
 import android.util.Log
@@ -204,6 +205,8 @@ object RetryUtil {
         repeat(times - 1) { attempt ->
             try {
                 return block()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 Log.w(TAG, "Attempt ${attempt + 1} failed: ${e.message}")
@@ -219,6 +222,8 @@ object RetryUtil {
         // Last attempt
         try {
             return block()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Final attempt failed after $times tries")
             throw e
@@ -255,6 +260,8 @@ object RetryUtil {
                 // ✅ Record success
                 circuitBreaker.recordSuccess()
                 return result
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 lastException = e
                 // ✅ Record failure
@@ -273,6 +280,8 @@ object RetryUtil {
             val result = block()
             circuitBreaker.recordSuccess()
             return result
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             circuitBreaker.recordFailure()
             Log.e(TAG, "Final attempt failed after $times tries")

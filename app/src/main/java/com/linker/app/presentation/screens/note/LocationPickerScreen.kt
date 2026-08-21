@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.domain.repository.LocationSearchResult
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.DarkGray
@@ -30,7 +31,7 @@ fun LocationPickerScreen(
     onLocationSelected: (LocationSearchResult) -> Unit,
     viewModel: LocationSearchViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
         containerColor = Black,

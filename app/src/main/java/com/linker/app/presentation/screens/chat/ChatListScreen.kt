@@ -1,6 +1,7 @@
 package com.linker.app.presentation.screens.chat
 
 import android.R.style.Theme
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -95,7 +96,7 @@ fun ChatListScreen(
     onNavigateToNoteLocationMap: (Double, Double, String) -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.chatListState.collectAsState()
+    val uiState by viewModel.chatListState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     
     val filters = listOf(
@@ -506,13 +507,13 @@ fun NoteDetailBottomSheet(
     onNavigateToNoteLocationMap: ((Double, Double, String) -> Unit)? = null,
     viewModel: com.linker.app.presentation.screens.note.NoteDetailViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
-    val isAudioPlaying by viewModel.audioPlayerManager.isPlaying.collectAsState()
-    val isRemotePlaying by viewModel.spotifyAppRemoteManager.isPlaying.collectAsState()
-    val audioPosMs by viewModel.audioPlayerManager.currentPositionMs.collectAsState()
-    val remotePosMs by viewModel.spotifyAppRemoteManager.currentPositionMs.collectAsState()
-    val isRemoteConnected by viewModel.spotifyAppRemoteManager.isConnected.collectAsState()
-    val isPremium by viewModel.spotifyAuthManager.isPremium.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isAudioPlaying by viewModel.audioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+    val isRemotePlaying by viewModel.spotifyAppRemoteManager.isPlaying.collectAsStateWithLifecycle()
+    val audioPosMs by viewModel.audioPlayerManager.currentPositionMs.collectAsStateWithLifecycle()
+    val remotePosMs by viewModel.spotifyAppRemoteManager.currentPositionMs.collectAsStateWithLifecycle()
+    val isRemoteConnected by viewModel.spotifyAppRemoteManager.isConnected.collectAsStateWithLifecycle()
+    val isPremium by viewModel.spotifyAuthManager.isPremium.collectAsStateWithLifecycle()
 
     val isPlaying = isAudioPlaying || isRemotePlaying
     val rawPosMs = if (isRemoteConnected) remotePosMs else audioPosMs

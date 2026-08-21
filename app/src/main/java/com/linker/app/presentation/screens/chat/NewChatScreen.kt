@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.R
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.components.StoryState
@@ -32,7 +33,7 @@ fun NewChatScreen(
     viewModel: ChatViewModel = hiltViewModel(),
     suggestViewModel: NewChatViewModel = hiltViewModel()
 ) {
-    val uiState by suggestViewModel.uiState.collectAsState()
+    val uiState by suggestViewModel.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
 
     var isGroupMode by remember { mutableStateOf(false) }

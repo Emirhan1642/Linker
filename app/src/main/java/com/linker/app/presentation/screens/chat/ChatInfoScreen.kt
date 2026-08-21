@@ -32,6 +32,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.linker.app.domain.model.User
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.components.StoryState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.presentation.theme.AccentGreen
 import com.linker.app.presentation.theme.Black
 import com.linker.app.presentation.theme.LightGray
@@ -46,7 +47,7 @@ fun ChatInfoScreen(
     onNavigateToUserProfile: (String) -> Unit = {},
     viewModel: ChatInfoViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableIntStateOf(0) }
     val context = LocalContext.current
     val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: ""

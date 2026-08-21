@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.linker.app.core.util.AudioPlayerManager
 import com.linker.app.core.util.SpotifyAppRemoteManager
@@ -79,7 +80,7 @@ fun TrackClipPickerScreen(
 ) {
     val context = LocalContext.current
 
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(trackId) {
         viewModel.fetchLyrics(trackName, artistName)
@@ -90,25 +91,21 @@ fun TrackClipPickerScreen(
         audioPlayerManager.stop()
     }
 
-    val isPremium by spotifyAuthManager.isPremium.collectAsState()
+    val isPremium by spotifyAuthManager.isPremium.collectAsStateWithLifecycle()
     
     // If we are NOT premium and we have a previewUrl, we are forced to use the preview
     val isPreviewMode = (isPremium == false && previewUrl.isNotEmpty())
     
-    val isPlaying = if (isPreviewMode) {
-        audioPlayerManager.isPlaying.collectAsState().value
-    } else {
-        spotifyAppRemoteManager.isPlaying.collectAsState().value
-    }
+    val audioIsPlaying by audioPlayerManager.isPlaying.collectAsStateWithLifecycle()
+    val remoteIsPlaying by spotifyAppRemoteManager.isPlaying.collectAsStateWithLifecycle()
+    val isPlaying = if (isPreviewMode) audioIsPlaying else remoteIsPlaying
 
-    val positionMs = if (isPreviewMode) {
-        audioPlayerManager.currentPositionMs.collectAsState().value
-    } else {
-        spotifyAppRemoteManager.currentPositionMs.collectAsState().value
-    }
+    val audioPosMs by audioPlayerManager.currentPositionMs.collectAsStateWithLifecycle()
+    val remotePosMs by spotifyAppRemoteManager.currentPositionMs.collectAsStateWithLifecycle()
+    val positionMs = if (isPreviewMode) audioPosMs else remotePosMs
     
-    val isConnected by spotifyAppRemoteManager.isConnected.collectAsState()
-    val rawDurationMs by spotifyAppRemoteManager.durationMs.collectAsState()
+    val isConnected by spotifyAppRemoteManager.isConnected.collectAsStateWithLifecycle()
+    val rawDurationMs by spotifyAppRemoteManager.durationMs.collectAsStateWithLifecycle()
 
     // Always prefer the official trackDurationMs if available, because rawDurationMs might be 0 until Spotify connects.
     val durationSec = if (isPreviewMode) {

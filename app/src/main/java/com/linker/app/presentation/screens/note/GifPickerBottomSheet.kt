@@ -27,8 +27,8 @@ import coil3.compose.AsyncImage
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.request.ImageRequest
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.request.crossfade
-
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +37,7 @@ fun GifPickerBottomSheet(
     onGifSelected: (url: String, aspectRatio: Float?) -> Unit,
     viewModel: GifPickerViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val imageLoader = androidx.compose.runtime.remember(context) {

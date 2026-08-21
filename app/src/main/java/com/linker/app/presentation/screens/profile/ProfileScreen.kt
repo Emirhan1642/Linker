@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.R
 import com.linker.app.core.util.FormatUtil.formatStat
 import com.linker.app.domain.model.Link
@@ -47,7 +48,7 @@ fun ProfileScreen(
     onNavigateToFollowing: (String) -> Unit = {},
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(0) }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
 

@@ -55,7 +55,7 @@ class StoryRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
 
-                launch {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
                     val dataList = snapshot?.documents?.mapNotNull { doc ->
                         doc.toObject(StoryDocument::class.java)?.let { data ->
                             Pair(doc.id, data)

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.linker.app.R
 import com.linker.app.domain.model.AccountSession
@@ -36,7 +37,7 @@ fun AccountCenterScreen(
     onSwitchComplete: () -> Unit,
     viewModel: AccountCenterViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingRemoveUid by remember { mutableStateOf<String?>(null) }
 
     // Hesap geçişi tamamlandığında Home'a git

@@ -52,7 +52,7 @@ class CommentRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
 
-                launch {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
                     val dataList = snapshot?.documents?.mapNotNull { doc ->
                         doc.toObject(CommentDocument::class.java)?.let { data ->
                             Pair(doc.id, data)

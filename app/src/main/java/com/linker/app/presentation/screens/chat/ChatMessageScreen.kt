@@ -31,7 +31,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,7 +88,7 @@ fun ChatMessageScreen(
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     var messageText by remember { mutableStateOf("") }
-    val uiState by viewModel.messageState.collectAsState()
+    val uiState by viewModel.messageState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val inputFocusRequester = remember { FocusRequester() }
@@ -114,8 +114,8 @@ fun ChatMessageScreen(
         mutableStateOf(listOf("\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE4F"))
     }
 
-    val messageInfoState by viewModel.messageInfoState.collectAsState()
-    val messageReactionsState by viewModel.messageReactionsState.collectAsState()
+    val messageInfoState by viewModel.messageInfoState.collectAsStateWithLifecycle()
+    val messageReactionsState by viewModel.messageReactionsState.collectAsStateWithLifecycle()
 
     // Effects
     LaunchedEffect(chatId) {

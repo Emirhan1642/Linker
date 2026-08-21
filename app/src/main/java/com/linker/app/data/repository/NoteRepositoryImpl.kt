@@ -78,7 +78,7 @@ class NoteRepositoryImpl @Inject constructor(
                     return@addSnapshotListener
                 }
                 
-                launch {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
                     val rawNotesData = snapshot?.documents?.mapNotNull { doc ->
                         doc.id to (doc.data ?: return@mapNotNull null)
                     } ?: emptyList()
