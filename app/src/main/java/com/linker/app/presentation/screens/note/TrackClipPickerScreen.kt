@@ -436,7 +436,7 @@ fun TrackClipPickerScreen(
                         if (uiState.isLoadingLyrics) {
                             CircularProgressIndicator(color = Color(0xFF1DB954))
                         } else if (uiState.lyricsError != null) {
-                            Text(text = uiState.lyricsError!!, color = Color(0xFF888888), fontSize = 14.sp)
+                            Text(text = uiState.lyricsError ?: "", color = Color(0xFF888888), fontSize = 14.sp)
                         } else if (uiState.lyrics.isNotEmpty()) {
                             com.linker.app.presentation.components.SyncedLyricsView(
                                 lyrics = uiState.lyrics,

@@ -55,7 +55,7 @@ class NotificationRepositoryImpl @Inject constructor(
                     doc.data?.let { mapToNotificationSync(doc.id, it) }
                 } ?: emptyList()
 
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                launch(kotlinx.coroutines.Dispatchers.IO) {
                     val entities = notifications.map { notification ->
                         // Extract targetEntityId and targetEntityType from sealed class
                         val (targetEntityId, targetEntityType) = when (val target = notification.target) {

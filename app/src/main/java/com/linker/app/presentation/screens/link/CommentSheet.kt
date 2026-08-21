@@ -214,8 +214,9 @@ fun CommentSheet(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
+                val history = uiState.commentHistory ?: emptyList()
                 LazyColumn {
-                    items(uiState.commentHistory!!) { version ->
+                    items(history) { version ->
                         Column(modifier = Modifier.padding(bottom = 16.dp)) {
                             Text(
                                 text = "Versiyon ${version.version}",

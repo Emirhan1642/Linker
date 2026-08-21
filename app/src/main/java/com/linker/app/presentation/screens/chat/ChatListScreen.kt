@@ -319,9 +319,10 @@ fun ChatListScreen(
             }
         }
 
-        if (selectedNoteForDetail != null) {
+        val noteForDetail = selectedNoteForDetail
+        if (noteForDetail != null) {
             NoteDetailBottomSheet(
-                note = selectedNoteForDetail!!,
+                note = noteForDetail,
                 onDismiss = { selectedNoteForDetailState.value = null },
                 onNavigateToNoteLocationMap = onNavigateToNoteLocationMap
             )

@@ -56,6 +56,9 @@ class SignalProtocolStoreImpl @Inject constructor(
     val identityChanges: kotlinx.coroutines.flow.SharedFlow<IdentityChangeEvent> = _identityChanges.asSharedFlow()
 
     private fun <T> runOnDbThread(block: suspend () -> T): T {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            android.util.Log.w("SignalProtocolStore", "SignalProtocolStore IO operation invoked on main thread!")
+        }
         return runBlocking(Dispatchers.IO) { block() }
     }
 

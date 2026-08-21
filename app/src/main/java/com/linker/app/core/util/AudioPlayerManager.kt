@@ -130,17 +130,24 @@ class AudioPlayerManager @Inject constructor() {
         progressJob = scope.launch {
             while (isActive) {
                 mediaPlayer?.let { mp ->
-                    if (mp.isPlaying) {
-                        val pos = mp.currentPosition.toLong()
-                        _currentPositionMs.value = pos
-                        
-                        targetEndTimeMs?.let { endMs ->
-                            if (pos >= endMs) {
-                                pause()
-                                targetEndTimeMs = null
-                                _currentPositionMs.value = endMs
+                    try {
+                        if (mp.isPlaying) {
+                            val pos = mp.currentPosition.toLong()
+                            _currentPositionMs.value = pos
+                            
+                            targetEndTimeMs?.let { endMs ->
+                                if (pos >= endMs) {
+                                    pause()
+                                    targetEndTimeMs = null
+                                    _currentPositionMs.value = endMs
+                                }
                             }
                         }
+                    } catch (e: IllegalStateException) {
+                        // MediaPlayer state invalid/released, stop tracking gracefully
+                        stopProgressTracking()
+                    } catch (e: Exception) {
+                        // Ignore other transient player access issues
                     }
                 }
                 delay(100) // Update every 100ms for smooth lyric scrolling

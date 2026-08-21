@@ -100,7 +100,7 @@ fun GifPickerBottomSheet(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(uiState.gifs, key = { it.id }) { gif ->
-                        val safeRatio = if ((gif.aspectRatio ?: 1f) > 0f) gif.aspectRatio!! else 1f
+                        val safeRatio = gif.aspectRatio?.takeIf { it > 0f } ?: 1f
                         val itemHeight = 150.dp * (1f / safeRatio)
                         AsyncImage(
                             model = ImageRequest.Builder(context)

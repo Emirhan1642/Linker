@@ -99,12 +99,12 @@ fun ArtistProfileScreen(
                 )
             } else if (uiState.error != null) {
                 Text(
-                    text = uiState.error!!,
+                    text = uiState.error ?: "",
                     color = Color.Red,
                     modifier = Modifier.align(Alignment.Center)
                 )
             } else if (uiState.profile != null) {
-                val profile = uiState.profile!!
+                val profile = uiState.profile ?: return@Box
                 LazyColumn(modifier = Modifier.fillMaxSize()) {
                     // Artist Header
                     item {

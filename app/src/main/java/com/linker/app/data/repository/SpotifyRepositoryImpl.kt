@@ -210,6 +210,13 @@ class SpotifyRepositoryImpl @Inject constructor(
             .create(SpotifyApiService::class.java)
     }
 
+    private val httpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
     private suspend fun getValidToken(): String? {
         if (currentAccessToken != null && System.currentTimeMillis() < tokenExpiryTime) {
             return currentAccessToken
@@ -357,13 +364,12 @@ class SpotifyRepositoryImpl @Inject constructor(
 
     private suspend fun scrapeFullArtistProfileData(artistId: String): ScrapedArtistProfileData? = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
             val request = Request.Builder()
                 .url("https://open.spotify.com/artist/$artistId")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val response = client.newCall(request).execute()
+            val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) return@withContext null
             val html = response.body?.string() ?: return@withContext null
 
@@ -520,13 +526,12 @@ class SpotifyRepositoryImpl @Inject constructor(
 
     private suspend fun scrapeAlbumPreviews(albumId: String): Map<String, String> = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
             val request = Request.Builder()
                 .url("https://open.spotify.com/album/$albumId")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val response = client.newCall(request).execute()
+            val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) return@withContext emptyMap()
             val html = response.body?.string() ?: return@withContext emptyMap()
 
@@ -647,13 +652,12 @@ class SpotifyRepositoryImpl @Inject constructor(
 
     override suspend fun scrapePlaylistTracks(playlistId: String, limit: Int?, offset: Int?): Result<List<SpotifyTrack>> = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
             val request = Request.Builder()
                 .url("https://open.spotify.com/playlist/$playlistId")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val response = client.newCall(request).execute()
+            val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) {
                 return@withContext Result.Error("Web request failed: ${response.code}")
             }
@@ -731,13 +735,12 @@ class SpotifyRepositoryImpl @Inject constructor(
 
     override suspend fun scrapeTrackPreviewUrl(trackId: String): String? = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
             val request = Request.Builder()
                 .url("https://open.spotify.com/track/$trackId")
                 .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
                 .build()
 
-            val response = client.newCall(request).execute()
+            val response = httpClient.newCall(request).execute()
             if (!response.isSuccessful) return@withContext null
             val html = response.body?.string() ?: return@withContext null
 

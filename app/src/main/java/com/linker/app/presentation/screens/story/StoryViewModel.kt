@@ -19,6 +19,7 @@ import javax.inject.Inject
 
 data class StoryViewerUiState(
     val currentStories: List<Story> = emptyList(),
+    val allUserStories: List<UserStories> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -33,6 +34,22 @@ class StoryViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(StoryViewerUiState())
     val uiState: StateFlow<StoryViewerUiState> = _uiState.asStateFlow()
+
+    init {
+        loadAllUserStories()
+    }
+
+    private fun loadAllUserStories() {
+        viewModelScope.launch {
+            storyRepository.observeActiveUserStories().collect { result ->
+                if (result is Result.Success) {
+                    _uiState.update {
+                        it.copy(allUserStories = result.data)
+                    }
+                }
+            }
+        }
+    }
 
     fun loadStoriesForUser(userStories: UserStories) {
         _uiState.update {

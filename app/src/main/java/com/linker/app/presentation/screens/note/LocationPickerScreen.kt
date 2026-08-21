@@ -74,7 +74,7 @@ fun LocationPickerScreen(
                 )
             } else if (uiState.error != null) {
                 Text(
-                    text = uiState.error!!,
+                    text = uiState.error ?: "",
                     color = Color.Red,
                     modifier = Modifier.align(Alignment.Center).padding(16.dp),
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center

@@ -22,6 +22,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import com.linker.app.presentation.navigation.LinkerNavHost
 import com.linker.app.presentation.theme.LinkerTheme
 import dagger.hilt.android.AndroidEntryPoint
+import com.linker.app.core.di.ApplicationScope
 import com.linker.app.core.notification.PushTokenRegistrar
 import com.linker.app.core.notification.ChatNotificationHelper
 import com.linker.app.core.session.HybridAccountManager
@@ -29,6 +30,8 @@ import com.linker.app.core.util.SpotifyAuthManager
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.core.util.Result as LinkerResult
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 
 /**
@@ -44,6 +47,7 @@ import kotlinx.coroutines.launch
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
+    @Inject @ApplicationScope lateinit var applicationScope: CoroutineScope
     @Inject lateinit var pushTokenRegistrar: PushTokenRegistrar
     @Inject lateinit var accountRepository: AccountRepository
     @Inject lateinit var hybridAccountManager: HybridAccountManager
@@ -186,8 +190,12 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         // Cleanup all passive sessions when app is destroyed
         if (isFinishing) {
-            lifecycleScope.launch {
-                hybridAccountManager.cleanupAllSessions()
+            applicationScope.launch(NonCancellable) {
+                try {
+                    hybridAccountManager.cleanupAllSessions()
+                } catch (e: Exception) {
+                    android.util.Log.e(TAG, "Error cleaning up sessions in onDestroy", e)
+                }
             }
         }
     }

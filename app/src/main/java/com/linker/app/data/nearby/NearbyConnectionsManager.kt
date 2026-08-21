@@ -248,7 +248,7 @@ class NearbyConnectionsManagerImpl @Inject constructor(
     override suspend fun startAdvertising(): Result<Unit> {
         val userIdResult = getCurrentUserId()
         if (userIdResult.isFailure) {
-            return Result.failure(userIdResult.exceptionOrNull()!!)
+            return Result.failure(userIdResult.exceptionOrNull() ?: IllegalStateException("User ID not available"))
         }
         val userId = userIdResult.getOrThrow()
         
@@ -293,7 +293,7 @@ class NearbyConnectionsManagerImpl @Inject constructor(
             try {
                 val userIdResult = getCurrentUserId()
                 if (userIdResult.isFailure) {
-                    return@retryWithBackoff Result.failure(userIdResult.exceptionOrNull()!!)
+                    return@retryWithBackoff Result.failure(userIdResult.exceptionOrNull() ?: IllegalStateException("User ID not available"))
                 }
                 val userId = userIdResult.getOrThrow()
 

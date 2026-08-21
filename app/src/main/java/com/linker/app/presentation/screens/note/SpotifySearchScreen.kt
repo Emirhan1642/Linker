@@ -123,7 +123,7 @@ fun SpotifySearchScreen(
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (uiState.error != null) {
                         Text(
-                            text = uiState.error!!,
+                            text = uiState.error ?: "",
                             color = Color.Red,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -181,7 +181,7 @@ fun SpotifySearchScreen(
 
                     if (uiState.error != null) {
                         Text(
-                            text = uiState.error!!,
+                            text = uiState.error ?: "",
                             color = Color.Red,
                             modifier = Modifier
                                 .fillMaxWidth()

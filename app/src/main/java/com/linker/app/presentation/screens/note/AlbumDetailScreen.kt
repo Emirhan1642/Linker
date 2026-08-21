@@ -94,10 +94,10 @@ fun AlbumDetailScreen(
             }
         } else if (uiState.error != null) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(text = uiState.error!!, color = Color.Red, modifier = Modifier.padding(16.dp))
+                Text(text = uiState.error ?: "", color = Color.Red, modifier = Modifier.padding(16.dp))
             }
         } else if (uiState.profile != null) {
-            val profile = uiState.profile!!
+            val profile = uiState.profile ?: return@Scaffold
             val album = profile.album
             
             LazyColumn(

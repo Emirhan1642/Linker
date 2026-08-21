@@ -285,6 +285,12 @@ class EncryptionManagerImpl @Inject constructor(
         val preKeyRecord = preKeys.minByOrNull { record -> record.id }
             ?: throw IllegalStateException("No pre-keys available")
 
+        // Consume the pre-key so it is only distributed once (Forward Secrecy)
+        protocolStore.removePreKey(preKeyRecord.id)
+        if (preKeys.size <= 10) {
+            generatePreKeys()
+        }
+
         // Get the current signed pre-key
         val signedPreKeys = protocolStore.loadSignedPreKeys()
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }

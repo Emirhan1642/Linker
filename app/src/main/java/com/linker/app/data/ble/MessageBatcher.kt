@@ -7,6 +7,7 @@ import com.linker.app.data.connectivity.ConnectivityState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
@@ -35,7 +36,7 @@ class MessageBatcher @Inject constructor(
 ) {
     
     private val messageQueue = ConcurrentLinkedQueue<BLEPacket>()
-    private val coroutineScope = CoroutineScope(Dispatchers.Default + Job())
+    private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var flushJob: Job? = null
 
     @Volatile

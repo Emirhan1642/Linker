@@ -236,7 +236,7 @@ fun ChatInfoScreen(
                         modifier = Modifier.fillMaxWidth().height(300.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(uiState.error!!.asString(), color = TextSecondary, fontSize = 16.sp)
+                        Text(uiState.error?.asString() ?: "", color = TextSecondary, fontSize = 16.sp)
                     }
                 }
             } else {

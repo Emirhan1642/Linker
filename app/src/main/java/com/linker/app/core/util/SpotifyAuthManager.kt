@@ -1,6 +1,7 @@
 package com.linker.app.core.util
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -99,7 +100,12 @@ class SpotifyAuthManager @Inject constructor(
         val browserIntent = Intent(Intent.ACTION_VIEW, authUri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY)
         }
-        activity.startActivity(browserIntent)
+        try {
+            activity.startActivity(browserIntent)
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "No browser found to handle Spotify auth intent", e)
+            _isPremium.value = false
+        }
     }
 
     /**
@@ -139,6 +145,7 @@ class SpotifyAuthManager @Inject constructor(
         pendingCodeVerifier = null
         prefs.edit()
             .remove(KEY_ACCESS_TOKEN)
+            .remove(KEY_REFRESH_TOKEN)
             .remove(KEY_TOKEN_EXPIRY)
             .apply()
         Log.d(TAG, "Token cleared from memory and prefs.")

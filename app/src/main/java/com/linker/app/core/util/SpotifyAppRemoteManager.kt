@@ -35,7 +35,7 @@ class SpotifyAppRemoteManager @Inject constructor(
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    fun connect(context: Context, clientId: String, onConnected: () -> Unit, onError: (Throwable) -> Unit) {
+    fun connect(context: Context = this.context, clientId: String, onConnected: () -> Unit, onError: (Throwable) -> Unit) {
         if (spotifyAppRemote?.isConnected == true) {
             onConnected()
             return
@@ -46,7 +46,7 @@ class SpotifyAppRemoteManager @Inject constructor(
             .showAuthView(false)
             .build()
 
-        SpotifyAppRemote.connect(context, connectionParams,
+        SpotifyAppRemote.connect(this.context.applicationContext, connectionParams,
             object : Connector.ConnectionListener {
                 override fun onConnected(appRemote: SpotifyAppRemote) {
                     spotifyAppRemote = appRemote

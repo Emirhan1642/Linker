@@ -97,18 +97,20 @@ fun StoryScreen(
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
 
+    val displayStories = if (allUserStories.isNotEmpty()) allUserStories else uiState.allUserStories
+
     // Find starting group index by userId
-    val startGroupIndex = allUserStories.indexOfFirst { it.author.userId == userId }
+    val startGroupIndex = displayStories.indexOfFirst { it.author.userId == userId }
         .coerceAtLeast(0)
 
     val groupPagerState = rememberPagerState(
         initialPage = startGroupIndex,
-        pageCount = { allUserStories.size }
+        pageCount = { displayStories.size }
     )
 
     // When last group ends, go back to grid
-    LaunchedEffect(groupPagerState.currentPage) {
-        val currentGroup = allUserStories.getOrNull(groupPagerState.currentPage)
+    LaunchedEffect(groupPagerState.currentPage, displayStories) {
+        val currentGroup = displayStories.getOrNull(groupPagerState.currentPage)
         if (currentGroup != null) {
             viewModel.loadStoriesForUser(currentGroup)
         }
@@ -119,7 +121,7 @@ fun StoryScreen(
         state = groupPagerState,
         modifier = Modifier.fillMaxSize()
     ) { groupIndex ->
-        val userStories = allUserStories.getOrNull(groupIndex) ?: return@VerticalPager
+        val userStories = displayStories.getOrNull(groupIndex) ?: return@VerticalPager
         val stories = userStories.getActiveStories()
 
         val storyPagerState = rememberPagerState(pageCount = { stories.size })
@@ -144,7 +146,7 @@ fun StoryScreen(
             // Advance to next story or next user group
             if (storyPagerState.currentPage < stories.lastIndex) {
                 storyPagerState.animateScrollToPage(storyPagerState.currentPage + 1)
-            } else if (groupIndex < allUserStories.lastIndex) {
+            } else if (groupIndex < displayStories.lastIndex) {
                 groupPagerState.animateScrollToPage(groupIndex + 1)
             } else {
                 onNavigateBack()

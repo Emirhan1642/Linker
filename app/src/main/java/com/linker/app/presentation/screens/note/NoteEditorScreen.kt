@@ -258,7 +258,7 @@ fun NoteEditorScreen(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier.width(IntrinsicSize.Min)
                         ) {
-                            val gifUrl = uiState.gifUrl!! // Safe to assert here
+                            val gifUrl = uiState.gifUrl ?: ""
                             Box(
                                 modifier = Modifier
                                     .size(100.dp)
@@ -289,7 +289,8 @@ fun NoteEditorScreen(
                     }
                     uiState.selectedType == NoteType.COUNTDOWN && uiState.targetTime != null -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            val remaining = uiState.targetTime!! - System.currentTimeMillis()
+                            val targetTime = uiState.targetTime ?: 0L
+                            val remaining = (targetTime - System.currentTimeMillis()).coerceAtLeast(0L)
                             val days = (remaining / 86400000L).coerceAtLeast(0)
                             val hours = ((remaining % 86400000L) / 3600000L).coerceAtLeast(0)
                             val mins = ((remaining % 3600000L) / 60000L).coerceAtLeast(0)
@@ -361,8 +362,9 @@ fun NoteEditorScreen(
 
         // Profile Picture
         val profilePictureUrl = remember(uiState.authorProfilePictureUrl) {
-            if (uiState.authorProfilePictureUrl?.isNotBlank() == true) {
-                uiState.authorProfilePictureUrl!!
+            val url = uiState.authorProfilePictureUrl
+            if (!url.isNullOrBlank()) {
+                url
             } else {
                 "https://ui-avatars.com/api/?name=User&background=random"
             }

@@ -85,6 +85,21 @@ class StoryRepositoryImpl @Inject constructor(
                     }
 
                     val currentUserId = auth.currentUser?.uid ?: ""
+                    val viewedStoryIds = mutableSetOf<String>()
+                    if (currentUserId.isNotEmpty()) {
+                        dataList.forEach { (storyId, _) ->
+                            try {
+                                val viewerDoc = storiesCollection.document(storyId)
+                                    .collection("viewers")
+                                    .document(currentUserId)
+                                    .get()
+                                    .await()
+                                if (viewerDoc.exists()) {
+                                    viewedStoryIds.add(storyId)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
 
                     val stories = dataList.mapNotNull { (id, data) ->
                         val author = usersMap[data.authorId] ?: return@mapNotNull null
@@ -102,16 +117,11 @@ class StoryRepositoryImpl @Inject constructor(
                             caption = data.caption,
                             viewsCount = data.viewsCount,
                             likesCount = data.likesCount,
-                            isViewed = false, // To be determined below
+                            isViewed = viewedStoryIds.contains(id),
                             createdAt = data.createdAt,
                             expiresAt = data.expiresAt
                         )
                     }
-
-                    // Also batch fetch viewers for current user to set isViewed
-                    // Since it's a subcollection, we might have to check them. For optimization, if current user is not null:
-                    // In a real app we might use an array `viewers` up to a limit or another mechanism.
-                    // For now, we'll map them as provided.
                     val grouped = stories.groupBy { it.author.userId }
                         .map { (_, authorStories) ->
                             UserStories(

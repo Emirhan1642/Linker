@@ -109,8 +109,8 @@ class AndroidKeystoreWrapper @Inject constructor(
      */
     fun decrypt(alias: String, encryptedData: ByteArray): Result<ByteArray> {
         return try {
-            if (encryptedData.size < 12) {
-                return Result.failure(IllegalArgumentException("Encrypted data too short"))
+            if (encryptedData.size < 12 + (GCM_TAG_LENGTH / 8)) {
+                return Result.failure(IllegalArgumentException("Encrypted data is too short or corrupted"))
             }
             
             val secretKey = getOrCreateSecretKey(alias)

@@ -192,8 +192,8 @@ fun ChatMessageScreen(
         )
     }
 
-    if (selectedNoteRef != null) {
-        val noteRef = selectedNoteRef!!
+    val noteRef = selectedNoteRef
+    if (noteRef != null) {
         val fakeAuthor = com.linker.app.domain.model.NoteAuthor(
             userId = noteRef.authorId.ifBlank { "unknown" },
             username = noteRef.authorName.ifBlank { "User" },

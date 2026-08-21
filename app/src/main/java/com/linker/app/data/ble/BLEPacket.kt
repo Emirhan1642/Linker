@@ -222,9 +222,9 @@ data class BLEPacket(
             
             try {
                 buffer.put(packet.version)
-                buffer.put(packet.messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(packet.senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(packet.recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(encodeIdToBytes(packet.messageId))
+                buffer.put(encodeIdToBytes(packet.senderId))
+                buffer.put(encodeIdToBytes(packet.recipientId))
                 buffer.put(packet.ttl)
                 buffer.put(packet.hopCount)
                 buffer.putShort(packet.fragmentIndex)
@@ -274,9 +274,9 @@ data class BLEPacket(
             try {
                 // Create packet without checksum
                 buffer.put(version)
-                buffer.put(messageId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(senderId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
-                buffer.put(recipientId.padEnd(36).toByteArray(Charsets.UTF_8).copyOf(36))
+                buffer.put(encodeIdToBytes(messageId))
+                buffer.put(encodeIdToBytes(senderId))
+                buffer.put(encodeIdToBytes(recipientId))
                 buffer.put(ttl)
                 buffer.put(hopCount)
                 buffer.putShort(fragmentIndex)

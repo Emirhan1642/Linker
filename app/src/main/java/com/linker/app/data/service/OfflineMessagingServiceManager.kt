@@ -17,6 +17,7 @@ import com.linker.app.core.service.OfflineMessagingService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +48,7 @@ class OfflineMessagingServiceManager @Inject constructor(
         Context.MODE_PRIVATE
     )
 
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _isServiceRunning = MutableStateFlow(false)
     val isServiceRunning: StateFlow<Boolean> = _isServiceRunning.asStateFlow()
 
@@ -61,7 +63,7 @@ class OfflineMessagingServiceManager @Inject constructor(
 
     init {
         // Load initial state asynchronously
-        CoroutineScope(Dispatchers.IO).launch {
+        scope.launch {
             val savedState = sharedPreferences.getBoolean(KEY_SERVICE_RUNNING, false)
             _isServiceRunning.value = savedState
         }

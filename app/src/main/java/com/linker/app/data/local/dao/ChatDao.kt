@@ -58,8 +58,8 @@ interface ChatDao {
     suspend fun updateArchiveStatus(chatId: String, isArchived: Boolean, timestamp: Long = System.currentTimeMillis())
     
     @Transaction
-    @Query("UPDATE chats SET lastMessageId = :messageId, lastMessageText = SUBSTR(:text, 1, 200), lastMessageAt = :timestamp, updatedAt = :timestamp, unreadCount = unreadCount + 1 WHERE chatId = :chatId")
-    suspend fun updateLastMessage(chatId: String, messageId: String, text: String, timestamp: Long)
+    @Query("UPDATE chats SET lastMessageId = :messageId, lastMessageText = SUBSTR(:text, 1, 200), lastMessageAt = :timestamp, updatedAt = :timestamp, unreadCount = CASE WHEN :incrementUnread THEN unreadCount + 1 ELSE unreadCount END WHERE chatId = :chatId")
+    suspend fun updateLastMessage(chatId: String, messageId: String, text: String, timestamp: Long, incrementUnread: Boolean = false)
 
     @Query("UPDATE chats SET lastMessageId = NULL, lastMessageText = NULL, lastMessageAt = NULL, updatedAt = :timestamp WHERE chatId = :chatId")
     suspend fun clearLastMessage(chatId: String, timestamp: Long = System.currentTimeMillis())

@@ -70,6 +70,7 @@ class MessageRepositoryImpl @Inject constructor(
 ) : MessageRepository {
 
     private val chatsCollection = firestore.collection("chats")
+    private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     
     // Global message listener for caching all messages
     private var globalMessageListener: com.google.firebase.firestore.ListenerRegistration? = null
@@ -122,7 +123,7 @@ class MessageRepositoryImpl @Inject constructor(
                             } ?: emptyList()
                             
                             // Save messages to local database for offline access
-                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                            launch(kotlinx.coroutines.Dispatchers.IO) {
                                 try {
                                     messages.forEach { message ->
                                         saveMessageToLocal(message, chatId)
@@ -967,7 +968,7 @@ class MessageRepositoryImpl @Inject constructor(
             .whereEqualTo("isDeleted", false)
             .get()
             .await()
-        val batch = firestore.batch()
+        val updatesToMake = mutableListOf<com.google.firebase.firestore.DocumentReference>()
         for (doc in allMessages.documents) {
             val senderId = doc.getString("senderId")
             if (senderId == currentUserId) continue
@@ -978,14 +979,23 @@ class MessageRepositoryImpl @Inject constructor(
             val isAlreadyRead = readReceipts.containsKey(currentUserId)
             
             if (status != "READ" && !isAlreadyRead) {
-                batch.update(doc.reference, mapOf(
-                    "readReceipts.$currentUserId" to now,
-                    "messageStatus" to "READ",
-                    "readAt" to now
-                ))
+                updatesToMake.add(doc.reference)
             }
         }
-        batch.commit().await()
+
+        if (updatesToMake.isNotEmpty()) {
+            updatesToMake.chunked(450).forEach { chunk ->
+                val batch = firestore.batch()
+                for (ref in chunk) {
+                    batch.update(ref, mapOf(
+                        "readReceipts.$currentUserId" to now,
+                        "messageStatus" to "READ",
+                        "readAt" to now
+                    ))
+                }
+                batch.commit().await()
+            }
+        }
         // Update Room
         chatDao.markAsRead(chatId)
     }
@@ -1591,7 +1601,7 @@ class MessageRepositoryImpl @Inject constructor(
                 android.util.Log.d("MessageRepository", "Global listener received ${snapshot.documents.size} messages")
                 
                 // Process messages in background
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                repositoryScope.launch {
                     try {
                         snapshot.documents.forEach { doc ->
                             try {

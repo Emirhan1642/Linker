@@ -190,19 +190,38 @@ class NoteEditorViewModel @Inject constructor(
         locationUpdateJob?.cancel()
         locationUpdateJob = viewModelScope.launch {
             try {
-                liveLocationRepository.observeLocationUpdates(intervalMs = 5_000L)
+                var lastGeocodedLat = 0.0
+                var lastGeocodedLon = 0.0
+
+                liveLocationRepository.observeLocationUpdates(intervalMs = 30_000L)
                     .collect { loc ->
                         // Check if job is still active before processing
                         if (!isActive) {
                             return@collect
                         }
 
-                        val placeResult = liveLocationRepository.reverseGeocode(loc.lat, loc.lon)
-                        val place = if (placeResult is Result.Success) placeResult.data
-                                    else com.linker.app.domain.repository.PlaceName(
-                                        _uiState.value.locationCity,
-                                        _uiState.value.locationDistrict
-                                    )
+                        val distLat = Math.abs(loc.lat - lastGeocodedLat)
+                        val distLon = Math.abs(loc.lon - lastGeocodedLon)
+                        val movedSignificantly = (distLat > 0.001 || distLon > 0.001) || _uiState.value.placeName.isNullOrEmpty()
+
+                        val place = if (movedSignificantly) {
+                            val placeResult = liveLocationRepository.reverseGeocode(loc.lat, loc.lon)
+                            if (placeResult is Result.Success) {
+                                lastGeocodedLat = loc.lat
+                                lastGeocodedLon = loc.lon
+                                placeResult.data
+                            } else {
+                                com.linker.app.domain.repository.PlaceName(
+                                    _uiState.value.locationCity,
+                                    _uiState.value.locationDistrict
+                                )
+                            }
+                        } else {
+                            com.linker.app.domain.repository.PlaceName(
+                                _uiState.value.locationCity,
+                                _uiState.value.locationDistrict
+                            )
+                        }
 
                         // Guard against post-cancellation state updates
                         if (isActive) {
@@ -397,19 +416,20 @@ class NoteEditorViewModel @Inject constructor(
                 }
             }
             NoteType.GIF -> {
+                val gifUrl = state.gifUrl
+                val aspectRatio = state.gifAspectRatio
                 when {
-                    state.gifUrl.isNullOrBlank() -> "GIF seçimi eksik"
-                    !state.gifUrl!!.startsWith("http") -> "GIF URL geçersiz"
-                    state.gifAspectRatio == null || state.gifAspectRatio!! <= 0f ->
-                        "GIF aspect ratio geçersiz"
+                    gifUrl.isNullOrBlank() -> "GIF seçimi eksik"
+                    !gifUrl.startsWith("http") -> "GIF URL geçersiz"
+                    aspectRatio == null || aspectRatio <= 0f -> "GIF aspect ratio geçersiz"
                     else -> null
                 }
             }
             NoteType.COUNTDOWN -> {
+                val targetTime = state.targetTime
                 when {
-                    state.targetTime == null -> "Hedef zaman eksik"
-                    state.targetTime!! <= System.currentTimeMillis() ->
-                        "Hedef zaman geçmiş olmamalı"
+                    targetTime == null -> "Hedef zaman eksik"
+                    targetTime <= System.currentTimeMillis() -> "Hedef zaman geçmiş olmamalı"
                     state.countdownTitle.isBlank() -> "Başlık gerekli"
                     state.countdownTitle.length > 100 -> "Başlık çok uzun"
                     else -> null

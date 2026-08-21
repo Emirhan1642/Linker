@@ -345,7 +345,10 @@ class AccountRepositoryImpl @Inject constructor(
     }
 
     private fun decryptWithKeystore(encoded: String): ByteArray {
-        val combined   = Base64.decode(encoded, Base64.NO_WRAP)
+        val combined = Base64.decode(encoded, Base64.NO_WRAP)
+        if (combined.size < IV_LENGTH + (GCM_TAG_LENGTH / 8)) {
+            throw IllegalArgumentException("Ciphertext too short or corrupted")
+        }
         val iv         = combined.sliceArray(0 until IV_LENGTH)
         val ciphertext = combined.sliceArray(IV_LENGTH until combined.size)
         val cipher     = Cipher.getInstance(AES_GCM_TRANSFORM)

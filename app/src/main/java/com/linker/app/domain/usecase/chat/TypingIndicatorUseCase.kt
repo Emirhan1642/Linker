@@ -4,6 +4,7 @@ import com.linker.app.core.util.Result
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -28,7 +29,7 @@ class TypingIndicatorUseCase @Inject constructor(
 ) {
     private var typingJob: Job? = null
     private val typingJobLock = Mutex()
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun startTyping(chatId: String) {
         if (chatId.isBlank()) return

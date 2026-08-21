@@ -105,7 +105,7 @@ fun LinkEditorScreen(
             ) {
                 if (uiState.error != null) {
                     Text(
-                        text = uiState.error!!,
+                        text = uiState.error ?: "",
                         color = MaterialTheme.colorScheme.error,
                         fontSize = 14.sp,
                         modifier = Modifier.padding(bottom = 8.dp)

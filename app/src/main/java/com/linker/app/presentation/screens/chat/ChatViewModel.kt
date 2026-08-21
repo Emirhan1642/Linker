@@ -447,22 +447,24 @@ class ChatViewModel @Inject constructor(
                 if (result is Result.Success) {
                     val messages = result.data
                     
-                    // Pre-resolve unique user IDs from read receipts in parallel
-                    val allReceiptUids = messages.flatMap { it.readReceipts.keys }
-                        .filter { it != currentUserId }
+                    // Pre-resolve unique user IDs from recent read receipts in parallel
+                    val allReceiptUids = messages.takeLast(30).flatMap { it.readReceipts.keys }
+                        .filter { it != currentUserId && (userCache.getDisplayName(it) == null || userCache.getAvatarUrl(it) == null) }
                         .distinct()
 
-                    coroutineScope {
-                        allReceiptUids.map { uid ->
-                            async {
-                                if (userCache.getDisplayName(uid) == null) {
-                                    resolveUserDisplayName(uid)
+                    if (allReceiptUids.isNotEmpty()) {
+                        coroutineScope {
+                            allReceiptUids.map { uid ->
+                                async {
+                                    if (userCache.getDisplayName(uid) == null) {
+                                        resolveUserDisplayName(uid)
+                                    }
+                                    if (userCache.getAvatarUrl(uid) == null) {
+                                        resolveUserAvatarUrl(uid)
+                                    }
                                 }
-                                if (userCache.getAvatarUrl(uid) == null) {
-                                    resolveUserAvatarUrl(uid)
-                                }
-                            }
-                        }.awaitAll()
+                            }.awaitAll()
+                        }
                     }
 
                     val uiMessages = messages.mapIndexed { index, msg ->

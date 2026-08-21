@@ -57,6 +57,7 @@ class ChatRepositoryImpl @Inject constructor(
 ) : ChatRepository {
 
     private val chatsCollection = firestore.collection("chats")
+    private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
     
     // Global chat listener for caching all chats
     private var globalChatListener: com.google.firebase.firestore.ListenerRegistration? = null
@@ -106,7 +107,7 @@ class ChatRepositoryImpl @Inject constructor(
                     }?.sortedByDescending { it.updatedAt } ?: emptyList()
                     
                     // Save chats to local database for offline access
-                    CoroutineScope(Dispatchers.IO).launch {
+                    launch(Dispatchers.IO) {
                         try {
                             chats.forEach { chat ->
                                 saveChatToLocal(chat)
@@ -774,7 +775,7 @@ class ChatRepositoryImpl @Inject constructor(
                 android.util.Log.d("ChatRepository", "Global listener received ${snapshot.documents.size} chats")
                 
                 // Process chats in background
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                repositoryScope.launch {
                     try {
                         snapshot.documents.forEach { doc ->
                             try {

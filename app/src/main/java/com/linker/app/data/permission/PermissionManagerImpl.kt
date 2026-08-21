@@ -204,24 +204,18 @@ class PermissionManagerImpl @Inject constructor(
     }
 
     // Validation helper
-    private fun validatePermissionInput(activity: Activity, permission: String) {
-        require(permission.isNotBlank()) {
-            "Permission string cannot be blank"
+    private fun isActivityValid(activity: Activity): Boolean {
+        if (activity.isFinishing) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1 && activity.isDestroyed) {
+            return false
         }
-        
-        require(!activity.isFinishing) {
-            "Activity is finishing, cannot check permissions"
-        }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
-            require(!activity.isDestroyed) {
-                "Activity is destroyed, cannot check permissions"
-            }
-        }
+        return true
     }
     
     override fun shouldShowRationale(activity: Activity, permission: String): Boolean {
-        validatePermissionInput(activity, permission)
+        if (permission.isBlank() || !isActivityValid(activity)) {
+            return false
+        }
         
         return try {
             ActivityCompat.shouldShowRequestPermissionRationale(activity, permission)
@@ -232,7 +226,9 @@ class PermissionManagerImpl @Inject constructor(
     }
     
     override fun isPermanentlyDenied(activity: Activity, permission: String): Boolean {
-        validatePermissionInput(activity, permission)
+        if (permission.isBlank() || !isActivityValid(activity)) {
+            return false
+        }
         
         val isGranted = ContextCompat.checkSelfPermission(
             activity,

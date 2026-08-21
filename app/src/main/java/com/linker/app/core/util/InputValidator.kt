@@ -69,7 +69,7 @@ private object RegexCache {
 private object ValidationRateLimiter {
     private val validationCounts = ConcurrentHashMap<String, RateLimitInfo>()
     private const val RATE_LIMIT_WINDOW_MS = 60_000L // 1 minute
-    private const val MAX_VALIDATIONS_PER_WINDOW = 100
+    private const val MAX_VALIDATIONS_PER_WINDOW = 10000
     
     private data class RateLimitInfo(
         var count: Int = 0,
@@ -335,14 +335,13 @@ object InputValidator {
         // Remove data: protocol
         sanitized = sanitized.replace(Regex("data:", RegexOption.IGNORE_CASE), "")
         
-        // HTML entity encoding
+        // HTML entity encoding for basic markup injection
         sanitized = sanitized
             .replace("&", "&amp;")
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
             .replace("'", "&#x27;")
-            .replace("/", "&#x2F;")
         
         return sanitized
     }

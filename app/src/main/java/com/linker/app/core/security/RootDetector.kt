@@ -81,15 +81,17 @@ object RootDetector {
 
     fun isDeviceRooted(): Boolean {
         val now = System.currentTimeMillis()
-        if (cachedIsRooted != null && now - lastRootCheckTime < CACHE_DURATION_MS) {
-            return cachedIsRooted!!
+        val cached = cachedIsRooted
+        if (cached != null && now - lastRootCheckTime < CACHE_DURATION_MS) {
+            return cached
         }
 
         val rooted = checkForSuBinary() ||
                      checkForRootApps() ||
                      checkForDangerousProps() ||
                      checkSuExists() ||
-                     checkForRWPaths()
+                     checkForRWPaths() ||
+                     isSelinuxPermissive()
 
         if (rooted) {
             SecurityLogger.logRootDetection(SecurityRiskLevel.HIGH)
@@ -98,6 +100,25 @@ object RootDetector {
         cachedIsRooted = rooted
         lastRootCheckTime = now
         return rooted
+    }
+
+    private fun isSelinuxPermissive(): Boolean {
+        return try {
+            val process = Runtime.getRuntime().exec("getenforce")
+            val output = BufferedReader(InputStreamReader(process.inputStream)).use { it.readLine() }
+            output?.trim()?.equals("Permissive", ignoreCase = true) == true
+        } catch (_: Throwable) {
+            try {
+                val enforceFile = File("/sys/fs/selinux/enforce")
+                if (enforceFile.exists()) {
+                    enforceFile.readText().trim() == "0"
+                } else {
+                    false
+                }
+            } catch (_: Throwable) {
+                false
+            }
+        }
     }
 
     private fun checkForSuBinary(): Boolean {
@@ -171,8 +192,9 @@ object RootDetector {
 
     fun isEmulator(): Boolean {
         val now = System.currentTimeMillis()
-        if (cachedIsEmulator != null && now - lastEmulatorCheckTime < CACHE_DURATION_MS) {
-            return cachedIsEmulator!!
+        val cached = cachedIsEmulator
+        if (cached != null && now - lastEmulatorCheckTime < CACHE_DURATION_MS) {
+            return cached
         }
 
         val rating = (if (Build.FINGERPRINT.startsWith("generic") || Build.FINGERPRINT.startsWith("unknown")) 1 else 0) +

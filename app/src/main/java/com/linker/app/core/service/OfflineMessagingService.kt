@@ -18,6 +18,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.linker.app.BuildConfig
 import com.linker.app.R
 import com.linker.app.data.ble.BLEMeshManager
@@ -151,11 +152,20 @@ class OfflineMessagingService : Service() {
             }
             Log.d(TAG, "Foreground service started")
             
-            registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+            registerReceiverSafe()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
             stopSelf()
         }
+    }
+
+    private fun registerReceiverSafe() {
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -197,16 +207,7 @@ class OfflineMessagingService : Service() {
         releaseWakeLock()
         stopOfflineMessaging()
         
-        runBlocking {
-            try {
-                withTimeout(5000) {
-                    supervisorJob.cancelAndJoin()
-                }
-            } catch (e: TimeoutCancellationException) {
-                Log.e(TAG, "Service cleanup timeout, forcing cancellation")
-                supervisorJob.cancel()
-            }
-        }
+        supervisorJob.cancel()
         Log.d(TAG, "Service destroyed, all coroutines cancelled")
     }
     

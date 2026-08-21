@@ -344,7 +344,8 @@ class CommentRepositoryImpl @Inject constructor(
         val isDeleted: Boolean = false,
         val editCount: Int = 0,
         val createdAt: Long = 0,
-        val updatedAt: Long = 0
+        val updatedAt: Long = 0,
+        val likedBy: List<String> = emptyList()
     )
 
     private suspend fun mapDocumentsToComments(dataList: List<Pair<String, CommentDocument>>): List<Comment> {
@@ -370,23 +371,27 @@ class CommentRepositoryImpl @Inject constructor(
 
         val currentUserId = auth.currentUser?.uid
 
-        // We use kotlinx.coroutines.async to fetch isLiked in parallel for all comments
+        // Fetch isLiked efficiently
         return kotlinx.coroutines.coroutineScope {
             dataList.map { (docId, data) ->
                 async {
                     val author = usersMap[data.authorId] ?: return@async null
 
                     val isLiked = if (currentUserId != null) {
-                        try {
-                            val likeDoc = commentsCollection
-                                .document(docId)
-                                .collection("likes")
-                                .document(currentUserId)
-                                .get()
-                                .await()
-                            likeDoc.exists()
-                        } catch (e: Exception) {
-                            false
+                        if (data.likedBy.contains(currentUserId)) {
+                            true
+                        } else {
+                            try {
+                                val likeDoc = commentsCollection
+                                    .document(docId)
+                                    .collection("likes")
+                                    .document(currentUserId)
+                                    .get()
+                                    .await()
+                                likeDoc.exists()
+                            } catch (e: Exception) {
+                                false
+                            }
                         }
                     } else {
                         false

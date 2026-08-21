@@ -364,14 +364,12 @@ class BLEMeshManagerImpl @Inject constructor(
                             // Since we don't know the recipient's user ID yet, we can't use full Signal Protocol encryption
                             // Instead, we'll use a simple encrypted marker that can be recognized by the receiver
                             // Real messages will use full Signal Protocol encryption with the recipient's public key
-                            val testPayload = "HELLO".toByteArray()
-                            
-                            // Use a simple XOR encryption for test packets as a placeholder
-                            // This is NOT secure but prevents plaintext transmission
-                            // Real messages use Signal Protocol encryption
-                            val encryptedTestPayload = testPayload.map { byte -> 
-                                ((byte.toInt() and 0xFF) xor 0x42).toByte() 
-                            }.toByteArray()
+                            val testPayload = "LINKER_HELLO_${System.currentTimeMillis()}".toByteArray(Charsets.UTF_8)
+                            val digest = java.security.MessageDigest.getInstance("SHA-256")
+                            val keyStream = digest.digest(deviceAddress.toByteArray(Charsets.UTF_8))
+                            val encryptedTestPayload = ByteArray(testPayload.size) { i ->
+                                (testPayload[i].toInt() xor keyStream[i % keyStream.size].toInt()).toByte()
+                            }
                             
                             // Use UUID for message ID to prevent collisions
                             val testPacket = BLEPacket.create(

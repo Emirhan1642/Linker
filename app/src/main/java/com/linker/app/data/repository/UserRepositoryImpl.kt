@@ -201,8 +201,10 @@ class UserRepositoryImpl @Inject constructor(
             // Then writes
             tx.delete(followRef)
             if (currentStatus == "active") {
-                updateCount(tx, meRef, "followingCount", -1)
-                updateCount(tx, targetRef, "followersCount", -1)
+                val meFollowing = (meSnap.getLong("followingCount") ?: 0L)
+                val targetFollowers = (targetSnap.getLong("followersCount") ?: 0L)
+                tx.update(meRef, "followingCount", maxOf(0L, meFollowing - 1))
+                tx.update(targetRef, "followersCount", maxOf(0L, targetFollowers - 1))
             }
             currentStatus
         }.await()
@@ -264,8 +266,10 @@ class UserRepositoryImpl @Inject constructor(
             // Then writes
             tx.delete(followRef)
             if (status == "active") {
-                updateCount(tx, fromRef, "followingCount", -1)
-                updateCount(tx, meRef, "followersCount", -1)
+                val fromFollowing = (fromSnap.getLong("followingCount") ?: 0L)
+                val meFollowers = (meSnap.getLong("followersCount") ?: 0L)
+                tx.update(fromRef, "followingCount", maxOf(0L, fromFollowing - 1))
+                tx.update(meRef, "followersCount", maxOf(0L, meFollowers - 1))
             }
             null
         }.await()
@@ -289,8 +293,10 @@ class UserRepositoryImpl @Inject constructor(
             // Then writes
             tx.delete(followRef)
             if (status == "active") {
-                updateCount(tx, targetRef, "followingCount", -1)
-                updateCount(tx, meRef, "followersCount", -1)
+                val targetFollowing = (targetSnap.getLong("followingCount") ?: 0L)
+                val meFollowers = (meSnap.getLong("followersCount") ?: 0L)
+                tx.update(targetRef, "followingCount", maxOf(0L, targetFollowing - 1))
+                tx.update(meRef, "followersCount", maxOf(0L, meFollowers - 1))
             }
             null
         }.await()

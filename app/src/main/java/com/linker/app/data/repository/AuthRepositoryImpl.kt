@@ -240,13 +240,16 @@ class AuthRepositoryImpl @Inject constructor(
     }
 
     override suspend fun signOut(): Result<Unit> = safeCall {
+        val uid = firebaseAuth.currentUser?.uid
         firebaseAuth.signOut()
         try {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                database.clearAllTables()
+            if (uid != null) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    userDao.deleteUserById(uid)
+                }
             }
         } catch (e: Exception) {
-            android.util.Log.e("AuthRepositoryImpl", "Failed to clear local database on sign out", e)
+            android.util.Log.e("AuthRepositoryImpl", "Failed to clear user cache on sign out", e)
         }
     }
 

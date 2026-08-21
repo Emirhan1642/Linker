@@ -118,12 +118,15 @@ class GattClientManager @Inject constructor(
                                         } else {
                                             Log.e(TAG, "Connection state changed to CONNECTED but status=$status")
                                             gatt?.disconnect()
+                                            gatt?.close()
                                             resumeContinuationIfActive(false)
                                         }
                                     }
                                     BluetoothProfile.STATE_DISCONNECTED -> {
                                         Log.d(TAG, "Disconnected from $deviceAddress, status=$status")
                                         connections.remove(deviceAddress)
+                                        connectionPool.removeConnection(deviceAddress)
+                                        rssiMap.remove(deviceAddress)
                                         gatt?.close()
                                         resumeContinuationIfActive(false)
                                     }
