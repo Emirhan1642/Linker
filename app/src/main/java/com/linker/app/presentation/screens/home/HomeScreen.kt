@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import com.linker.app.R
 import android.Manifest
 import android.content.pm.PackageManager
@@ -135,7 +136,7 @@ fun HomeScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (uiState.isRefreshing) "Yükleniyor..." else "Henüz bir link paylaşılmadı",
+                        text = if (uiState.isRefreshing) stringResource(R.string.feed_loading) else stringResource(R.string.feed_empty),
                         color = TextSecondary,
                         fontSize = 16.sp
                     )
@@ -275,14 +276,13 @@ fun TopPillTabs(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(32.dp))
-            .background(DarkGray)
-            .border(2.dp, LinkerAngularGradient, RoundedCornerShape(32.dp))
+            .background(Color(0xFF1E1E2C).copy(alpha = 0.8f))
             .padding(horizontal = 10.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        PillTab("Feed", R.drawable.ic_hashtag_down_outline, R.drawable.ic_hashtag_down_bold, isSelected = selectedTab == 0) { onTabSelected(0) }
-        PillTab("Followed", R.drawable.ic_ai_users_outline, R.drawable.ic_ai_users_bold, isSelected = selectedTab == 1) { onTabSelected(1) }
-        PillTab("Stories", R.drawable.ic_story_outline, R.drawable.ic_story_bold, isSelected = selectedTab == 2) { onTabSelected(2) }
+        PillTab(stringResource(R.string.feed_tab_all), R.drawable.ic_hashtag_down_outline, R.drawable.ic_hashtag_down_bold, isSelected = selectedTab == 0) { onTabSelected(0) }
+        PillTab(stringResource(R.string.feed_tab_followed), R.drawable.ic_ai_users_outline, R.drawable.ic_ai_users_bold, isSelected = selectedTab == 1) { onTabSelected(1) }
+        PillTab(stringResource(R.string.feed_tab_stories), R.drawable.ic_story_outline, R.drawable.ic_story_bold, isSelected = selectedTab == 2) { onTabSelected(2) }
     }
 }
 

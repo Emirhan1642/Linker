@@ -55,12 +55,19 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    var showLanguageDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(uiState.snackbarMessage) {
         uiState.snackbarMessage?.let {
             snackbarHostState.showSnackbar(it.asString(context))
             viewModel.dismissSnackbar()
         }
+    }
+
+    val currentLangLabel = when (uiState.currentLanguage) {
+        "tr" -> stringResource(R.string.settings_language_tr)
+        "en" -> stringResource(R.string.settings_language_en)
+        else -> stringResource(R.string.settings_language_system)
     }
 
     val sections = listOf(
@@ -71,11 +78,11 @@ fun SettingsScreen(
                 valueRes = R.string.settings_switch_accounts, onClick = onNavigateToAccountCenter
             ),
             SettingsItem.Navigation(R.drawable.ic_security_safe_outline, R.string.settings_password_security, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Güvenlik ayarları çok yakında aktif olacaktır."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_security_soon))
             }),
             SettingsItem.Navigation(R.drawable.ic_link_3_outline, R.string.settings_linked_accounts, onClick = onNavigateToAccountCenter),
             SettingsItem.Navigation(R.drawable.ic_smart_lock_ai_outline, R.string.settings_2fa, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("İki faktörlü doğrulama yakında aktif olacaktır."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_2fa_soon))
             })
         )),
         SettingsSection(R.string.settings_privacy, listOf(
@@ -107,10 +114,16 @@ fun SettingsScreen(
             SettingsItem.Toggle(R.drawable.ic_story_outline, R.string.settings_story_notifications, SettingField.PUSH_STORIES, uiState.pushStories) { viewModel.setPushStories(it) },
             SettingsItem.Toggle(R.drawable.ic_ai_commentary_outline, R.string.settings_message_notifications, SettingField.PUSH_MESSAGES, uiState.pushMessages) { viewModel.setPushMessages(it) },
             SettingsItem.Navigation(R.drawable.ic_bell_2_outline, R.string.settings_notification_preferences, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Bildirim tercihleri yapılandırıldı."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_notifications_configured))
             })
         )),
         SettingsSection(R.string.settings_appearance_media, listOf(
+            SettingsItem.Navigation(
+                R.drawable.ic_search_outline,
+                R.string.settings_language,
+                valueString = currentLangLabel,
+                onClick = { showLanguageDialog = true }
+            ),
             SettingsItem.Navigation(R.drawable.ic_paint_brush_2_outline, R.string.settings_theme, valueRes = R.string.settings_default_theme),
             SettingsItem.Toggle(R.drawable.ic_gallery_outline, R.string.settings_autoplay_videos, SettingField.AUTO_PLAY_VIDEOS, uiState.autoPlayVideos) { viewModel.setAutoPlayVideos(it) },
             SettingsItem.Toggle(R.drawable.ic_ai_sand_timer_outline, R.string.settings_data_saver, SettingField.DATA_SAVER, uiState.dataSaver) { viewModel.setDataSaver(it) }
@@ -120,7 +133,7 @@ fun SettingsScreen(
         )),
         SettingsSection(R.string.settings_support_about, listOf(
             SettingsItem.Navigation(R.drawable.ic_search_outline, R.string.settings_help_center, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Yardım merkezi için support@linker.app adresine yazabilirsiniz."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_support_email))
             }),
             SettingsItem.Navigation(R.drawable.ic_bookmark_2_outline, R.string.settings_community_guidelines),
             SettingsItem.Navigation(R.drawable.ic_more_square_outline, R.string.settings_privacy_policy),
@@ -129,13 +142,67 @@ fun SettingsScreen(
         )),
         SettingsSection(R.string.settings_account_actions, listOf(
             SettingsItem.Danger(R.drawable.ic_ai_sand_timer_outline, R.string.settings_deactivate_account, isWarning = true, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Hesap dondurma işlemi için destek ile iletişime geçin."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_deactivate_request))
             }),
             SettingsItem.Danger(R.drawable.ic_close_circle_outline, R.string.settings_delete_account, onClick = {
-                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Hesap silme talebi oluşturuldu."))
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.StringResource(R.string.settings_toast_delete_request))
             })
         ))
     )
+
+    if (showLanguageDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLanguageDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.settings_language_dialog_title),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val languages = listOf(
+                        "system" to stringResource(R.string.settings_language_system),
+                        "tr" to stringResource(R.string.settings_language_tr),
+                        "en" to stringResource(R.string.settings_language_en)
+                    )
+                    languages.forEach { (code, name) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    viewModel.setLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                                .padding(vertical = 12.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.RadioButton(
+                                selected = uiState.currentLanguage == code,
+                                onClick = {
+                                    viewModel.setLanguage(code)
+                                    showLanguageDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = name,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 16.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showLanguageDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        )
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,

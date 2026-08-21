@@ -505,14 +505,14 @@ private fun ContentPickerBottomSheet(
                 .padding(bottom = 32.dp, top = 16.dp, start = 16.dp, end = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Ne Paylaşmak İstersin?", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_title), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(24.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                ContentPickerOption(icon = Icons.Default.Link, title = "Link", onClick = onLinkSelected)
-                ContentPickerOption(icon = Icons.Default.PhotoCamera, title = "Hikaye", onClick = onStorySelected)
+                ContentPickerOption(icon = Icons.Default.Link, title = androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_link), onClick = onLinkSelected)
+                ContentPickerOption(icon = Icons.Default.PhotoCamera, title = androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_story), onClick = onStorySelected)
             }
         }
     }

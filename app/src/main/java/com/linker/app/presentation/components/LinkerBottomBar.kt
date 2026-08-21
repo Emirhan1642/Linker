@@ -34,12 +34,15 @@ import com.linker.app.presentation.theme.LightBlue
 import com.linker.app.presentation.theme.LinkerAngularGradient
 import com.linker.app.presentation.theme.TextHint
 import com.linker.app.presentation.theme.TextPrimary
-enum class BottomNavItem(val title: String, val selectedIcon: Int, val unselectedIcon: Int) {
-    Explore("Explore", R.drawable.ic_ai_homepage_bold, R.drawable.ic_ai_homepage_outline),
-    Search("Search", R.drawable.ic_box_search_bold, R.drawable.ic_box_search_outline),
-    Add("Add", R.drawable.ic_ai_add_bold, R.drawable.ic_ai_add_outline),
-    Chat("Chat", R.drawable.ic_ai_commentary_bold, R.drawable.ic_ai_commentary_outline),
-    Profile("Profile", R.drawable.ic_profile_bold, R.drawable.ic_profile_outline)
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.stringResource
+
+enum class BottomNavItem(@StringRes val titleRes: Int, val selectedIcon: Int, val unselectedIcon: Int) {
+    Explore(R.string.nav_home, R.drawable.ic_ai_homepage_bold, R.drawable.ic_ai_homepage_outline),
+    Search(R.string.nav_search, R.drawable.ic_box_search_bold, R.drawable.ic_box_search_outline),
+    Add(R.string.nav_create, R.drawable.ic_ai_add_bold, R.drawable.ic_ai_add_outline),
+    Chat(R.string.nav_chat, R.drawable.ic_ai_commentary_bold, R.drawable.ic_ai_commentary_outline),
+    Profile(R.string.nav_profile, R.drawable.ic_profile_bold, R.drawable.ic_profile_outline)
 }
 
 @Composable
@@ -67,6 +70,7 @@ fun LinkerBottomNavigationBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             BottomNavItem.entries.forEach { item ->
+                val title = stringResource(id = item.titleRes)
                 if (item == BottomNavItem.Add) {
                     // Special Add Button
                     Box(
@@ -78,7 +82,7 @@ fun LinkerBottomNavigationBar(
                     ) {
                         Icon(
                             painter = painterResource(id = item.selectedIcon),
-                            contentDescription = item.title,
+                            contentDescription = title,
                             tint = AccentGreen,
                             modifier = Modifier.size(48.dp)
                         )
@@ -99,12 +103,12 @@ fun LinkerBottomNavigationBar(
                     ) {
                         Icon(
                             painter = painterResource(id = if (isSelected) item.selectedIcon else item.unselectedIcon),
-                            contentDescription = item.title,
+                            contentDescription = title,
                             tint = contentColor,
                             modifier = Modifier.size(35.dp).padding(top = 5.dp)
                         )
                         Text(
-                            text = item.title,
+                            text = title,
                             color = contentColor,
                             fontSize = 10.sp,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,

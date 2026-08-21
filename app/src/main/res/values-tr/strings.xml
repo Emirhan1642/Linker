@@ -1,0 +1,420 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App -->
+    <string name="app_name">Linker</string>
+    <string name="app_slogan">Sınırsız bağlantı kurun</string>
+
+    <!-- Common Actions -->
+    <string name="action_ok">Tamam</string>
+    <string name="action_cancel">İptal</string>
+    <string name="action_save">Kaydet</string>
+    <string name="action_delete">Sil</string>
+    <string name="action_clear">Temizle</string>
+    <string name="action_edit">Düzenle</string>
+    <string name="action_share">Paylaş</string>
+    <string name="action_done">Bitti</string>
+    <string name="action_close">Kapat</string>
+    <string name="action_back">Geri</string>
+    <string name="action_send">Gönder</string>
+    <string name="action_reply">Yanıtla</string>
+    <string name="action_copy">Kopyala</string>
+    <string name="action_forward">İlet</string>
+    <string name="action_retry">Tekrar Dene</string>
+    <string name="action_continue">Devam Et</string>
+    <string name="action_grant">İzin Ver</string>
+    <string name="action_enable">Etkinleştir</string>
+    <string name="action_open_settings">Ayarları Aç</string>
+    <string name="action_yes">Evet</string>
+    <string name="action_no">Hayır</string>
+    <string name="loading">Yükleniyor...</string>
+    <string name="copied_to_clipboard">Panoya kopyalandı</string>
+    <string name="content_picker_title">Ne Paylaşmak İstersin?</string>
+    <string name="content_picker_link">Link</string>
+    <string name="content_picker_story">Hikaye</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Ana Sayfa</string>
+    <string name="nav_search">Ara</string>
+    <string name="nav_create">Oluştur</string>
+    <string name="nav_chat">Sohbet</string>
+    <string name="nav_profile">Profil</string>
+
+    <!-- Home Feed -->
+    <string name="feed_tab_all">Akış</string>
+    <string name="feed_tab_followed">Takip Edilen</string>
+    <string name="feed_tab_stories">Hikayeler</string>
+    <string name="feed_empty">Henüz bir link paylaşılmadı</string>
+    <string name="feed_loading">Akış yükleniyor...</string>
+    <string name="feed_default_post_title">Link Gönderisi</string>
+
+    <!-- Auth -->
+    <string name="auth_sign_in_title">Tekrar Hoş Geldiniz</string>
+    <string name="auth_sign_up_title">Hesap Oluştur</string>
+    <string name="auth_forgot_password_title">Şifremi Unuttum</string>
+    <string name="auth_complete_profile_title">Profili Tamamla</string>
+    <string name="auth_verify_phone_title">Telefonu Doğrula</string>
+    <string name="auth_email_label">E-posta</string>
+    <string name="auth_email_placeholder">E-posta adresinizi girin</string>
+    <string name="auth_password_label">Şifre</string>
+    <string name="auth_password_placeholder">Şifrenizi girin</string>
+    <string name="auth_confirm_password_label">Şifreyi Onayla</string>
+    <string name="auth_confirm_password_placeholder">Şifrenizi tekrar girin</string>
+    <string name="auth_username_label">Kullanıcı Adı</string>
+    <string name="auth_username_placeholder">Bir kullanıcı adı seçin</string>
+    <string name="auth_display_name_label">Görünen Ad</string>
+    <string name="auth_display_name_placeholder">Adınız ve soyadınız</string>
+    <string name="auth_phone_label">Telefon Numarası</string>
+    <string name="auth_phone_placeholder">+90 555 123 4567</string>
+    <string name="auth_otp_label">Doğrulama Kodu</string>
+    <string name="auth_otp_placeholder">6 haneli kod</string>
+    <string name="auth_sign_in_button">Giriş Yap</string>
+    <string name="auth_sign_up_button">Kayıt Ol</string>
+    <string name="auth_send_reset_link">Sıfırlama Bağlantısı Gönder</string>
+    <string name="auth_send_otp">Kod Gönder</string>
+    <string name="auth_verify_otp">Doğrula ve Devam Et</string>
+    <string name="auth_complete_button">Başlayın</string>
+    <string name="auth_or_divider">VEYA</string>
+    <string name="continue_with_google">Google ile Devam Et</string>
+    <string name="continue_with_email">E-posta ile Devam Et</string>
+    <string name="continue_with_phone">Telefon ile Devam Et</string>
+    <string name="auth_have_account">Zaten bir hesabınız var mı? Giriş Yapın</string>
+    <string name="auth_no_account">Hesabınız yok mu? Kayıt Olun</string>
+    <string name="auth_forgot_password_prompt">Şifrenizi mi unuttunuz?</string>
+    <string name="auth_reset_email_sent">Şifre sıfırlama bağlantısı %1$s adresine gönderildi</string>
+    <string name="auth_error_enter_email">Lütfen e-posta adresinizi girin</string>
+    <string name="auth_error_enter_password">Lütfen şifrenizi girin</string>
+    <string name="auth_error_password_mismatch">Şifreler eşleşmiyor</string>
+    <string name="auth_error_username_required">Kullanıcı adı gereklidir</string>
+    <string name="auth_error_user_not_found">Kullanıcı bulunamadı. Lütfen tekrar giriş yapın.</string>
+    <string name="auth_error_invalid_otp">Geçersiz doğrulama kodu</string>
+
+    <!-- Account Center -->
+    <string name="account_center_title">Hesap Merkezi</string>
+    <string name="account_center_accounts">Hesaplar</string>
+    <string name="account_center_add_account">Hesap Ekle</string>
+    <string name="account_center_current">Geçerli</string>
+    <string name="account_center_switch">Geçiş Yap</string>
+    <string name="account_center_remove">Hesabı Kaldır</string>
+    <string name="account_center_remove_confirm_title">Hesap Kaldırılsın mı?</string>
+    <string name="account_center_remove_confirm_desc">Bu cihazdaki hesap oturumunuz kapatılacaktır.</string>
+
+    <!-- Permissions -->
+    <string name="permission_camera">Fotoğraf ve video çekmek için kamera izni gereklidir</string>
+    <string name="permission_storage">Fotoğraf ve videolarınıza erişmek için depolama izni gereklidir</string>
+    <string name="permission_bluetooth">Çevrimdışı mesajlaşma için Bluetooth izni gereklidir</string>
+    <string name="permission_location">Bluetooth bağlantısı için konum izni gereklidir</string>
+    <string name="permission_notifications">Mesaj bildirimleri almak için bildirim izni gereklidir</string>
+    <string name="permission_required_title">İzin Gerekli</string>
+    <string name="permission_required_desc">Devam etmek için bu izin gereklidir.</string>
+    <string name="permission_denied_title">İzin Reddedildi</string>
+    <string name="permission_denied_desc">Bu izin kalıcı olarak reddedildi. Lütfen uygulama ayarlarından etkinleştirin.</string>
+    <string name="permission_bluetooth_title">Bluetooth İzni</string>
+    <string name="permission_bluetooth_desc">Çevrimdışı mesajlaşma yakındaki cihazlarla bağlantı kurmak için Bluetooth gerektirir.</string>
+    <string name="permission_location_title">Konum İzni</string>
+    <string name="permission_location_desc_offline">Android 12+ üzerinde Bluetooth taraması için konum izni gereklidir.</string>
+    <string name="permission_nearby_title">Yakındaki Cihazlar İzni</string>
+    <string name="permission_nearby_desc">Bu izin yakındaki cihazlarla Wi-Fi Direct dosya transferine olanak tanır.</string>
+    <string name="bluetooth_disabled_title">Bluetooth Kapalı</string>
+    <string name="bluetooth_disabled_desc">Çevrimdışı mesajlaşma için Bluetooth\'un açık olması gerekir. Şimdi açmak ister misiniz?</string>
+
+    <!-- Errors -->
+    <string name="error_generic">Bir sorun oluştu. Lütfen tekrar deneyin.</string>
+    <string name="error_network">İnternet bağlantısı yok</string>
+    <string name="error_auth">Kimlik doğrulama başarısız oldu</string>
+    <string name="error_unknown">Bilinmeyen bir hata oluştu</string>
+
+    <!-- Notifications -->
+    <string name="reaction_notification_message">mesajınıza %1$s tepkisi verdi</string>
+    <string name="notification_key_rotation_failed_title">Güvenlik Uyarısı</string>
+    <string name="notification_key_rotation_failed_desc">Şifreleme anahtarı yenilenemedi. Mesajlaşma güvenliği düşmüş olabilir.</string>
+
+    <!-- Chat Components & Messages -->
+    <string name="msg_status_sending">Gönderiliyor</string>
+    <string name="msg_status_sent">Gönderildi</string>
+    <string name="msg_status_delivered">İletildi</string>
+    <string name="msg_status_read">Okundu</string>
+    <string name="msg_status_failed">Başarısız</string>
+    <string name="hint_message">Mesaj...</string>
+    <string name="action_cancel_reply">Yanıtı iptal et</string>
+    <string name="action_message_info">Mesaj Bilgisi</string>
+    <string name="action_delete_for_me">Benden Sil</string>
+    <string name="action_delete_for_everyone">Herkesten Sil</string>
+    <string name="title_message_info">Mesaj Bilgisi</string>
+    <string name="msg_replied_to">%1$s kullanıcısı %2$s mesajına yanıt verdi</string>
+    <string name="delivered_to">İletilenler</string>
+    <string name="seen_by">Görenler</string>
+    <string name="replies">Yanıtlar</string>
+    <string name="status_sent">Gönderildi</string>
+    <string name="status_delivered">İletildi</string>
+    <string name="status_seen">Görüldü</string>
+    <string name="status_failed">Başarısız</string>
+    <string name="typing_indicator_two">%1$s ve %2$s yazıyor...</string>
+    <plurals name="typing_indicator">
+        <item quantity="one">%1$s yazıyor...</item>
+        <item quantity="other">%1$d kişi yazıyor...</item>
+    </plurals>
+
+    <!-- Chat Info Screen -->
+    <string name="chat_info_group_name">Grup adı</string>
+    <string name="chat_info_name">Ad</string>
+    <string name="chat_info_save">Kaydet</string>
+    <string name="chat_info_cancel">İptal</string>
+    <string name="chat_info_leave_group_title">Gruptan ayrıl?</string>
+    <string name="chat_info_leave_group_desc">Bu gruptan ayrılmak istediğinizden emin misiniz?</string>
+    <string name="chat_info_yes">Evet</string>
+    <string name="chat_info_remove_list_title">Listeden kaldırılsın mı?</string>
+    <string name="chat_info_remove_list_desc">Bu grubu sohbet listenizden de kaldırmak istiyor musunuz?</string>
+    <string name="chat_info_remove">Kaldır</string>
+    <string name="chat_info_keep">Koru</string>
+    <string name="chat_info_make_admin">Yönetici yap</string>
+    <string name="chat_info_remove_admin_role">Yöneticilikten çıkar</string>
+    <string name="chat_info_remove_from_group">Gruptan çıkar</string>
+    <string name="chat_info_close">Kapat</string>
+    <string name="chat_info_title">Sohbet Bilgisi</string>
+    <string name="chat_info_error">Hata</string>
+    <string name="chat_info_members_count">%1$d üye</string>
+    <string name="chat_info_members_title">Üyeler</string>
+    <string name="chat_info_you">Sen</string>
+    <string name="chat_info_admin">Yönetici</string>
+    <string name="chat_info_profile">Profil</string>
+    <string name="chat_info_edit_group_name">Grup adını düzenle</string>
+    <string name="chat_info_silent_mode">Sessiz Mod</string>
+    <string name="chat_info_on">Açık</string>
+    <string name="chat_info_off">Kapalı</string>
+    <string name="chat_info_pin_chat">Sohbeti Sabitle</string>
+    <string name="chat_info_pinned">Sabitlendi</string>
+    <string name="chat_info_not_pinned">Sabitlenmedi</string>
+    <string name="chat_info_search">Ara</string>
+    <string name="chat_info_theme">Tema</string>
+    <string name="chat_info_default_theme">Varsayılan</string>
+    <string name="chat_info_archive_chat">Sohbeti Arşivle</string>
+    <string name="chat_info_unarchive">Arşivden Çıkar</string>
+    <string name="chat_info_archive">Arşivle</string>
+    <string name="chat_info_disappearing_messages">Kaybolan mesajlar</string>
+    <string name="chat_info_security">Güvenlik</string>
+    <string name="chat_info_e2e_encrypted">Uçtan uca şifreli</string>
+    <string name="chat_info_block_user">Kullanıcıyı Engelle</string>
+    <string name="chat_info_unblock">Engeli Kaldır</string>
+    <string name="chat_info_block">Engelle</string>
+    <string name="chat_info_nicknames">Takma Adlar</string>
+    <string name="chat_info_create_group">Grup oluştur</string>
+    <string name="chat_info_favorite_chat">Favori Sohbet</string>
+    <string name="chat_info_unfavorite">Favorilerden Çıkar</string>
+    <string name="chat_info_favorite">Favori</string>
+    <string name="chat_info_leave_group">Gruptan Ayrıl</string>
+    <string name="chat_info_no_shared_media">Paylaşılan medya yok</string>
+    <string name="chat_info_no_shared_videos">Paylaşılan video yok</string>
+    <string name="chat_info_no_shared_links">Paylaşılan bağlantı yok</string>
+    <string name="chat_info_shared_by">%1$s tarafından paylaşıldı</string>
+    <string name="chat_info_feature_coming_soon">Özellik çok yakında!</string>
+
+    <!-- Chat List Screen -->
+    <string name="chat_list_filter_all">Tümü</string>
+    <string name="chat_list_filter_unreads">Okunmamış</string>
+    <string name="chat_list_filter_favorites">Favoriler</string>
+    <string name="chat_list_filter_groups">Gruplar</string>
+    <string name="chat_list_filter_archived">Arşivlenenler</string>
+    <string name="chat_list_locked_chats">Kilitli sohbetler</string>
+    <string name="chat_list_empty_state">Henüz sohbet yok. Bir sohbet başlatın!</string>
+    <string name="chat_list_tap_to_chat">Sohbet etmek için dokunun</string>
+    <string name="chat_list_share_note">Bir düşünce paylaş...</string>
+    <string name="chat_list_your_note">Notunuz</string>
+    <string name="chat_list_default_user">Kullanıcı</string>
+    <string name="chat_list_new_messages_single">1 yeni mesaj</string>
+    <string name="chat_list_new_messages_plural">%1$d yeni mesaj</string>
+
+    <!-- Chat Message Screen -->
+    <string name="chat_msg_reactions">Tepkiler</string>
+    <string name="chat_msg_seen_by">Görenler</string>
+    <string name="chat_msg_no_viewers">Henüz gören yok</string>
+    <string name="chat_msg_admins_only">Sadece yöneticiler mesaj gönderebilir</string>
+    <string name="chat_msg_empty_state">Sohbeti başlatmak için bir mesaj gönderin!</string>
+    <string name="chat_msg_you_deleted">Bu mesajı sildiniz</string>
+    <string name="chat_msg_deleted">Bu mesaj silindi</string>
+    <string name="chat_msg_replied_title">Yanıtlanan mesaj</string>
+    <string name="chat_msg_previous_msg">[Önceki mesaj]</string>
+    <string name="chat_msg_you">Sen</string>
+    <string name="chat_msg_default_user">Kullanıcı</string>
+    <string name="chat_msg_media_placeholder">[Medya]</string>
+    <string name="chat_msg_forward_coming_soon">İletme özelliği yakında!</string>
+
+    <!-- New Chat Screen -->
+    <string name="new_chat_search_hint">Kişi ara...</string>
+    <string name="new_chat_select_members">Üyeleri seçin</string>
+    <string name="new_chat_suggested">Önerilenler</string>
+    <string name="new_chat_create_group">Grup Oluştur</string>
+    <string name="new_chat_continue">Devam Et</string>
+    <string name="new_chat_group_details">Grup detayları</string>
+    <string name="new_chat_group_name_hint">Grup adı</string>
+    <string name="new_chat_perm_edit_settings">Üyeler ayarları düzenleyebilir</string>
+    <string name="new_chat_perm_send_messages">Üyeler mesaj gönderebilir</string>
+    <string name="new_chat_perm_add_members">Üyeler üye ekleyebilir</string>
+    <string name="new_chat_perm_disappearing">Kaybolan mesajlar</string>
+    <string name="new_chat_create_group_btn">Grup Oluştur</string>
+
+    <!-- Follow List & User Status -->
+    <string name="followers">Takipçiler</string>
+    <string name="following">Takip Edilen</string>
+    <string name="follow_requests">Takip İstekleri</string>
+    <string name="sent_requests">Gönderilen İstekler</string>
+    <string name="follow_status_following">Takip Ediliyor</string>
+    <string name="follow_status_requested">İstek Gönderildi</string>
+    <string name="follow_status_follow">Takip Et</string>
+    <string name="list_is_private">Bu liste gizlidir</string>
+    <string name="follower_list_not_visible">Bu hesabın takipçi listesi gizli</string>
+    <string name="following_list_not_visible">Bu hesabın takip edilen listesi gizli</string>
+    <string name="no_users_here">Burada kullanıcı yok</string>
+    <string name="action_remove">Kaldır</string>
+    <string name="action_unfollow">Takipten Çık</string>
+    <string name="action_accept">Kabul Et</string>
+    <string name="action_decline">Reddet</string>
+
+    <!-- Profile -->
+    <string name="profile_likes">Beğeni</string>
+    <string name="profile_no_links">Henüz Link paylaşılmadı</string>
+    <string name="profile_no_relink">Henüz Relink yok</string>
+    <string name="profile_action_edit">Düzenle</string>
+    <string name="profile_action_share">Paylaş</string>
+    <string name="profile_action_block">Engelle</string>
+    <string name="profile_tab_feed">Gönderiler</string>
+    <string name="profile_tab_shorts">Klipler</string>
+    <string name="profile_share_text">Linker profilimi incele: https://linker.app/u/%1$s</string>
+    <string name="profile_share_title">Profili Paylaş</string>
+
+    <!-- Search -->
+    <string name="search_placeholder">Kullanıcı, link ara…</string>
+    <string name="search_recent_searches">Son Aramalar</string>
+    <string name="search_clear_all">Tümünü temizle</string>
+    <string name="search_no_recent">Son arama yok</string>
+    <string name="search_tab_links">Linkler</string>
+    <string name="search_tab_users">Kullanıcılar</string>
+    <string name="search_no_users_found">\"%1$s\" için kullanıcı bulunamadı</string>
+    <string name="search_no_links_found">Aramanızla eşleşen link bulunamadı</string>
+    <string name="search_scan_qr">QR Kodu Tara</string>
+
+    <!-- Notes -->
+    <string name="note_expires_in">%1$s kaldı</string>
+    <string name="note_share_thought">Bir düşünce paylaş...</string>
+    <string name="note_type_text">Metin Notu</string>
+    <string name="note_type_music">Müzik Notu</string>
+    <string name="note_type_location">Konum Notu</string>
+    <string name="note_type_countdown">Geri Sayım Notu</string>
+    <string name="note_type_gif">GIF Notu</string>
+    <string name="note_btn_current_song">Şu An Çalan Şarkı</string>
+    <string name="note_btn_search_song">Spotify\'dan Şarkı Ara</string>
+    <string name="note_btn_live_location">Canlı Konum Ekle</string>
+    <string name="note_btn_gif">GIF Ekle</string>
+    <string name="note_btn_countdown">Geri Sayım Ekle</string>
+    <string name="note_text_limit_reached">Metin limite ulaştı (%1$d karakter)</string>
+    <string name="note_error_location_missing">Konum bilgisi eksik</string>
+    <string name="note_error_countdown_missing">Geri sayım başlığı veya zamanı eksik</string>
+    <string name="note_error_spotify_no_track">Spotify\'da çalan şarkı bulunamadı. Spotify uygulamasını açıp bir parça çalın.</string>
+    <string name="note_time_left">Kalan Süre</string>
+    <string name="note_countdown_ended">Geri Sayım Sona Erdi</string>
+    <string name="note_subscribed_countdown">Geri sayım için bildirim ayarlandı!</string>
+    <string name="note_unsubscribed_countdown">Bildirim kaldırıldı</string>
+
+    <!-- Stories -->
+    <string name="story_expires_in">%1$s içinde sona eriyor</string>
+    <string name="story_your_story">Hikayen</string>
+    <string name="story_add_story">Hikaye Ekle</string>
+    <string name="story_viewers_title">Görüntüleyenler</string>
+    <string name="story_no_viewers">Henüz görüntüleyen yok</string>
+    <string name="story_hold_to_pause">Duraklatmak için basılı tutun</string>
+
+    <!-- Link / Post Editor -->
+    <string name="link_editor_title">Yeni Gönderi</string>
+    <string name="link_editor_description_hint">Bir açıklama yazın...</string>
+    <string name="link_editor_add_media">Medya Ekle</string>
+    <string name="link_editor_share_button">Paylaş</string>
+    <string name="link_editor_location_hint">Konum ekle</string>
+    <string name="link_editor_success">Gönderi başarıyla paylaşıldı!</string>
+    <string name="link_comments_title">Yorumlar</string>
+    <string name="link_comments_empty">Henüz yorum yapılmadı. İlk yorumu sen yap!</string>
+    <string name="link_comments_add_hint">Yorum ekle...</string>
+
+    <!-- Settings & Offline Messaging -->
+    <string name="offline_messaging_title">Çevrimdışı Mesajlaşma</string>
+    <string name="settings_status">DURUM</string>
+    <string name="status_running">Çalışıyor</string>
+    <string name="status_stopped">Durduruldu</string>
+    <string name="status_connected_nodes">Bağlı Düğümler</string>
+    <string name="status_pending_messages">Bekleyen Mesajlar</string>
+    <string name="settings_header">AYARLAR</string>
+    <string name="offline_messaging_enable">Çevrimdışı Mesajlaşma</string>
+    <string name="ble_mesh_network">BLE Mesh Ağı</string>
+    <string name="wifi_direct_transfer">Wi-Fi Direct Aktarımı</string>
+    <string name="show_notification">Bildirim Göster</string>
+    <string name="settings_advanced">GELİŞMİŞ</string>
+    <string name="max_hops_ttl">Maksimum Atlama (TTL)</string>
+    <string name="battery_usage">Pil Kullanımı</string>
+    <string name="settings_actions">İŞLEMLER</string>
+    <string name="clear_message_queue">Mesaj Kuyruğunu Temizle</string>
+    <string name="clear_queue_title">Mesaj Kuyruğu Temizlensin mi?</string>
+    <string name="clear_queue_desc">Bekleyen tüm çevrimdışı mesajlar silinecektir. Bu işlem geri alınamaz.</string>
+    <string name="ttl_picker_title">Maksimum Atlama (TTL)</string>
+    <string name="ttl_picker_desc">Bir mesajın mesh ağında kaç düğüm üzerinden aktarılabileceğini seçin.</string>
+    <string name="hops">%1$d atlama</string>
+
+    <!-- Settings Main -->
+    <string name="settings_title">Ayarlar</string>
+    <string name="settings_account">HESAP</string>
+    <string name="settings_edit_profile">Profili Düzenle</string>
+    <string name="settings_account_center">Hesap Merkezi</string>
+    <string name="settings_switch_accounts">Hesap değiştir</string>
+    <string name="settings_password_security">Şifre ve Güvenlik</string>
+    <string name="settings_linked_accounts">Bağlı Hesaplar</string>
+    <string name="settings_2fa">İki Faktörlü Doğrulama</string>
+    <string name="settings_privacy">GİZLİLİK</string>
+    <string name="settings_private_account">Gizli Hesap</string>
+    <string name="settings_hide_follow_lists">Takip Listelerini Gizle</string>
+    <string name="settings_activity_status">Hareket Durumu</string>
+    <string name="settings_read_receipts">Okundu Bilgisi</string>
+    <string name="settings_blocked_users">Engellenen Kullanıcılar</string>
+    <string name="settings_restricted_accounts">Kısıtlanan Hesaplar</string>
+    <string name="settings_follow_requests">Takip İstekleri</string>
+    <string name="settings_notifications">BİLDİRİMLER</string>
+    <string name="settings_push_notifications">Anlık Bildirimler</string>
+    <string name="settings_story_notifications">Hikaye Bildirimleri</string>
+    <string name="settings_message_notifications">Mesaj Bildirimleri</string>
+    <string name="settings_notification_preferences">Bildirim Tercihleri</string>
+    <string name="settings_appearance_media">GÖRÜNÜM VE MEDYA</string>
+    <string name="settings_language">Dil / Language</string>
+    <string name="settings_language_dialog_title">Dil Seçin</string>
+    <string name="settings_language_system">Sistem Varsayılanı</string>
+    <string name="settings_language_tr">Türkçe</string>
+    <string name="settings_language_en">English</string>
+    <string name="settings_theme">Tema</string>
+    <string name="settings_default_theme">Varsayılan</string>
+    <string name="settings_autoplay_videos">Videoları Otomatik Oynat</string>
+    <string name="settings_data_saver">Veri Tasarrufu</string>
+    <string name="settings_connectivity">BAĞLANTI</string>
+    <string name="settings_support_about">DESTEK VE HAKKINDA</string>
+    <string name="settings_help_center">Yardım Merkezi</string>
+    <string name="settings_community_guidelines">Topluluk Kuralları</string>
+    <string name="settings_privacy_policy">Gizlilik Politikası</string>
+    <string name="settings_terms_of_service">Kullanım Koşulları</string>
+    <string name="settings_version">Sürüm</string>
+    <string name="settings_account_actions">HESAP İŞLEMLERİ</string>
+    <string name="settings_deactivate_account">Hesabı Dondur</string>
+    <string name="settings_delete_account">Hesabı Sil</string>
+    <string name="settings_offline_messaging">Çevrimdışı Mesajlaşma</string>
+    <string name="settings_offline_messaging_enabled">Çevrimdışı mesajlaşma etkin</string>
+    <string name="settings_offline_messaging_disabled">Çevrimdışı mesajlaşma devre dışı</string>
+    <string name="settings_toast_security_soon">Güvenlik ayarları çok yakında aktif olacaktır.</string>
+    <string name="settings_toast_2fa_soon">İki faktörlü doğrulama yakında aktif olacaktır.</string>
+    <string name="settings_toast_notifications_configured">Bildirim tercihleri yapılandırıldı.</string>
+    <string name="settings_toast_support_email">Yardım merkezi için support@linker.app adresine yazabilirsiniz.</string>
+    <string name="settings_toast_deactivate_request">Hesap dondurma işlemi için destek ile iletişime geçin.</string>
+    <string name="settings_toast_delete_request">Hesap silme talebi oluşturuldu.</string>
+
+    <!-- User Profile -->
+    <string name="user_profile_no_posts">Henüz gönderi yok</string>
+    <string name="user_profile_message">Mesaj</string>
+    <string name="user_profile_account_private">Bu hesap gizlidir</string>
+    <string name="user_profile_follow_private_desc">@%1$s kullanıcısının Linklerini ve\nRelinklerini görmek için takip edin</string>
+    <string name="user_profile_posts">Gönderiler</string>
+    <string name="user_profile_relinks">Relinkler</string>
+    <string name="user_profile_requested">İstek Gönderildi</string>
+
+</resources>

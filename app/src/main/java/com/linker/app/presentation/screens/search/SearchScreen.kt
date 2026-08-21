@@ -146,7 +146,7 @@ fun SearchScreen(
                                 modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Aramanızla eşleşen link bulunamadı", color = TextSecondary, fontSize = 14.sp)
+                                Text(stringResource(R.string.search_no_links_found), color = TextSecondary, fontSize = 14.sp)
                             }
 
                             else -> LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)) {
@@ -165,9 +165,10 @@ fun SearchScreen(
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
+                                        val defaultTitle = stringResource(R.string.feed_default_post_title)
                                         Column(modifier = Modifier.weight(1f)) {
                                             Text(
-                                                text = link.description?.ifBlank { "Link Gönderisi" } ?: "Link Gönderisi",
+                                                text = link.description?.ifBlank { defaultTitle } ?: defaultTitle,
                                                 color = TextPrimary,
                                                 fontSize = 15.sp,
                                                 maxLines = 1

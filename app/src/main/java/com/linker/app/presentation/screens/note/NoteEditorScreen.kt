@@ -2,6 +2,8 @@ package com.linker.app.presentation.screens.note
 
 import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.stringResource
+import com.linker.app.R
 
 import android.Manifest
 import androidx.compose.animation.core.animateFloatAsState
@@ -394,7 +396,7 @@ fun NoteEditorScreen(
                     icon = Icons.Default.Headphones,
                     tint = Color(0xFFFF9800),
                     onClick = { viewModel.fetchCurrentlyPlayingTrack() },
-                    contentDescription = "Şu an çalan şarkı"
+                    contentDescription = stringResource(R.string.note_btn_current_song)
                 )
 
                 // 2. Search Song (Music Note)
@@ -405,7 +407,7 @@ fun NoteEditorScreen(
                         viewModel.selectType(NoteType.MUSIC)
                         onNavigateToSpotifySearch()
                     },
-                    contentDescription = "Spotify'dan şarkı ara"
+                    contentDescription = stringResource(R.string.note_btn_search_song)
                 )
 
                 // 3. Location — requests permission then fetches live location
@@ -421,7 +423,7 @@ fun NoteEditorScreen(
                             locationPermission.launchPermissionRequest()
                         }
                     },
-                    contentDescription = "Canlı konum ekle"
+                    contentDescription = stringResource(R.string.note_btn_live_location)
                 )
 
                 // 4. GIF
@@ -429,7 +431,7 @@ fun NoteEditorScreen(
                     icon = Icons.Default.Gif,
                     tint = Color(0xFF4CAF50),
                     onClick = { showGifPicker = true },
-                    contentDescription = "GIF ekle"
+                    contentDescription = stringResource(R.string.note_btn_gif)
                 )
 
                 // 5. Timer
@@ -440,7 +442,7 @@ fun NoteEditorScreen(
                         viewModel.selectType(NoteType.COUNTDOWN)
                         showTimerPicker = true
                     },
-                    contentDescription = "Geri sayım ekle"
+                    contentDescription = stringResource(R.string.note_btn_countdown)
                 )
             }
         } else {

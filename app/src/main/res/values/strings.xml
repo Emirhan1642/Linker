@@ -1,59 +1,144 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- App -->
     <string name="app_name">Linker</string>
-    
-    <!-- Auth -->
-    <string name="continue_with_google">Continue with Google</string>
-    <string name="continue_with_email">Continue with Email</string>
-    <string name="continue_with_phone">Continue with Phone</string>
-    
+    <string name="app_slogan">Connect without limits</string>
+
+    <!-- Common Actions -->
+    <string name="action_ok">OK</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_edit">Edit</string>
+    <string name="action_share">Share</string>
+    <string name="action_done">Done</string>
+    <string name="action_close">Close</string>
+    <string name="action_back">Back</string>
+    <string name="action_send">Send</string>
+    <string name="action_reply">Reply</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_forward">Forward</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_continue">Continue</string>
+    <string name="action_grant">Grant</string>
+    <string name="action_enable">Enable</string>
+    <string name="action_open_settings">Open Settings</string>
+    <string name="action_yes">Yes</string>
+    <string name="action_no">No</string>
+    <string name="loading">Loading...</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="content_picker_title">What would you like to share?</string>
+    <string name="content_picker_link">Link</string>
+    <string name="content_picker_story">Story</string>
+
     <!-- Navigation -->
     <string name="nav_home">Home</string>
     <string name="nav_search">Search</string>
     <string name="nav_create">Create</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_profile">Profile</string>
-    
+
+    <!-- Home Feed -->
+    <string name="feed_tab_all">Feed</string>
+    <string name="feed_tab_followed">Followed</string>
+    <string name="feed_tab_stories">Stories</string>
+    <string name="feed_empty">No links shared yet</string>
+    <string name="feed_loading">Loading feed...</string>
+    <string name="feed_default_post_title">Link Post</string>
+
+    <!-- Auth -->
+    <string name="auth_sign_in_title">Welcome Back</string>
+    <string name="auth_sign_up_title">Create Account</string>
+    <string name="auth_forgot_password_title">Forgot Password</string>
+    <string name="auth_complete_profile_title">Complete Profile</string>
+    <string name="auth_verify_phone_title">Verify Phone</string>
+    <string name="auth_email_label">Email</string>
+    <string name="auth_email_placeholder">Enter your email</string>
+    <string name="auth_password_label">Password</string>
+    <string name="auth_password_placeholder">Enter your password</string>
+    <string name="auth_confirm_password_label">Confirm Password</string>
+    <string name="auth_confirm_password_placeholder">Re-enter your password</string>
+    <string name="auth_username_label">Username</string>
+    <string name="auth_username_placeholder">Choose a username</string>
+    <string name="auth_display_name_label">Display Name</string>
+    <string name="auth_display_name_placeholder">Your full name or nickname</string>
+    <string name="auth_phone_label">Phone Number</string>
+    <string name="auth_phone_placeholder">+1 234 567 8900</string>
+    <string name="auth_otp_label">Verification Code</string>
+    <string name="auth_otp_placeholder">6-digit code</string>
+    <string name="auth_sign_in_button">Sign In</string>
+    <string name="auth_sign_up_button">Sign Up</string>
+    <string name="auth_send_reset_link">Send Reset Link</string>
+    <string name="auth_send_otp">Send Code</string>
+    <string name="auth_verify_otp">Verify &amp; Continue</string>
+    <string name="auth_complete_button">Get Started</string>
+    <string name="auth_or_divider">OR</string>
+    <string name="continue_with_google">Continue with Google</string>
+    <string name="continue_with_email">Continue with Email</string>
+    <string name="continue_with_phone">Continue with Phone</string>
+    <string name="auth_have_account">Already have an account? Sign In</string>
+    <string name="auth_no_account">Don\'t have an account? Sign Up</string>
+    <string name="auth_forgot_password_prompt">Forgot password?</string>
+    <string name="auth_reset_email_sent">Password reset email sent to %1$s</string>
+    <string name="auth_error_enter_email">Please enter your email</string>
+    <string name="auth_error_enter_password">Please enter your password</string>
+    <string name="auth_error_password_mismatch">Passwords do not match</string>
+    <string name="auth_error_username_required">Username is required</string>
+    <string name="auth_error_user_not_found">User not found. Please sign in again.</string>
+    <string name="auth_error_invalid_otp">Invalid verification code</string>
+
+    <!-- Account Center -->
+    <string name="account_center_title">Account Center</string>
+    <string name="account_center_accounts">Accounts</string>
+    <string name="account_center_add_account">Add Account</string>
+    <string name="account_center_current">Current</string>
+    <string name="account_center_switch">Switch</string>
+    <string name="account_center_remove">Remove Account</string>
+    <string name="account_center_remove_confirm_title">Remove Account?</string>
+    <string name="account_center_remove_confirm_desc">You will be signed out of this account on this device.</string>
+
     <!-- Permissions -->
     <string name="permission_camera">Camera permission is required to capture photos and videos</string>
     <string name="permission_storage">Storage permission is required to access your photos and videos</string>
     <string name="permission_bluetooth">Bluetooth permission is required for offline messaging</string>
     <string name="permission_location">Location permission is required for Bluetooth connectivity</string>
     <string name="permission_notifications">Notification permission is required to receive messages</string>
-    
+    <string name="permission_required_title">Permission Required</string>
+    <string name="permission_required_desc">This permission is required to continue.</string>
+    <string name="permission_denied_title">Permission Denied</string>
+    <string name="permission_denied_desc">This permission has been permanently denied. Please enable it in app settings.</string>
+    <string name="permission_bluetooth_title">Bluetooth Permission</string>
+    <string name="permission_bluetooth_desc">Offline messaging requires Bluetooth to connect with nearby devices.</string>
+    <string name="permission_location_title">Location Permission</string>
+    <string name="permission_location_desc_offline">Location permission is required for Bluetooth scanning on Android 12+.</string>
+    <string name="permission_nearby_title">Nearby Devices Permission</string>
+    <string name="permission_nearby_desc">This permission allows Wi-Fi Direct file transfers with nearby devices.</string>
+    <string name="bluetooth_disabled_title">Bluetooth Disabled</string>
+    <string name="bluetooth_disabled_desc">Offline messaging requires Bluetooth to be enabled. Would you like to enable it now?</string>
+
     <!-- Errors -->
     <string name="error_generic">Something went wrong. Please try again.</string>
     <string name="error_network">No internet connection</string>
     <string name="error_auth">Authentication failed</string>
-    
-    <!-- Content -->
-    <string name="story_expires_in">Expires in %1$s</string>
-    <string name="note_expires_in">%1$s left</string>
-    
+    <string name="error_unknown">An unknown error occurred</string>
+
     <!-- Notifications -->
     <string name="reaction_notification_message">reacted to your message with %1$s</string>
     <string name="notification_key_rotation_failed_title">Security Warning</string>
     <string name="notification_key_rotation_failed_desc">Encryption key rotation failed. Messaging security might be degraded.</string>
 
-    <!-- Chat Components -->
+    <!-- Chat Components & Messages -->
     <string name="msg_status_sending">Sending</string>
     <string name="msg_status_sent">Sent</string>
     <string name="msg_status_delivered">Delivered</string>
     <string name="msg_status_read">Read</string>
     <string name="msg_status_failed">Failed</string>
-    
-    <string name="action_back">Back</string>
     <string name="hint_message">Message...</string>
-    <string name="action_send">Send</string>
     <string name="action_cancel_reply">Cancel reply</string>
-    
-    <string name="action_reply">Reply</string>
-    <string name="action_copy">Copy</string>
-    <string name="action_forward">Forward</string>
     <string name="action_message_info">Message Info</string>
     <string name="action_delete_for_me">Delete for Me</string>
     <string name="action_delete_for_everyone">Delete for Everyone</string>
-    
     <string name="title_message_info">Message Info</string>
     <string name="msg_replied_to">%1$s replied to %2$s</string>
     <string name="delivered_to">Delivered to</string>
@@ -63,12 +148,12 @@
     <string name="status_delivered">Delivered</string>
     <string name="status_seen">Seen</string>
     <string name="status_failed">Failed</string>
-    
     <string name="typing_indicator_two">%1$s and %2$s are typing...</string>
     <plurals name="typing_indicator">
         <item quantity="one">%1$s is typing...</item>
         <item quantity="other">%1$d people are typing...</item>
     </plurals>
+
     <!-- Chat Info Screen -->
     <string name="chat_info_group_name">Group name</string>
     <string name="chat_info_name">Name</string>
@@ -115,7 +200,6 @@
     <string name="chat_info_create_group">Create a group</string>
     <string name="chat_info_favorite_chat">Favorite Chat</string>
     <string name="chat_info_unfavorite">UnFavorite</string>
-
     <string name="chat_info_favorite">Favorite</string>
     <string name="chat_info_leave_group">Leave Group</string>
     <string name="chat_info_no_shared_media">No shared media</string>
@@ -138,6 +222,7 @@
     <string name="chat_list_default_user">User</string>
     <string name="chat_list_new_messages_single">1 new message</string>
     <string name="chat_list_new_messages_plural">%1$d new messages</string>
+
     <!-- Chat Message Screen -->
     <string name="chat_msg_reactions">Reactions</string>
     <string name="chat_msg_seen_by">Seen by</string>
@@ -183,7 +268,6 @@
     <string name="action_unfollow">Unfollow</string>
     <string name="action_accept">Accept</string>
     <string name="action_decline">Decline</string>
-    <string name="action_cancel">Cancel</string>
 
     <!-- Profile -->
     <string name="profile_likes">Likes</string>
@@ -194,6 +278,8 @@
     <string name="profile_action_block">Block</string>
     <string name="profile_tab_feed">Feed</string>
     <string name="profile_tab_shorts">Shorts</string>
+    <string name="profile_share_text">Check out my Linker profile: https://linker.app/u/%1$s</string>
+    <string name="profile_share_title">Share Profile</string>
 
     <!-- Search -->
     <string name="search_placeholder">Search users, links…</string>
@@ -203,10 +289,49 @@
     <string name="search_tab_links">Links</string>
     <string name="search_tab_users">Users</string>
     <string name="search_no_users_found">No users found for \"%1$s\"</string>
-    <string name="search_links_coming_soon">Links search coming soon…</string>
+    <string name="search_no_links_found">No links found matching your search</string>
+    <string name="search_scan_qr">Scan QR Code</string>
 
-    <!-- Splash Screen -->
-    <string name="app_slogan">Connect without limits</string>
+    <!-- Notes -->
+    <string name="note_expires_in">%1$s left</string>
+    <string name="note_share_thought">Share a thought...</string>
+    <string name="note_type_text">Text Note</string>
+    <string name="note_type_music">Music Note</string>
+    <string name="note_type_location">Location Note</string>
+    <string name="note_type_countdown">Countdown Note</string>
+    <string name="note_type_gif">GIF Note</string>
+    <string name="note_btn_current_song">Currently Playing Song</string>
+    <string name="note_btn_search_song">Search Song on Spotify</string>
+    <string name="note_btn_live_location">Add Live Location</string>
+    <string name="note_btn_gif">Add GIF</string>
+    <string name="note_btn_countdown">Add Countdown</string>
+    <string name="note_text_limit_reached">Text limit reached (%1$d characters)</string>
+    <string name="note_error_location_missing">Location information is missing</string>
+    <string name="note_error_countdown_missing">Countdown title or target time is missing</string>
+    <string name="note_error_spotify_no_track">No playing track found on Spotify. Open Spotify and play a song.</string>
+    <string name="note_time_left">Time Left</string>
+    <string name="note_countdown_ended">Countdown Ended</string>
+    <string name="note_subscribed_countdown">Notification set for countdown!</string>
+    <string name="note_unsubscribed_countdown">Notification removed</string>
+
+    <!-- Stories -->
+    <string name="story_expires_in">Expires in %1$s</string>
+    <string name="story_your_story">Your Story</string>
+    <string name="story_add_story">Add Story</string>
+    <string name="story_viewers_title">Viewers</string>
+    <string name="story_no_viewers">No viewers yet</string>
+    <string name="story_hold_to_pause">Hold to pause</string>
+
+    <!-- Link / Post Editor -->
+    <string name="link_editor_title">New Post</string>
+    <string name="link_editor_description_hint">Write a caption...</string>
+    <string name="link_editor_add_media">Add Media</string>
+    <string name="link_editor_share_button">Share</string>
+    <string name="link_editor_location_hint">Add location</string>
+    <string name="link_editor_success">Post shared successfully!</string>
+    <string name="link_comments_title">Comments</string>
+    <string name="link_comments_empty">No comments yet. Be the first to comment!</string>
+    <string name="link_comments_add_hint">Add a comment...</string>
 
     <!-- Settings & Offline Messaging -->
     <string name="offline_messaging_title">Offline Messaging</string>
@@ -227,27 +352,11 @@
     <string name="clear_message_queue">Clear Message Queue</string>
     <string name="clear_queue_title">Clear Message Queue?</string>
     <string name="clear_queue_desc">This will delete all pending offline messages. This action cannot be undone.</string>
-    <string name="action_clear">Clear</string>
-    <string name="action_save">Save</string>
     <string name="ttl_picker_title">Maximum Hops (TTL)</string>
     <string name="ttl_picker_desc">Select how many hops a message can travel through the mesh network.</string>
     <string name="hops">%1$d hops</string>
-    <string name="permission_bluetooth_title">Bluetooth Permission</string>
-    <string name="permission_bluetooth_desc">Offline messaging requires Bluetooth to connect with nearby devices.</string>
-    <string name="permission_location_title">Location Permission</string>
-    <string name="permission_location_desc_offline">Location permission is required for Bluetooth scanning on Android 12+.</string>
-    <string name="permission_nearby_title">Nearby Devices Permission</string>
-    <string name="permission_nearby_desc">This permission allows Wi-Fi Direct file transfers with nearby devices.</string>
-    <string name="permission_required_title">Permission Required</string>
-    <string name="permission_required_desc">This permission is required for offline messaging.</string>
-    <string name="action_grant">Grant</string>
-    <string name="permission_denied_title">Permission Denied</string>
-    <string name="permission_denied_desc">This permission has been permanently denied. Please enable it in app settings.</string>
-    <string name="action_open_settings">Open Settings</string>
-    <string name="bluetooth_disabled_title">Bluetooth Disabled</string>
-    <string name="bluetooth_disabled_desc">Offline messaging requires Bluetooth to be enabled. Would you like to enable it now?</string>
-    <string name="action_enable">Enable</string>
-    
+
+    <!-- Settings Main -->
     <string name="settings_title">Settings</string>
     <string name="settings_account">ACCOUNT</string>
     <string name="settings_edit_profile">Edit Profile</string>
@@ -270,6 +379,11 @@
     <string name="settings_message_notifications">Message Notifications</string>
     <string name="settings_notification_preferences">Notification Preferences</string>
     <string name="settings_appearance_media">APPEARANCE &amp; MEDIA</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_dialog_title">Select Language</string>
+    <string name="settings_language_system">System Default</string>
+    <string name="settings_language_tr">Türkçe</string>
+    <string name="settings_language_en">English</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_default_theme">Default</string>
     <string name="settings_autoplay_videos">Auto-Play Videos</string>
@@ -287,7 +401,13 @@
     <string name="settings_offline_messaging">Offline Messaging</string>
     <string name="settings_offline_messaging_enabled">Offline messaging enabled</string>
     <string name="settings_offline_messaging_disabled">Offline messaging disabled</string>
-    
+    <string name="settings_toast_security_soon">Security settings will be available soon.</string>
+    <string name="settings_toast_2fa_soon">Two-factor authentication will be available soon.</string>
+    <string name="settings_toast_notifications_configured">Notification preferences updated.</string>
+    <string name="settings_toast_support_email">For help, contact us at support@linker.app</string>
+    <string name="settings_toast_deactivate_request">Please contact support to deactivate your account.</string>
+    <string name="settings_toast_delete_request">Account deletion request created.</string>
+
     <!-- User Profile -->
     <string name="user_profile_no_posts">No posts yet</string>
     <string name="user_profile_message">Message</string>

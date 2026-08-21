@@ -70,6 +70,7 @@ class LinkerApp : Application(), Configuration.Provider {
     @Inject lateinit var securityManager: SecurityManager
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var bluetoothManager: BluetoothManager
+    @Inject lateinit var languageManager: com.linker.app.core.util.LanguageManager
 
     companion object {
         private const val TAG = "LinkerApp"
@@ -84,6 +85,16 @@ class LinkerApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+
+        // Initialize language
+        try {
+            val savedLang = languageManager.getSavedLanguage()
+            if (savedLang != com.linker.app.core.util.LanguageManager.LANG_SYSTEM) {
+                languageManager.setLanguage(savedLang)
+            }
+        } catch (e: Exception) {
+            // ignore
+        }
 
         // Enable StrictMode in debug builds
         if (BuildConfig.DEBUG) {

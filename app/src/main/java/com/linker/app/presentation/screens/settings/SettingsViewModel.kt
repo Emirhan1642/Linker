@@ -28,7 +28,6 @@ enum class SettingField {
     AUTO_PLAY_VIDEOS
 }
 
-@androidx.compose.runtime.Immutable
 data class SettingsUiState(
     val isPrivateAccount: Boolean = false,
     val hideFollowLists: Boolean = false,
@@ -39,6 +38,7 @@ data class SettingsUiState(
     val readReceipts: Boolean = true,
     val dataSaver: Boolean = false,
     val autoPlayVideos: Boolean = true,
+    val currentLanguage: String = "system",
     /** Hangi toggle kayıt yapılıyor? null = hiçbiri */
     val savingField: SettingField? = null,
     val snackbarMessage: UiText? = null
@@ -46,11 +46,17 @@ data class SettingsUiState(
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val userRepository: UserRepository
+    private val userRepository: UserRepository,
+    private val languageManager: com.linker.app.core.util.LanguageManager
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(SettingsUiState())
+    private val _uiState = MutableStateFlow(SettingsUiState(currentLanguage = languageManager.getSavedLanguage()))
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    fun setLanguage(languageCode: String) {
+        languageManager.setLanguage(languageCode)
+        _uiState.update { it.copy(currentLanguage = languageCode) }
+    }
 
     init {
         userRepository.observeCurrentUser()

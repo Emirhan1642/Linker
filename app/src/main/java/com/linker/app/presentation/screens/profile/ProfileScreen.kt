@@ -96,9 +96,9 @@ fun ProfileScreen(
                             val username = uiState.user?.username ?: "user"
                             val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                                 type = "text/plain"
-                                putExtra(android.content.Intent.EXTRA_TEXT, "Linker profilimi incele: https://linker.app/u/$username")
+                                putExtra(android.content.Intent.EXTRA_TEXT, context.getString(R.string.profile_share_text, username))
                             }
-                            context.startActivity(android.content.Intent.createChooser(shareIntent, "Profili Paylaş"))
+                            context.startActivity(android.content.Intent.createChooser(shareIntent, context.getString(R.string.profile_share_title)))
                         },
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },

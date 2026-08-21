@@ -25,7 +25,9 @@ import dagger.hilt.android.AndroidEntryPoint
 import com.linker.app.core.di.ApplicationScope
 import com.linker.app.core.notification.PushTokenRegistrar
 import com.linker.app.core.notification.ChatNotificationHelper
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.core.session.HybridAccountManager
+import androidx.compose.runtime.remember
 import com.linker.app.core.util.SpotifyAuthManager
 import com.linker.app.domain.repository.AccountRepository
 import com.linker.app.core.util.Result as LinkerResult
@@ -53,6 +55,7 @@ class MainActivity : ComponentActivity() {
     @Inject lateinit var hybridAccountManager: HybridAccountManager
     @Inject lateinit var connectivityMonitor: com.linker.app.data.connectivity.ConnectivityMonitor
     @Inject lateinit var spotifyAuthManager: SpotifyAuthManager
+    @Inject lateinit var languageManager: com.linker.app.core.util.LanguageManager
 
     companion object {
         private const val TAG = "MainActivity"
@@ -84,24 +87,34 @@ class MainActivity : ComponentActivity() {
         })
 
         setContent {
-            LinkerTheme {
-                if (accountSwitchInProgress) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                } else {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background
-                    ) {
-                        LinkerNavHost(
-                            currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
-                            initialChatId = pendingChatId,
-                            onChatDeepLinkHandled = { pendingChatId = null }
-                        )
+            val currentLang by languageManager.currentLanguage.collectAsStateWithLifecycle()
+            val baseContext = androidx.compose.ui.platform.LocalContext.current
+            val localizedContext = remember(currentLang) {
+                com.linker.app.core.util.LanguageManager.createLocalizedContext(baseContext, currentLang)
+            }
+
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalContext provides localizedContext
+            ) {
+                LinkerTheme {
+                    if (accountSwitchInProgress) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.background
+                        ) {
+                            LinkerNavHost(
+                                currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid,
+                                initialChatId = pendingChatId,
+                                onChatDeepLinkHandled = { pendingChatId = null }
+                            )
+                        }
                     }
                 }
             }
