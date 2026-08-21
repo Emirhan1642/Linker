@@ -285,8 +285,7 @@ class EncryptionManagerImpl @Inject constructor(
         val preKeyRecord = preKeys.minByOrNull { record -> record.id }
             ?: throw IllegalStateException("No pre-keys available")
 
-        // Consume the pre-key so it is only distributed once (Forward Secrecy)
-        protocolStore.removePreKey(preKeyRecord.id)
+        // Note: PreKey is not removed here; libsignal automatically removes/consumes one-time prekeys upon decryption
         if (preKeys.size <= 10) {
             generatePreKeys()
         }

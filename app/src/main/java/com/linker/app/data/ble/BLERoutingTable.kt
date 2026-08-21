@@ -156,7 +156,9 @@ class BLERoutingTable @Inject constructor(
         val routeQuality = calculateRouteQuality(rssi, hopCount)
         
         // Check if route already exists
-        val existingNode = bleNodeDao.getNodeById(nodeId)
+        val existingNode = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            bleNodeDao.getNodeById(nodeId)
+        }
         
         if (existingNode != null) {
             // Update existing route if new route is better
@@ -172,7 +174,9 @@ class BLERoutingTable @Inject constructor(
                     lastSeen = timestamp,
                     updatedAt = timestamp
                 )
-                bleNodeDao.updateNode(updatedNode)
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    bleNodeDao.updateNode(updatedNode)
+                }
                 
                 // Update cache
                 routeCache[nodeId] = RouteInfo(
@@ -198,7 +202,9 @@ class BLERoutingTable @Inject constructor(
                 createdAt = timestamp,
                 updatedAt = timestamp
             )
-            bleNodeDao.insertNode(newNode)
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                bleNodeDao.insertNode(newNode)
+            }
             
             // Update cache
             routeCache[nodeId] = RouteInfo(

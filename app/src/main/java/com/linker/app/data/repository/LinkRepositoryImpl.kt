@@ -167,6 +167,28 @@ class LinkRepositoryImpl @Inject constructor(
 
         linkDao.insertLink(entity)
 
+        try {
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            firestore.collection("links").document(linkId).set(
+                mapOf(
+                    "linkId" to linkId,
+                    "authorId" to currentUserId,
+                    "linkType" to mappedLinkType.name,
+                    "description" to description,
+                    "mediaUrls" to emptyList<String>(),
+                    "location" to location,
+                    "likesCount" to 0,
+                    "commentsCount" to 0,
+                    "sharesCount" to 0,
+                    "createdAt" to now,
+                    "updatedAt" to now
+                ),
+                com.google.firebase.firestore.SetOptions.merge()
+            ).await()
+        } catch (e: Exception) {
+            android.util.Log.w("LinkRepositoryImpl", "Could not create initial remote link doc: ${e.message}")
+        }
+
         if (mediaLocalPaths.isNotEmpty()) {
             val workData = androidx.work.workDataOf(
                 "targetId" to linkId,

@@ -45,7 +45,11 @@ class MessageQueueWorker @AssistedInject constructor(
 
                 SecureLogger.d(TAG, "Starting batch processing loop. Batch size: $BATCH_SIZE")
 
-                while (keepProcessing) {
+                var batchCount = 0
+                val maxBatches = 20
+
+                while (keepProcessing && batchCount < maxBatches) {
+                    batchCount++
                     val batchResult = messageRepository.retryFailedMessages(
                         batchSize = BATCH_SIZE
                     )

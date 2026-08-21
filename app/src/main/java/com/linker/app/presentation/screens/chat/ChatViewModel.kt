@@ -212,11 +212,12 @@ class ChatViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         val diff = now - timestamp
         val daysDiff = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(diff)
+        val date = java.util.Date(timestamp)
         return when {
-            daysDiff == 0L -> java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+            daysDiff == 0L -> synchronized(timeFormatter) { timeFormatter.format(date) }
             daysDiff == 1L -> "Yesterday"
-            daysDiff < 7 -> java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-            else -> java.text.SimpleDateFormat("dd/MM/yy", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+            daysDiff < 7 -> synchronized(dayFormatter) { dayFormatter.format(date) }
+            else -> synchronized(dateFormatter) { dateFormatter.format(date) }
         }
     }
 
@@ -699,6 +700,36 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun sendMediaMessage(
+        messageType: MessageType,
+        mediaLocalPath: String,
+        caption: String? = null,
+        replyToMessageId: String? = null
+    ) {
+        val chatId = _messageState.value.chatId
+        if (chatId.isBlank() || mediaLocalPath.isBlank()) return
+
+        viewModelScope.launch {
+            _messageState.update { it.copy(isSending = true, sendError = null) }
+
+            when (val result = sendMessageUseCase(
+                chatId = chatId,
+                messageType = messageType,
+                content = caption?.trim() ?: "",
+                mediaLocalPath = mediaLocalPath,
+                replyToMessageId = replyToMessageId
+            )) {
+                is Result.Success -> {
+                    _messageState.update { it.copy(isSending = false, sendError = null) }
+                }
+                is Result.Error -> {
+                    _messageState.update { it.copy(isSending = false, sendError = result.message) }
+                }
+                is Result.Loading -> {}
+            }
+        }
+    }
+
     fun deleteMessage(messageId: String, forEveryone: Boolean = false) {
         android.util.Log.d("ChatViewModel", "deleteMessage called: messageId=$messageId, forEveryone=$forEveryone")
         viewModelScope.launch {
@@ -711,5 +742,11 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             reactToMessageUseCase(messageId, emoji)
         }
+    }
+
+    companion object {
+        private val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        private val dayFormatter = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault())
+        private val dateFormatter = java.text.SimpleDateFormat("dd/MM/yy", java.util.Locale.getDefault())
     }
 }

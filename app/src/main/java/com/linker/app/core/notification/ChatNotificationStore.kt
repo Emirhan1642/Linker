@@ -121,12 +121,10 @@ object ChatNotificationStore {
     ) {
         NotificationLogger.d("addIncoming: notificationId=$notificationId, chatId=$chatId")
         val state = getOrCreate(notificationId, recipientUid, chatId, isGroupChat)
-        if (message.isNotBlank() && !state.messages.contains(message)) {
+        if (message.isNotBlank()) {
             state.addMessage(message)
             NotificationLogger.d("Message added. Total messages: ${state.messages.size}")
             saveToPrefs()
-        } else if (message.isNotBlank()) {
-            NotificationLogger.w("Duplicate message ignored: $message")
         }
     }
 
@@ -137,13 +135,9 @@ object ChatNotificationStore {
             NotificationLogger.w("addOutgoing: State not found for notificationId=$notificationId.")
         } else {
             val formattedMessage = "Siz: $message"
-            if (!state.messages.contains(formattedMessage)) {
-                state.addMessage(formattedMessage)
-                NotificationLogger.d("Outgoing message added. Total messages: ${state.messages.size}")
-                saveToPrefs()
-            } else {
-                NotificationLogger.w("Duplicate outgoing message ignored: $formattedMessage")
-            }
+            state.addMessage(formattedMessage)
+            NotificationLogger.d("Outgoing message added. Total messages: ${state.messages.size}")
+            saveToPrefs()
         }
     }
 

@@ -503,6 +503,27 @@ class OfflineMessagingService : Service() {
                     messageDao.insertMessage(messageEntity)
                     updateChatAfterMessageReceived(chatId, decryptedContent, now)
                 }
+
+                // Show local notification for incoming offline message
+                try {
+                    val notificationId = com.linker.app.core.notification.NotificationIdGenerator.generateChatNotificationId(currentUserId, chatId, senderId, false)
+                    val channelId = com.linker.app.core.notification.ChatNotificationHelper.channelIdForAccount(currentUserId)
+                    val notification = com.linker.app.core.notification.ChatNotificationHelper.buildChatNotification(
+                        context = this@OfflineMessagingService,
+                        notificationId = notificationId,
+                        channelId = channelId,
+                        targetAccountUid = currentUserId,
+                        chatId = chatId,
+                        messageId = packet.messageId,
+                        senderId = senderId,
+                        senderName = "BLE Mesh ($senderId)",
+                        messages = listOf(decryptedContent),
+                        isGroupChat = false
+                    ).build()
+                    androidx.core.app.NotificationManagerCompat.from(this@OfflineMessagingService).notify(notificationId, notification)
+                } catch (notifEx: Exception) {
+                    Log.w(TAG, "Failed to show notification for BLE message: ${notifEx.message}")
+                }
                 
                 Log.d(TAG, "Saved received message ${sanitizeMessageId(packet.messageId)} to database")
             } finally {
@@ -516,12 +537,24 @@ class OfflineMessagingService : Service() {
     
     private suspend fun findOrCreatePrivateChat(otherUserId: String, currentUserId: String): String? {
         return try {
+            // First check if any existing private chat has these participants
+            val allChats = chatDao.getAllChats()
+            val existing = allChats.firstOrNull { 
+                it.chatType == ChatType.PRIVATE && 
+                it.participantIds.contains(currentUserId) && 
+                it.participantIds.contains(otherUserId) 
+            }
+            if (existing != null) {
+                Log.d(TAG, "Found existing private chat: ${existing.chatId}")
+                return existing.chatId
+            }
+
             val userIds = listOf(currentUserId, otherUserId).sorted()
             val chatId = "private_${userIds[0]}_${userIds[1]}"
             
-            val existingChat = chatDao.getChatById(chatId)
-            if (existingChat != null) {
-                Log.d(TAG, "Found existing chat: $chatId")
+            val existingById = chatDao.getChatById(chatId)
+            if (existingById != null) {
+                Log.d(TAG, "Found existing chat by deterministic ID: $chatId")
                 return chatId
             }
             

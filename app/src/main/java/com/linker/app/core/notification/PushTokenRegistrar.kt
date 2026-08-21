@@ -14,20 +14,28 @@ class PushTokenRegistrar @Inject constructor(
     private val auth: FirebaseAuth,
     private val supabaseNotificationApi: SupabaseNotificationApi
 ) {
+    @Volatile private var pendingToken: String? = null
+
     suspend fun registerCurrentToken() {
         val userId = auth.currentUser?.uid ?: return
         
-        val token = try {
+        val token = pendingToken ?: try {
             FirebaseMessaging.getInstance().token.await()
         } catch (e: Exception) {
             NotificationLogger.w("Failed to fetch FCM token: ${e.message}")
             return
         }
         registerToken(userId, token)
+        pendingToken = null
     }
 
     suspend fun registerToken(token: String) {
-        val userId = auth.currentUser?.uid ?: return
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            pendingToken = token
+            NotificationLogger.d("Saved pending FCM token since user is not signed in yet")
+            return
+        }
         registerToken(userId, token)
     }
 

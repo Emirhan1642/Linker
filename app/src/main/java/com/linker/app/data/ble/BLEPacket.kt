@@ -167,6 +167,9 @@ data class BLEPacket(
             if (payloadLength < 0 || payloadLength > MAX_PAYLOAD_SIZE) {
                 throw IllegalArgumentException("Invalid payload length: $payloadLength")
             }
+            if (buffer.remaining() < payloadLength.toInt() + 4) {
+                throw IllegalArgumentException("Buffer underflow: remaining ${buffer.remaining()} bytes, need ${payloadLength.toInt() + 4}")
+            }
             
             val payload = ByteArray(payloadLength.toInt())
             buffer.get(payload)

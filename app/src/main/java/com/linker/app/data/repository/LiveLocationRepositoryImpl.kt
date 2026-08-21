@@ -128,6 +128,22 @@ class LiveLocationRepositoryImpl @Inject constructor(
     override suspend fun reverseGeocode(lat: Double, lon: Double): Result<PlaceName> =
         withContext(Dispatchers.IO) {
             try {
+                if (android.location.Geocoder.isPresent()) {
+                    val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+                    @Suppress("DEPRECATION")
+                    val addresses = geocoder.getFromLocation(lat, lon, 1)
+                    if (!addresses.isNullOrEmpty()) {
+                        val addr = addresses[0]
+                        val city = addr.adminArea ?: addr.locality ?: addr.subAdminArea ?: "Bilinmeyen"
+                        val district = addr.subLocality ?: addr.thoroughfare ?: addr.subAdminArea ?: ""
+                        return@withContext Result.Success(PlaceName(city = city, district = district))
+                    }
+                }
+            } catch (_: Exception) {
+                // Fallback to Nominatim
+            }
+
+            try {
                 val response = nominatim.reverse(lat = lat, lon = lon)
                 val addr = response.address
                     ?: return@withContext Result.Error("Adres çözümlenemedi")

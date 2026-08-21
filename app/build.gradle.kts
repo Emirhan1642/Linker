@@ -40,6 +40,7 @@ android {
         buildConfigField("String", "CLOUDINARY_CLOUD_NAME", "\"${properties.getProperty("cloudinary.cloudName", "")}\"")
         buildConfigField("String", "CLOUDINARY_API_KEY", "\"${properties.getProperty("cloudinary.apiKey", "")}\"")
         buildConfigField("String", "CLOUDINARY_API_SECRET", "\"${properties.getProperty("cloudinary.apiSecret", "")}\"")
+        buildConfigField("String", "CLOUDINARY_UPLOAD_PRESET", "\"${properties.getProperty("cloudinary.uploadPreset", "default_preset")}\"")
         buildConfigField("String", "SPOTIFY_CLIENT_ID", "\"${properties.getProperty("spotify.clientId", "")}\"")
         buildConfigField("String", "SPOTIFY_CLIENT_SECRET", "\"${properties.getProperty("spotify.clientSecret", "")}\"")
         buildConfigField("String", "SUPABASE_URL", "\"${properties.getProperty("supabase.url", "")}\"")

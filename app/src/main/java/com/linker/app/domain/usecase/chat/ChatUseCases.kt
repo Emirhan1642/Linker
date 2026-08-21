@@ -29,22 +29,23 @@ class SendMessageUseCase @Inject constructor(private val messageRepository: Mess
     ): Result<Message> {
         if (chatId.isBlank()) return Result.Error("Chat ID cannot be empty")
         
-        when (messageType) {
+        return when (messageType) {
             MessageType.TEXT -> {
                 if (content.isBlank()) return Result.Error("Message cannot be empty")
                 if (content.length > 5000) return Result.Error("Message is too long (max 5000 characters)")
-                return messageRepository.sendMessage(chatId, messageType, sanitizeContent(content), null, replyToMessageId)
+                messageRepository.sendMessage(chatId, messageType, sanitizeContent(content), null, replyToMessageId)
             }
             else -> {
                 if (mediaLocalPath.isNullOrBlank()) return Result.Error("Media path is required for ${messageType.name} messages")
-                if (mediaLocalPath.contains("..") || mediaLocalPath.contains("~") || !mediaLocalPath.startsWith("/")) {
+                val isValidUri = mediaLocalPath.startsWith("content://") || mediaLocalPath.startsWith("file://") || mediaLocalPath.startsWith("/")
+                if (mediaLocalPath.contains("..") || mediaLocalPath.contains("~") || !isValidUri) {
                     return Result.Error("Invalid media path")
                 }
                 val sanitizedCaption = if (content.isNotBlank()) {
                     if (content.length > 200) return Result.Error("Caption is too long")
                     sanitizeContent(content)
                 } else null
-                return messageRepository.sendMessage(chatId, messageType, sanitizedCaption ?: "", mediaLocalPath, replyToMessageId)
+                messageRepository.sendMessage(chatId, messageType, sanitizedCaption ?: "", mediaLocalPath, replyToMessageId)
             }
         }
     }

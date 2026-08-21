@@ -50,7 +50,7 @@ class NotificationStateRecovery @Inject constructor(
             
             when {
                 text.isBlank() -> null
-                senderName == "Siz" -> "Siz: $text"
+                senderName.equals("Siz", ignoreCase = true) || senderName.equals("You", ignoreCase = true) -> "$senderName: $text"
                 senderName.isNotBlank() -> "$senderName: $text"
                 else -> text
             }

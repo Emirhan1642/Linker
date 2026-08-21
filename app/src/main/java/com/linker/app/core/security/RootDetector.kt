@@ -140,12 +140,12 @@ object RootDetector {
     private fun checkSuExists(): Boolean {
         var process: Process? = null
         return try {
-            process = Runtime.getRuntime().exec(arrayOf("/system/xbin/which", "su"))
+            process = Runtime.getRuntime().exec(arrayOf("which", "su"))
             BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
                 reader.readLine() != null
             }
         } catch (t: Throwable) {
-            false
+            checkForSuBinary()
         } finally {
             process?.destroy()
         }
@@ -167,18 +167,19 @@ object RootDetector {
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     val lineStr = line ?: continue
-                    val args = lineStr.split(" ")
-                    if (args.size < 4) continue
-                    val mountPoint = args[1]
-                    val mountOptions = args[3]
+                    val args = lineStr.split("\\s+".toRegex())
+                    // mount output format: <device> on <mount_point> type <type> (<options>) or <device> <mount_point> <type> <options>
+                    val mountPoint = when {
+                        args.size >= 3 && args[1] == "on" -> args[2]
+                        args.size >= 2 -> args[1]
+                        else -> continue
+                    }
+                    val mountOptions = args.lastOrNull() ?: ""
                     
                     for (path in paths) {
                         if (mountPoint.equals(path, ignoreCase = true)) {
-                            val options = mountOptions.split(",")
-                            for (option in options) {
-                                if (option.equals("rw", ignoreCase = true)) {
-                                    return true
-                                }
+                            if (mountOptions.contains("rw", ignoreCase = true)) {
+                                return true
                             }
                         }
                     }

@@ -315,7 +315,7 @@ class AccountRepositoryImpl @Inject constructor(
      * 
      * @return Pair of (email, password) or null if session not found
      */
-    suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
+    override suspend fun getDecryptedCredentials(uid: String): Pair<String, String>? = withContext(Dispatchers.Default) {
         try {
             val sessions = loadSessionsFromDisk()
             val dto = sessions.firstOrNull { it.uid == uid }

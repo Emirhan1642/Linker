@@ -351,37 +351,36 @@ class MinimalMessageRepository(
                 throw Exception("Network error: Unable to fetch messages. Please check your connection.")
             }
 
-            val batch = firestore.batch()
-            var updateCount = 0
-
-            for (doc in messagesSnapshot.documents) {
+            val unreadDocs = messagesSnapshot.documents.filter { doc ->
                 val senderId = doc.getString("senderId")
-                if (senderId == currentUserId) continue
-
+                if (senderId == currentUserId) return@filter false
                 val readReceipts = doc.get("readReceipts") as? Map<*, *> ?: emptyMap<Any, Any>()
-                if (readReceipts.containsKey(currentUserId)) continue
-
-                batch.update(doc.reference, mapOf(
-                    "readReceipts.$currentUserId" to now,
-                    "readAt" to now,
-                    "messageStatus" to "READ"
-                ))
-                updateCount++
+                !readReceipts.containsKey(currentUserId)
             }
 
-            batch.update(
-                firestore.collection("chats").document(chatId),
-                "unreadCounts.$currentUserId", 0
-            )
-
-            if (updateCount > 0 || true) { // Always commit to reset unread count
-                try {
+            try {
+                for (chunk in unreadDocs.chunked(450)) {
+                    val batch = firestore.batch()
+                    for (doc in chunk) {
+                        batch.update(doc.reference, mapOf(
+                            "readReceipts.$currentUserId" to now,
+                            "readAt" to now,
+                            "messageStatus" to "READ"
+                        ))
+                    }
                     withTimeout(FIRESTORE_TIMEOUT_MS) { batch.commit().await() }
-                    android.util.Log.d(TAG, "Chat ${sanitizeChatId(chatId)} marked as read ($updateCount messages)")
-                } catch (e: Exception) {
-                    android.util.Log.e(TAG, "Network error marking as read: ${e.message}", e)
-                    throw Exception("Network error: Unable to mark as read. Please check your connection.")
                 }
+
+                val chatBatch = firestore.batch()
+                chatBatch.update(
+                    firestore.collection("chats").document(chatId),
+                    "unreadCounts.$currentUserId", 0
+                )
+                withTimeout(FIRESTORE_TIMEOUT_MS) { chatBatch.commit().await() }
+                android.util.Log.d(TAG, "Chat ${sanitizeChatId(chatId)} marked as read (${unreadDocs.size} messages)")
+            } catch (e: Exception) {
+                android.util.Log.e(TAG, "Network error marking as read: ${e.message}", e)
+                throw Exception("Network error: Unable to mark as read. Please check your connection.")
             }
         }
     }

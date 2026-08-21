@@ -36,6 +36,7 @@ class GattClientManager @Inject constructor(
     private val connections = ConcurrentHashMap<String, BluetoothGatt>()
     private val connectionMutex = Mutex()
     private val pendingWrites = ConcurrentHashMap<String, CompletableDeferred<Boolean>>()
+    private val deviceWriteLocks = ConcurrentHashMap<String, Mutex>()
     
     // Track RSSI for connection pool priority
     private val rssiMap = ConcurrentHashMap<String, Int>()
@@ -284,87 +285,90 @@ class GattClientManager @Inject constructor(
      * @return true if write successful, false otherwise
      */
     suspend fun writeCharacteristic(deviceAddress: String, data: ByteArray): Boolean {
-        val gatt = connections[deviceAddress]
-        
-        if (gatt == null) {
-            Log.e(TAG, "No connection to $deviceAddress")
-            return false
-        }
-        
-        Log.d(TAG, "Attempting to write characteristic to $deviceAddress (data size: ${data.size} bytes)")
-        
-        return try {
-            val deferred = CompletableDeferred<Boolean>()
-            pendingWrites[deviceAddress] = deferred
+        val lock = deviceWriteLocks.getOrPut(deviceAddress) { Mutex() }
+        return lock.withLock {
+            val gatt = connections[deviceAddress]
             
-            val service = gatt.getService(GattServerManager.SERVICE_UUID)
-            if (service == null) {
-                Log.w(TAG, "Service not found for $deviceAddress, cannot write")
-                pendingWrites.remove(deviceAddress)
-                return false
+            if (gatt == null) {
+                Log.e(TAG, "No connection to $deviceAddress")
+                return@withLock false
             }
             
-            val characteristic = service.getCharacteristic(GattServerManager.CHARACTERISTIC_UUID)
-            if (characteristic == null) {
-                Log.w(TAG, "Characteristic not found for $deviceAddress, cannot write")
-                pendingWrites.remove(deviceAddress)
-                return false
-            }
+            Log.d(TAG, "Attempting to write characteristic to $deviceAddress (data size: ${data.size} bytes)")
             
-            Log.d(TAG, "Found service and characteristic for $deviceAddress")
-            
-            val writeInitiated = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                try {
-                    val result = gatt.writeCharacteristic(
-                        characteristic,
-                        data,
-                        BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    )
-                    Log.d(TAG, "writeCharacteristic (API 33+) returned: $result for $deviceAddress")
-                    result == BluetoothGatt.GATT_SUCCESS
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error writing characteristic on API 33+: ${e.message}")
-                    false
+            try {
+                val deferred = CompletableDeferred<Boolean>()
+                pendingWrites[deviceAddress] = deferred
+                
+                val service = gatt.getService(GattServerManager.SERVICE_UUID)
+                if (service == null) {
+                    Log.w(TAG, "Service not found for $deviceAddress, cannot write")
+                    pendingWrites.remove(deviceAddress)
+                    return@withLock false
                 }
-            } else {
-                try {
-                    @Suppress("DEPRECATION")
-                    characteristic.value = data
-                    @Suppress("DEPRECATION")
-                    characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                    @Suppress("DEPRECATION")
-                    val result = gatt.writeCharacteristic(characteristic)
-                    Log.d(TAG, "writeCharacteristic (API < 33) returned: $result for $deviceAddress")
-                    result
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error writing characteristic on API < 33: ${e.message}")
-                    false
+                
+                val characteristic = service.getCharacteristic(GattServerManager.CHARACTERISTIC_UUID)
+                if (characteristic == null) {
+                    Log.w(TAG, "Characteristic not found for $deviceAddress, cannot write")
+                    pendingWrites.remove(deviceAddress)
+                    return@withLock false
                 }
-            }
-            
-            if (!writeInitiated) {
+                
+                Log.d(TAG, "Found service and characteristic for $deviceAddress")
+                
+                val writeInitiated = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    try {
+                        val result = gatt.writeCharacteristic(
+                            characteristic,
+                            data,
+                            BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        )
+                        Log.d(TAG, "writeCharacteristic (API 33+) returned: $result for $deviceAddress")
+                        result == BluetoothStatusCodes.SUCCESS
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error writing characteristic on API 33+: ${e.message}")
+                        false
+                    }
+                } else {
+                    try {
+                        @Suppress("DEPRECATION")
+                        characteristic.value = data
+                        @Suppress("DEPRECATION")
+                        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                        @Suppress("DEPRECATION")
+                        val result = gatt.writeCharacteristic(characteristic)
+                        Log.d(TAG, "writeCharacteristic (API < 33) returned: $result for $deviceAddress")
+                        result
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error writing characteristic on API < 33: ${e.message}")
+                        false
+                    }
+                }
+                
+                if (!writeInitiated) {
+                    pendingWrites.remove(deviceAddress)
+                    Log.e(TAG, "Failed to initiate write for $deviceAddress")
+                    return@withLock false
+                }
+                
+                Log.d(TAG, "Write initiated for $deviceAddress, waiting for callback")
+                
+                withTimeout(5000L) {
+                    deferred.await()
+                }
+            } catch (e: TimeoutCancellationException) {
                 pendingWrites.remove(deviceAddress)
-                Log.e(TAG, "Failed to initiate write for $deviceAddress")
-                return false
+                Log.e(TAG, "Write timeout for $deviceAddress")
+                false
+            } catch (e: SecurityException) {
+                pendingWrites.remove(deviceAddress)
+                Log.e(TAG, "Security exception writing to $deviceAddress", e)
+                false
+            } catch (e: Exception) {
+                pendingWrites.remove(deviceAddress)
+                Log.e(TAG, "Error writing to $deviceAddress", e)
+                false
             }
-            
-            Log.d(TAG, "Write initiated for $deviceAddress, waiting for callback")
-            
-            withTimeout(5000L) {
-                deferred.await()
-            }
-        } catch (e: TimeoutCancellationException) {
-            pendingWrites.remove(deviceAddress)
-            Log.e(TAG, "Write timeout for $deviceAddress")
-            false
-        } catch (e: SecurityException) {
-            pendingWrites.remove(deviceAddress)
-            Log.e(TAG, "Security exception writing to $deviceAddress", e)
-            false
-        } catch (e: Exception) {
-            pendingWrites.remove(deviceAddress)
-            Log.e(TAG, "Error writing to $deviceAddress", e)
-            false
         }
     }
     

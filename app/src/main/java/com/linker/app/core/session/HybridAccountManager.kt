@@ -368,7 +368,7 @@ class HybridAccountManager @Inject constructor(
         val auth = FirebaseAuth.getInstance(firebaseApp)
         val firestore = FirebaseFirestore.getInstance(firebaseApp)
 
-        val credentials = (accountRepository as com.linker.app.data.repository.AccountRepositoryImpl).getDecryptedCredentials(userId)
+        val credentials = accountRepository.getDecryptedCredentials(userId)
             ?: throw IllegalStateException("Failed to get credentials for ${sanitizeUserId(userId)}")
 
         val (email, password) = credentials
@@ -434,23 +434,9 @@ class HybridAccountManager @Inject constructor(
 
     private fun parseFirebaseOptionsFromResources(): FirebaseOptions {
         return try {
-            val inputStream = context.assets.open("google-services.json")
-            val json = inputStream.bufferedReader().use { it.readText() }
-            val jsonObject = org.json.JSONObject(json)
-
-            val projectInfo = jsonObject.getJSONObject("project_info")
-            val client = jsonObject.getJSONArray("client").getJSONObject(0)
-            val clientInfo = client.getJSONObject("client_info")
-            val apiKey = client.getJSONArray("api_key").getJSONObject(0).getString("current_key")
-
-            FirebaseOptions.Builder()
-                .setApplicationId(clientInfo.getJSONObject("android_client_info").getString("package_name"))
-                .setApiKey(apiKey)
-                .setDatabaseUrl(projectInfo.optString("firebase_url"))
-                .setGcmSenderId(projectInfo.getString("project_number"))
-                .setProjectId(projectInfo.getString("project_id"))
-                .setStorageBucket(projectInfo.optString("storage_bucket"))
-                .build()
+            val options = FirebaseOptions.fromResource(context)
+            if (options != null) return options
+            throw IllegalStateException("FirebaseOptions.fromResource returned null")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to parse Firebase options from resources", e)
             throw IllegalStateException("Cannot initialize Firebase options", e)

@@ -64,20 +64,22 @@ class CloudinaryUploadWorker @AssistedInject constructor(
             when (targetType.uppercase()) {
                 "STORY" -> {
                     val primaryUrl = uploadedUrls.first()
-                    firestore.collection("stories").document(targetId).update(
+                    firestore.collection("stories").document(targetId).set(
                         mapOf(
                             "mediaUrl" to primaryUrl,
                             "uploadStatus" to "SUCCESS"
-                        )
+                        ),
+                        com.google.firebase.firestore.SetOptions.merge()
                     ).await()
                     SecureLogger.d(TAG, "Updated Story $targetId with mediaUrl $primaryUrl")
                 }
                 "LINK" -> {
-                    firestore.collection("links").document(targetId).update(
+                    firestore.collection("links").document(targetId).set(
                         mapOf(
                             "mediaUrls" to uploadedUrls,
                             "uploadStatus" to "SUCCESS"
-                        )
+                        ),
+                        com.google.firebase.firestore.SetOptions.merge()
                     ).await()
 
                     val existing = linkDao.getLinkById(targetId)
@@ -103,8 +105,9 @@ class CloudinaryUploadWorker @AssistedInject constructor(
                 Uri.fromFile(File(path))
             }
 
+            val preset = com.linker.app.BuildConfig.CLOUDINARY_UPLOAD_PRESET.ifBlank { "default_preset" }
             val requestId = MediaManager.get().upload(uri)
-                .unsigned("default_preset")
+                .unsigned(preset)
                 .callback(object : UploadCallback {
                     override fun onStart(requestId: String) {}
                     override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}

@@ -317,11 +317,16 @@ class UserRepositoryImpl @Inject constructor(
         val q = firestore.collection("follows")
             .whereEqualTo("followedId", userId).whereEqualTo("status", "active")
             .limit(limit.toLong()).get().await()
-        val entities = q.documents.mapNotNull { doc ->
-            val fid = doc.getString("followerId") ?: return@mapNotNull null
-            val snap = firestore.collection("users").document(fid).get().await()
-            snap.data?.let { data ->
-                if (snap.exists()) mapToEntity(fid, data) else null
+        val fids = q.documents.mapNotNull { it.getString("followerId") }.filter { it.isNotBlank() }
+        val entities = mutableListOf<com.linker.app.data.local.entity.UserEntity>()
+        for (chunk in fids.chunked(30)) {
+            val snaps = firestore.collection("users")
+                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                .get().await()
+            for (snap in snaps.documents) {
+                snap.data?.let { data ->
+                    entities.add(mapToEntity(snap.id, data))
+                }
             }
         }
         val users = batchFetchRelationships(entities).map { it.toDomain() }
@@ -343,11 +348,16 @@ class UserRepositoryImpl @Inject constructor(
         val q = firestore.collection("follows")
             .whereEqualTo("followerId", userId).whereEqualTo("status", "active")
             .limit(limit.toLong()).get().await()
-        val entities = q.documents.mapNotNull { doc ->
-            val fid = doc.getString("followedId") ?: return@mapNotNull null
-            val snap = firestore.collection("users").document(fid).get().await()
-            snap.data?.let { data ->
-                if (snap.exists()) mapToEntity(fid, data) else null
+        val fids = q.documents.mapNotNull { it.getString("followedId") }.filter { it.isNotBlank() }
+        val entities = mutableListOf<com.linker.app.data.local.entity.UserEntity>()
+        for (chunk in fids.chunked(30)) {
+            val snaps = firestore.collection("users")
+                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                .get().await()
+            for (snap in snaps.documents) {
+                snap.data?.let { data ->
+                    entities.add(mapToEntity(snap.id, data))
+                }
             }
         }
         val users = batchFetchRelationships(entities).map { it.toDomain() }
@@ -359,13 +369,19 @@ class UserRepositoryImpl @Inject constructor(
         val q = firestore.collection("follows")
             .whereEqualTo("followedId", me).whereEqualTo("status", "pending")
             .limit(limit.toLong()).get().await()
-        val users = q.documents.mapNotNull { doc ->
-            val fid = doc.getString("followerId") ?: return@mapNotNull null
-            val snap = firestore.collection("users").document(fid).get().await()
-            snap.data?.let { data ->
-                if (snap.exists()) mapToEntity(fid, data).toDomain() else null
+        val fids = q.documents.mapNotNull { it.getString("followerId") }.filter { it.isNotBlank() }
+        val entities = mutableListOf<com.linker.app.data.local.entity.UserEntity>()
+        for (chunk in fids.chunked(30)) {
+            val snaps = firestore.collection("users")
+                .whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk)
+                .get().await()
+            for (snap in snaps.documents) {
+                snap.data?.let { data ->
+                    entities.add(mapToEntity(snap.id, data))
+                }
             }
         }
+        val users = entities.map { it.toDomain() }
         PaginatedUsers(users = users, nextCursor = null, hasMore = false)
     }
 

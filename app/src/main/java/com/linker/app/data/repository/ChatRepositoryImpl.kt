@@ -90,13 +90,12 @@ class ChatRepositoryImpl @Inject constructor(
             return flowOf(Result.Success(emptyList<Chat>()))
         }
 
-        // Merge Firestore and local database flows
-        val firestoreFlow = callbackFlow {
+        return callbackFlow {
+            // Start Firestore listener to keep local Room DB synchronized
             val listener = chatsCollection
                 .whereArrayContains("participantIds", currentUserId)
                 .addSnapshotListener { snapshot, error ->
                     if (error != null) {
-                        // Firestore error - don't emit, let local flow handle it
                         Log.d("ChatRepository", "Firestore error: ${error.message}")
                         return@addSnapshotListener
                     }
@@ -104,9 +103,8 @@ class ChatRepositoryImpl @Inject constructor(
                         val data = doc.data ?: return@mapNotNull null
                         if (isUserArchivedChat(data)) return@mapNotNull null
                         mapToChatSync(doc.id, data)
-                    }?.sortedByDescending { it.updatedAt } ?: emptyList()
+                    } ?: emptyList()
                     
-                    // Save chats to local database for offline access
                     launch(Dispatchers.IO) {
                         try {
                             chats.forEach { chat ->
@@ -116,31 +114,33 @@ class ChatRepositoryImpl @Inject constructor(
                             Log.e("ChatRepository", "Error saving chats to local: ${e.message}")
                         }
                     }
-                    
-                    trySend(Result.Success(chats))
                 }
-            awaitClose { listener.remove() }
-        }
-        
-        val localFlow = chatDao.observeActiveChats().map { entities ->
-            val domainChats = entities.mapNotNull { entity ->
-                try {
-                    val participants = entity.participantIds.map { uid ->
-                        userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
+
+            // Single source of truth: stream from Room
+            val localJob = launch {
+                chatDao.observeActiveChats().collect { entities ->
+                    val domainChats = entities.mapNotNull { entity ->
+                        try {
+                            val participants = entity.participantIds.map { uid ->
+                                userDao.getUserById(uid)?.toDomain() ?: createUserStub(uid)
+                            }
+                            val lastMessage = entity.lastMessageId?.let { mid ->
+                                messageDao.getMessageById(mid)?.let { messageEntityToDomainSync(it) }
+                            }
+                            entity.toDomain(participants, lastMessage)
+                        } catch (e: Exception) {
+                            null
+                        }
                     }
-                    val lastMessage = entity.lastMessageId?.let { mid ->
-                        messageDao.getMessageById(mid)?.let { messageEntityToDomainSync(it) }
-                    }
-                    entity.toDomain(participants, lastMessage)
-                } catch (e: Exception) {
-                    null
+                    trySend(Result.Success(domainChats))
                 }
             }
-            Result.Success(domainChats) as Result<List<Chat>>
+
+            awaitClose {
+                listener.remove()
+                localJob.cancel()
+            }
         }
-        
-        // Merge flows: Firestore takes priority, but local DB is fallback
-        return merge(firestoreFlow, localFlow)
     }
 
     override fun observeArchivedChats(): Flow<Result<List<Chat>>> = callbackFlow {

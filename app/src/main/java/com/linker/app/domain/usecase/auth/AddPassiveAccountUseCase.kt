@@ -72,9 +72,11 @@ class AddPassiveAccountUseCase @Inject constructor(
                 throw when (e.errorCode) {
                     "ERROR_NETWORK_REQUEST_FAILED" -> Exception("Network Error")
                     "ERROR_USER_NOT_FOUND" -> Exception("User not found")
-                    "ERROR_WRONG_PASSWORD" -> Exception("Invalid credentials")
-                    else -> Exception("Sign-in failed")
+                    "ERROR_WRONG_PASSWORD", "ERROR_INVALID_CREDENTIAL" -> Exception("Invalid credentials")
+                    else -> Exception(e.message ?: "Sign-in failed")
                 }
+            } catch (e: com.google.firebase.FirebaseException) {
+                throw Exception(e.message ?: "Firebase authentication error")
             } finally {
                 // Clean up the temporary Firebase app
                 tempApp?.delete()

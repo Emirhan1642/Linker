@@ -23,6 +23,7 @@ data class LinkDetailUiState(
 
 @HiltViewModel
 class LinkDetailViewModel @Inject constructor(
+    private val linkRepository: com.linker.app.domain.repository.LinkRepository,
     private val linkInteractionUseCases: LinkInteractionUseCases
 ) : ViewModel() {
 
@@ -35,12 +36,25 @@ class LinkDetailViewModel @Inject constructor(
         currentLinkId = linkId
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            // TODO: Fetch link from repository. For now, simulate.
-            // When repository is updated, replace this with observeLink(linkId)
-            _uiState.value = _uiState.value.copy(
-                isLoading = false,
-                link = null // Link will be populated here
-            )
+            when (val result = linkRepository.getLinkById(linkId)) {
+                is Result.Success -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        link = result.data,
+                        error = null
+                    )
+                }
+                is Result.Error -> {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        link = null,
+                        error = result.message
+                    )
+                }
+                is Result.Loading -> {
+                    _uiState.value = _uiState.value.copy(isLoading = true)
+                }
+            }
         }
     }
 

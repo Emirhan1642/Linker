@@ -416,13 +416,18 @@ class BLEMeshManagerImpl @Inject constructor(
             val route = routingTable.getRoute(packet.recipientId)
             
             if (route == null) {
-                Log.w(TAG, "No route to recipient ${packet.recipientId} - checking connected devices")
-                
-                // Log available routes for debugging
+                Log.w(TAG, "No direct route to recipient ${packet.recipientId} - attempting flooding fallback to connected peers")
                 val connectedDevices = gattClientManager.getConnectedDevices()
-                Log.w(TAG, "Currently connected devices: $connectedDevices (count: ${connectedDevices.size})")
-                
-                return Result.failure(Exception("No route to recipient ${packet.recipientId}"))
+                if (connectedDevices.isEmpty()) {
+                    return Result.failure(Exception("No route to recipient ${packet.recipientId} and no connected peers"))
+                }
+                val data = BLEPacket.serialize(packet)
+                var anySent = false
+                for (deviceAddr in connectedDevices) {
+                    val success = gattClientManager.writeCharacteristic(deviceAddr, data)
+                    if (success) anySent = true
+                }
+                return if (anySent) Result.success(Unit) else Result.failure(Exception("Failed to send packet to any connected peer"))
             }
             
             Log.d(TAG, "Found route to ${packet.recipientId} via ${route.deviceAddress} (quality: ${route.routeQuality}, hops: ${route.hopCount})")
@@ -620,13 +625,14 @@ class BLEMeshManagerImpl @Inject constructor(
             if (isTestPacket) {
                 Log.d(TAG, "Received test packet from ${packet.senderId}, establishing bidirectional connection")
                 
-                // Decrypt test packet payload (simple XOR decryption)
-                // Test packets use simple XOR encryption as a placeholder
+                // Decrypt test packet payload (SHA-256 key stream decryption matching connectToPeer)
                 try {
-                    val decryptedTestPayload = packet.encryptedPayload.map { byte ->
-                        ((byte.toInt() and 0xFF) xor 0x42).toByte()
-                    }.toByteArray()
-                    val testMessage = String(decryptedTestPayload)
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    val keyStream = digest.digest(senderMacAddress.toByteArray(Charsets.UTF_8))
+                    val decryptedTestPayload = ByteArray(packet.encryptedPayload.size) { i ->
+                        (packet.encryptedPayload[i].toInt() xor keyStream[i % keyStream.size].toInt()).toByte()
+                    }
+                    val testMessage = String(decryptedTestPayload, Charsets.UTF_8)
                     Log.d(TAG, "Test packet decrypted: $testMessage")
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to decrypt test packet: ${e.message}")

@@ -325,17 +325,16 @@ class SyncManagerImpl @Inject constructor(
                     
                     if (timeSinceLastAttempt < retryDelay) continue
                     
-                    messageQueueDao.updateLastAttempt(
-                        queueId = queueItem.queueId,
-                        timestamp = System.currentTimeMillis()
-                    )
-                    
+                    val localMsg = messageDao.getMessageById(queueItem.messageId)
+                    val mediaPath = localMsg?.mediaUrl
+                    val replyToId = localMsg?.replyToMessageId
+
                     val result = messageRepository.sendMessage(
                         chatId = queueItem.chatId,
                         messageType = mapQueueMessageTypeToMessageType(queueItem.messageType),
                         content = queueItem.messagePayload,
-                        mediaLocalPath = null,
-                        replyToMessageId = null
+                        mediaLocalPath = mediaPath,
+                        replyToMessageId = replyToId
                     )
                     
                     when (result) {

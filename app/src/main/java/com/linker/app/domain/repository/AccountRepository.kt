@@ -239,4 +239,9 @@ interface AccountRepository {
         uid: String,
         onAuthenticated: suspend (AuthenticatedSession) -> Unit
     ): Result<Unit>
+
+    /**
+     * Retrieve decrypted credentials for internal session manager.
+     */
+    suspend fun getDecryptedCredentials(uid: String): Pair<String, String>?
 }

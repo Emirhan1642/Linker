@@ -85,6 +85,26 @@ class SecurityManager @Inject constructor(
     private fun validateCloudinaryApiKey(key: String): Boolean = key.matches(Regex("^\\d+\$")) || key.isEmpty()
     private fun validateCloudinaryApiSecret(secret: String): Boolean = secret.matches(Regex("^[A-Za-z0-9_-]+\$")) || secret.isEmpty()
 
+    @Volatile private var cachedSupabaseUrl: String? = null
+    @Volatile private var cachedSupabaseAnonKey: String? = null
+    @Volatile private var cachedCloudinaryCloudName: String? = null
+    @Volatile private var cachedCloudinaryApiKey: String? = null
+    @Volatile private var cachedCloudinaryApiSecret: String? = null
+    @Volatile private var isIntegrityVerified = false
+
+    private fun getHmacKey(): ByteArray {
+        val hmacKeyStr = encryptedPrefs.getString("hmac_key_seed", null)
+        if (hmacKeyStr != null) {
+            return android.util.Base64.decode(hmacKeyStr, android.util.Base64.NO_WRAP)
+        }
+        val random = java.security.SecureRandom()
+        val keyBytes = ByteArray(32)
+        random.nextBytes(keyBytes)
+        val encoded = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP)
+        encryptedPrefs.edit().putString("hmac_key_seed", encoded).apply()
+        return keyBytes
+    }
+
     private fun calculateIntegrityHash(): String {
         val data = buildString {
             append(encryptedPrefs.getString(KEY_SUPABASE_URL, ""))
@@ -95,12 +115,13 @@ class SecurityManager @Inject constructor(
             append(encryptedPrefs.getInt(KEY_CONFIG_VERSION, 0))
         }
         val mac = Mac.getInstance("HmacSHA256")
-        val secretKey = SecretKeySpec(masterKey.toString().toByteArray(), "HmacSHA256")
+        val secretKey = SecretKeySpec(getHmacKey(), "HmacSHA256")
         mac.init(secretKey)
         return mac.doFinal(data.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
     fun verifyIntegrity(): Boolean {
+        if (isIntegrityVerified) return true
         return try {
             val storedHash = encryptedPrefs.getString(KEY_INTEGRITY_HASH, null)
             val calculatedHash = calculateIntegrityHash()
@@ -110,6 +131,9 @@ class SecurityManager @Inject constructor(
                     SecurityLogger.EventType.SECURITY_CHECK_FAILED,
                     "Config integrity check failed - possible tampering detected"
                 )
+            }
+            if (isValid) {
+                isIntegrityVerified = true
             }
             isValid
         } catch (e: Exception) {
@@ -145,6 +169,12 @@ class SecurityManager @Inject constructor(
             putString(KEY_INTEGRITY_HASH, calculateIntegrityHash())
             apply()
         }
+        cachedSupabaseUrl = supabaseUrl
+        cachedSupabaseAnonKey = supabaseAnonKey
+        cachedCloudinaryCloudName = cloudinaryCloudName
+        cachedCloudinaryApiKey = cloudinaryApiKey
+        cachedCloudinaryApiSecret = cloudinaryApiSecret
+        isIntegrityVerified = true
         SecurityLogger.logApiKeyInitialization()
     }
 
@@ -204,12 +234,15 @@ class SecurityManager @Inject constructor(
 
     fun getSupabaseUrl(): ConfigResult<String> {
         return try {
+            val cached = cachedSupabaseUrl
+            if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
             checkAccessPatterns()
             checkExpiration()
             val url = encryptedPrefs.getString(KEY_SUPABASE_URL, null)
             if (url.isNullOrEmpty()) {
                 ConfigResult.Error("Supabase URL not initialized")
             } else {
+                cachedSupabaseUrl = url
                 ConfigResult.Success(url)
             }
         } catch (e: Exception) {
@@ -218,20 +251,26 @@ class SecurityManager @Inject constructor(
     }
 
     fun getSupabaseAnonKeySecure(): CharArray {
+        val cached = cachedSupabaseAnonKey
+        if (!cached.isNullOrEmpty()) return cached.toCharArray()
         checkAccessPatterns()
         val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
             ?: throw IllegalStateException("Supabase Anon Key not initialized")
+        cachedSupabaseAnonKey = key
         return key.toCharArray()
     }
     
     fun getSupabaseAnonKey(): ConfigResult<String> {
         return try {
+            val cached = cachedSupabaseAnonKey
+            if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
             checkAccessPatterns()
             checkExpiration()
             val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
             if (key.isNullOrEmpty()) {
                 ConfigResult.Error("Supabase Anon Key not initialized")
             } else {
+                cachedSupabaseAnonKey = key
                 ConfigResult.Success(key)
             }
         } catch (e: Exception) {
@@ -241,11 +280,14 @@ class SecurityManager @Inject constructor(
 
     fun getCloudinaryCloudName(): ConfigResult<String> {
         return try {
+            val cached = cachedCloudinaryCloudName
+            if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
             checkAccessPatterns()
             val name = encryptedPrefs.getString(KEY_CLOUDINARY_CLOUD_NAME, null)
             if (name.isNullOrEmpty()) {
                 ConfigResult.Error("Cloudinary Cloud Name not initialized")
             } else {
+                cachedCloudinaryCloudName = name
                 ConfigResult.Success(name)
             }
         } catch (e: Exception) {
@@ -255,11 +297,14 @@ class SecurityManager @Inject constructor(
 
     fun getCloudinaryApiKey(): ConfigResult<String> {
         return try {
+            val cached = cachedCloudinaryApiKey
+            if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
             checkAccessPatterns()
             val key = encryptedPrefs.getString(KEY_CLOUDINARY_API_KEY, null)
             if (key.isNullOrEmpty()) {
                 ConfigResult.Error("Cloudinary API Key not initialized")
             } else {
+                cachedCloudinaryApiKey = key
                 ConfigResult.Success(key)
             }
         } catch (e: Exception) {
@@ -268,9 +313,12 @@ class SecurityManager @Inject constructor(
     }
 
     fun getCloudinaryApiSecretSecure(): CharArray {
+        val cached = cachedCloudinaryApiSecret
+        if (!cached.isNullOrEmpty()) return cached.toCharArray()
         checkAccessPatterns()
         val secret = encryptedPrefs.getString(KEY_CLOUDINARY_API_SECRET, null)
             ?: throw IllegalStateException("Cloudinary API Secret not initialized")
+        cachedCloudinaryApiSecret = secret
         return secret.toCharArray()
     }
 

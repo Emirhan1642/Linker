@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
  * to prevent memory leaks from incomplete fragments.
  */
 class FragmentManager(
-    private val fragmentTimeout: Long = 30_000L, // 30 seconds
+    private val fragmentTimeout: Long = com.linker.app.core.config.OfflineMessagingConfig.FRAGMENT_TIMEOUT_MS,
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 ) {
     
@@ -44,7 +44,7 @@ class FragmentManager(
      */
     private data class FragmentSet(
         val fragments: MutableList<BLEPacket> = mutableListOf(),
-        val receivedAt: Long = System.currentTimeMillis(),
+        var lastReceivedAt: Long = System.currentTimeMillis(),
         var timeoutJob: Job? = null
     )
     
@@ -59,13 +59,7 @@ class FragmentManager(
         
         // Get or create fragment set
         val fragmentSet = fragmentStore.getOrPut(messageId) {
-            val set = FragmentSet()
-            // Schedule cleanup after timeout
-            set.timeoutJob = coroutineScope.launch {
-                delay(fragmentTimeout)
-                cleanupMessage(messageId)
-            }
-            set
+            FragmentSet()
         }
         
         // Add fragment if not already present
@@ -76,7 +70,15 @@ class FragmentManager(
             
             if (existingFragment == null) {
                 fragmentSet.fragments.add(fragment)
+                fragmentSet.lastReceivedAt = System.currentTimeMillis()
                 logger.d("Added fragment ${fragment.fragmentIndex} for message $messageId")
+            }
+            
+            // Reschedule sliding window timeout
+            fragmentSet.timeoutJob?.cancel()
+            fragmentSet.timeoutJob = coroutineScope.launch {
+                delay(fragmentTimeout)
+                cleanupMessage(messageId)
             }
             
             // Check if complete
@@ -107,7 +109,7 @@ class FragmentManager(
         val staleMessages = mutableListOf<String>()
         
         fragmentStore.forEach { (messageId, fragmentSet) ->
-            if (now - fragmentSet.receivedAt > fragmentTimeout) {
+            if (now - fragmentSet.lastReceivedAt > fragmentTimeout) {
                 staleMessages.add(messageId)
             }
         }

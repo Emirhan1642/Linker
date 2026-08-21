@@ -220,7 +220,6 @@ class CertificatePinningInterceptor @Inject constructor(
             if (e.message?.contains("Certificate pinning failure") == true) {
                 handlePinningFailure(request.url.host, e)
                 pinningConfig.recordPinningFailure(request.url.host)
-                throw SecurityException("Certificate pinning failed for ${request.url.host}", e)
             }
             throw e
         }

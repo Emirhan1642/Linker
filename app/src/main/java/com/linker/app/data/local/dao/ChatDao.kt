@@ -13,6 +13,9 @@ interface ChatDao {
     @Query("SELECT * FROM chats WHERE chatId = :chatId")
     suspend fun getChatById(chatId: String): ChatEntity?
     
+    @Query("SELECT * FROM chats")
+    suspend fun getAllChats(): List<ChatEntity>
+    
     @Query("SELECT * FROM chats WHERE chatId = :chatId")
     fun observeChatById(chatId: String): Flow<ChatEntity?>
     

@@ -21,6 +21,9 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.tasks.await
 import java.util.UUID
 import javax.inject.Inject
@@ -85,19 +88,24 @@ class StoryRepositoryImpl @Inject constructor(
                     }
 
                     val currentUserId = auth.currentUser?.uid ?: ""
-                    val viewedStoryIds = mutableSetOf<String>()
-                    if (currentUserId.isNotEmpty()) {
-                        dataList.forEach { (storyId, _) ->
-                            try {
-                                val viewerDoc = storiesCollection.document(storyId)
-                                    .collection("viewers")
-                                    .document(currentUserId)
-                                    .get()
-                                    .await()
-                                if (viewerDoc.exists()) {
-                                    viewedStoryIds.add(storyId)
+                    val viewedStoryIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+                    if (currentUserId.isNotEmpty() && dataList.isNotEmpty()) {
+                        coroutineScope {
+                            val deferreds = dataList.map { pair ->
+                                async {
+                                    try {
+                                        val viewerDoc = storiesCollection.document(pair.first)
+                                            .collection("viewers")
+                                            .document(currentUserId)
+                                            .get()
+                                            .await()
+                                        if (viewerDoc.exists()) {
+                                            viewedStoryIds.add(pair.first)
+                                        }
+                                    } catch (_: Exception) {}
                                 }
-                            } catch (_: Exception) {}
+                            }
+                            deferreds.awaitAll()
                         }
                     }
 

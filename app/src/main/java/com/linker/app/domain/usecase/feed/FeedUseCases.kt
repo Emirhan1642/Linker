@@ -112,8 +112,9 @@ class CreateLinkUseCase @Inject constructor(
         if (mediaLocalPaths.size > 10) return Result.Error("Maximum 10 media files allowed")
         
         mediaLocalPaths.forEach { path ->
-            if (path.isBlank() || path.contains("..") || path.contains("~") || !path.startsWith("/")) {
-                return Result.Error("Invalid media path: \$path")
+            val isValidUri = path.startsWith("content://") || path.startsWith("file://") || path.startsWith("/")
+            if (path.isBlank() || path.contains("..") || path.contains("~") || !isValidUri) {
+                return Result.Error("Invalid media path: $path")
             }
         }
         

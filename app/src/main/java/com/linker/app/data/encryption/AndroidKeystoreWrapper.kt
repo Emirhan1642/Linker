@@ -131,14 +131,19 @@ class AndroidKeystoreWrapper @Inject constructor(
     /**
      * Store Signal Protocol identity key pair
      */
-    fun storeIdentityKeyPair(alias: String, identityKeyPair: IdentityKeyPair) {
+    fun storeIdentityKeyPair(alias: String, identityKeyPair: IdentityKeyPair): Boolean {
         val serialized = identityKeyPair.serialize()
-        encrypt(alias, serialized).onSuccess { encrypted ->
-            val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-            prefs.edit { putString(alias, encoded) }
-        }.onFailure { e ->
-            SecureLogger.e(TAG, "Failed to store identity key pair for alias: $alias", e)
-        }
+        return encrypt(alias, serialized).fold(
+            onSuccess = { encrypted ->
+                val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+                prefs.edit { putString(alias, encoded) }
+                true
+            },
+            onFailure = { e ->
+                SecureLogger.e(TAG, "Failed to store identity key pair for alias: $alias", e)
+                false
+            }
+        )
     }
     
     /**
@@ -170,13 +175,18 @@ class AndroidKeystoreWrapper @Inject constructor(
     /**
      * Store encrypted string
      */
-    fun storeEncryptedString(alias: String, key: String, value: String) {
-        encrypt(alias, value.toByteArray()).onSuccess { encrypted ->
-            val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
-            prefs.edit { putString(key, encoded) }
-        }.onFailure { e ->
-            SecureLogger.e(TAG, "Failed to store encrypted string for key: $key", e)
-        }
+    fun storeEncryptedString(alias: String, key: String, value: String): Boolean {
+        return encrypt(alias, value.toByteArray()).fold(
+            onSuccess = { encrypted ->
+                val encoded = Base64.encodeToString(encrypted, Base64.NO_WRAP)
+                prefs.edit { putString(key, encoded) }
+                true
+            },
+            onFailure = { e ->
+                SecureLogger.e(TAG, "Failed to store encrypted string for key: $key", e)
+                false
+            }
+        )
     }
     
     /**

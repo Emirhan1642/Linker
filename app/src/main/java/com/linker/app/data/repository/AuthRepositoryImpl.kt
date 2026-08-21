@@ -243,10 +243,11 @@ class AuthRepositoryImpl @Inject constructor(
         val uid = firebaseAuth.currentUser?.uid
         firebaseAuth.signOut()
         try {
-            if (uid != null) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                if (uid != null) {
                     userDao.deleteUserById(uid)
                 }
+                database.clearAllTables()
             }
         } catch (e: Exception) {
             android.util.Log.e("AuthRepositoryImpl", "Failed to clear user cache on sign out", e)

@@ -446,11 +446,17 @@ class MessageQueueProcessorImpl @Inject constructor(
             )
             
             onProgress?.invoke(75)
-            messageBatcher.addMessage(packet)
+            val sendResult = bleMeshManager.sendMessage(packet)
             onProgress?.invoke(100)
             
-            Log.d(TAG, "BLE packet added to batcher for message ${message.messageId}")
-            Result.success(Unit)
+            if (sendResult.isSuccess) {
+                Log.d(TAG, "BLE packet sent directly for message ${message.messageId}")
+                Result.success(Unit)
+            } else {
+                messageBatcher.addMessage(packet)
+                Log.d(TAG, "BLE packet queued in batcher for message ${message.messageId}")
+                Result.success(Unit)
+            }
         } catch (e: IllegalStateException) {
             Log.e(TAG, "User not logged in", e)
             Result.failure(e)

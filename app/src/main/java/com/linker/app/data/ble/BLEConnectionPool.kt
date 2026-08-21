@@ -113,12 +113,16 @@ class BLEConnectionPool @Inject constructor() {
         }
         
         if (connectionInfo != null) {
-            // Disconnect and Close GATT connection properly to avoid HCI stack leak
+            // Disconnect and close GATT connection safely to avoid HCI stack leak and DeadObjectException
             try {
                 connectionInfo.gatt.disconnect()
+            } catch (e: Exception) {
+                logger.w("Error disconnecting GATT: ${e.message}")
+            }
+            try {
                 connectionInfo.gatt.close()
             } catch (e: Exception) {
-                logger.e("Error closing GATT connection", e)
+                logger.w("Error closing GATT handle: ${e.message}")
             }
             
             logger.d("Removed connection to $deviceAddress (${connections.size}/$MAX_CONNECTIONS)")

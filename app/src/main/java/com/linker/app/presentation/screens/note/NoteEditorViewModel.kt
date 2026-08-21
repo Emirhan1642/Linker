@@ -357,7 +357,7 @@ class NoteEditorViewModel @Inject constructor(
                             previewUrl = state.previewUrl,
                             clipStartMs = state.clipStartMs,
                             clipEndMs = state.clipEndMs,
-                            caption = state.textContent,
+                            caption = state.musicCaption.ifBlank { state.textContent },
                             backgroundColor = state.selectedBackgroundColor,
                             textColor = state.selectedTextColor
                         )

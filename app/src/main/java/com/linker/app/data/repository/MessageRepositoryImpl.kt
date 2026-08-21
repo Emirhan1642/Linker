@@ -854,6 +854,9 @@ class MessageRepositoryImpl @Inject constructor(
             // Delete for everyone - update Firestore
             ref.update(
                 mapOf(
+                    "content" to null,
+                    "mediaUrl" to null,
+                    "thumbnailUrl" to null,
                     "isDeleted" to true,
                     "deletedForEveryone" to true
                 )
