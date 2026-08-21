@@ -9,6 +9,9 @@ create table if not exists public.user_push_tokens (
 create unique index if not exists user_push_tokens_user_token_idx
   on public.user_push_tokens (user_id, fcm_token);
 
+create index if not exists idx_user_push_tokens_user_id
+  on public.user_push_tokens (user_id);
+
 alter table public.user_push_tokens enable row level security;
 
 drop policy if exists "Users can read their tokens" on public.user_push_tokens;
@@ -19,20 +22,20 @@ drop policy if exists "Users can delete their tokens" on public.user_push_tokens
 create policy "Users can read their tokens"
   on public.user_push_tokens
   for select
-  using (auth.uid() = user_id);
+  using (auth.uid()::text = user_id);
 
 create policy "Users can insert their tokens"
   on public.user_push_tokens
   for insert
-  with check (auth.uid() = user_id);
+  with check (auth.uid()::text = user_id);
 
 create policy "Users can update their tokens"
   on public.user_push_tokens
   for update
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+  using (auth.uid()::text = user_id)
+  with check (auth.uid()::text = user_id);
 
 create policy "Users can delete their tokens"
   on public.user_push_tokens
   for delete
-  using (auth.uid() = user_id);
+  using (auth.uid()::text = user_id);

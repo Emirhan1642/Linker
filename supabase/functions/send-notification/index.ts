@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
+  corsHeaders,
   fetchFcmTokens,
   isValidAnonAuthHeaders,
   sendFcmNotification,
@@ -13,18 +14,25 @@ type RequestBody = {
 };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     if (req.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
 
     if (!isValidAnonAuthHeaders(req.headers)) {
-      return new Response("Unauthorized (missing or invalid anon key)", { status: 401 });
+      return new Response(
+        JSON.stringify({ error: "Unauthorized (missing or invalid anon key)" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     const body = (await req.json()) as RequestBody;
     if (!body.user_id || !body.title || !body.body) {
-      return new Response("Missing required fields", { status: 400 });
+      return new Response("Missing required fields", { status: 400, headers: corsHeaders });
     }
 
     const tokens = await fetchFcmTokens(body.user_id);
@@ -36,12 +44,12 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify(result), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     return new Response(
       JSON.stringify({ success: false, message: String(error) }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

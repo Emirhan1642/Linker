@@ -104,22 +104,23 @@ class BLEMeshManagerImpl @Inject constructor(
     
     override fun initialize() {
         bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-        bluetoothAdapter = bluetoothManager?.adapter
+        val adapter = bluetoothManager?.adapter
+        bluetoothAdapter = adapter
         
-        if (bluetoothAdapter == null) {
+        if (adapter == null) {
             Log.e(TAG, "Bluetooth adapter not available")
             _meshStatus.value = MeshStatus.Error("Bluetooth not available")
             return
         }
         
-        if (!bluetoothAdapter!!.isEnabled) {
+        if (!adapter.isEnabled) {
             Log.w(TAG, "Bluetooth is disabled")
             _meshStatus.value = MeshStatus.Error("Bluetooth disabled")
             return
         }
         
-        bleScanner = bluetoothAdapter?.bluetoothLeScanner
-        bleAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser
+        bleScanner = adapter.bluetoothLeScanner
+        bleAdvertiser = adapter.bluetoothLeAdvertiser
         
         // Warm up message ID cache
         coroutineScope.launch {
@@ -368,7 +369,7 @@ class BLEMeshManagerImpl @Inject constructor(
                             // This is NOT secure but prevents plaintext transmission
                             // Real messages use Signal Protocol encryption
                             val encryptedTestPayload = testPayload.map { byte -> 
-                                (byte.toInt() xor 0x42).toByte() 
+                                ((byte.toInt() and 0xFF) xor 0x42).toByte() 
                             }.toByteArray()
                             
                             // Use UUID for message ID to prevent collisions
@@ -605,7 +606,7 @@ class BLEMeshManagerImpl @Inject constructor(
                 // Test packets use simple XOR encryption as a placeholder
                 try {
                     val decryptedTestPayload = packet.encryptedPayload.map { byte ->
-                        (byte.toInt() xor 0x42).toByte()
+                        ((byte.toInt() and 0xFF) xor 0x42).toByte()
                     }.toByteArray()
                     val testMessage = String(decryptedTestPayload)
                     Log.d(TAG, "Test packet decrypted: $testMessage")

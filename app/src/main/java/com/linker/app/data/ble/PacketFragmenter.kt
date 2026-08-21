@@ -45,8 +45,8 @@ class PacketFragmenter {
             )
         }
         
-        // Calculate number of fragments needed
-        val totalFragments = (encryptedPayload.size + BLEPacket.MAX_PAYLOAD_SIZE - 1) / BLEPacket.MAX_PAYLOAD_SIZE
+        // Calculate number of fragments needed (at least 1)
+        val totalFragments = maxOf(1, (encryptedPayload.size + BLEPacket.MAX_PAYLOAD_SIZE - 1) / BLEPacket.MAX_PAYLOAD_SIZE)
         
         if (totalFragments > Short.MAX_VALUE) {
             throw IllegalArgumentException("Payload too large: requires $totalFragments fragments, max is ${Short.MAX_VALUE}")

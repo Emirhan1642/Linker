@@ -4,6 +4,12 @@ type TokenRow = {
   fcm_token: string;
 };
 
+export const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 export function getEnvOrThrow(key: string): string {
   const value = Deno.env.get(key);
   if (!value) {

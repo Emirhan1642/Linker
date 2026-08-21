@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
+  corsHeaders,
   isValidAnonAuthHeaders,
   maskKey,
   getSupabaseAnonKey,
@@ -13,9 +14,13 @@ type RequestBody = {
 };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     if (req.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
 
     if (!isValidAnonAuthHeaders(req.headers)) {
@@ -30,25 +35,25 @@ Deno.serve(async (req) => {
       };
       return new Response(JSON.stringify(debug), {
         status: 401,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const body = (await req.json()) as RequestBody;
     if (!body.user_id || !body.fcm_token) {
-      return new Response("Missing required fields", { status: 400 });
+      return new Response("Missing required fields", { status: 400, headers: corsHeaders });
     }
 
     await upsertFcmToken(body.user_id, body.fcm_token, body.platform);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
     return new Response(
       JSON.stringify({ success: false, message: String(error) }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });

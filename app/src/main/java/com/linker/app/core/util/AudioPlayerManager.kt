@@ -25,6 +25,13 @@ class AudioPlayerManager @Inject constructor() {
     private val _durationMs = MutableStateFlow(0L)
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
+    val progress: Float
+        get() {
+            val duration = _durationMs.value
+            val position = _currentPositionMs.value
+            return if (duration > 0) (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+        }
+
     private var currentUrl: String? = null
     private var targetEndTimeMs: Long? = null
 

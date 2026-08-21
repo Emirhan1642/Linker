@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
+  corsHeaders,
   fetchFcmTokens,
   isValidAnonAuthHeaders,
   getSupabaseAnonKey,
@@ -13,9 +14,13 @@ type RequestBody = {
 };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
     if (req.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", { status: 405, headers: corsHeaders });
     }
 
     if (!isValidAnonAuthHeaders(req.headers)) {
@@ -30,14 +35,14 @@ Deno.serve(async (req) => {
       };
       return new Response(JSON.stringify(debug), {
         status: 401,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const body = (await req.json()) as RequestBody;
     
     if (!body.recipient_id || !body.message_id) {
-      return new Response("Missing required fields", { status: 400 });
+      return new Response("Missing required fields", { status: 400, headers: corsHeaders });
     }
 
     const tokens = await fetchFcmTokens(body.recipient_id);
@@ -45,7 +50,7 @@ Deno.serve(async (req) => {
     if (tokens.length === 0) {
       return new Response(
         JSON.stringify({ success: true, message: "No tokens for recipient" }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
+        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
@@ -107,12 +112,12 @@ Deno.serve(async (req) => {
         success: true,
         message: `Delete notification sent (${successCount})`,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
     return new Response(
       JSON.stringify({ success: false, message: String(error) }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 });
