@@ -65,15 +65,17 @@ class SpotifyAppRemoteManager @Inject constructor(
 
     private var lastSeekTime = 0L
 
+    private var lastProgressUpdateMs = 0L
+
     private fun observePlayerState() {
         spotifyAppRemote?.playerApi?.subscribeToPlayerState()?.setEventCallback { playerState ->
             _isPlaying.value = !playerState.isPaused
             _durationMs.value = playerState.track?.duration ?: 0L
 
             // Ignore delayed player state updates right after a seek to prevent race conditions 
-            // where the old position triggers an immediate pause.
             if (System.currentTimeMillis() - lastSeekTime > 1000) {
                 _currentPositionMs.value = playerState.playbackPosition
+                lastProgressUpdateMs = System.currentTimeMillis()
             }
 
             if (!playerState.isPaused) {
@@ -86,12 +88,13 @@ class SpotifyAppRemoteManager @Inject constructor(
 
     private fun startProgressTracking() {
         progressJob?.cancel()
-        var lastUpdate = System.currentTimeMillis()
+        lastProgressUpdateMs = System.currentTimeMillis()
         progressJob = scope.launch {
             while (isActive) {
+                delay(50)
                 val now = System.currentTimeMillis()
-                val delta = now - lastUpdate
-                lastUpdate = now
+                val delta = now - lastProgressUpdateMs
+                lastProgressUpdateMs = now
                 val newPos = _currentPositionMs.value + delta
                 _currentPositionMs.value = newPos
 
@@ -102,7 +105,6 @@ class SpotifyAppRemoteManager @Inject constructor(
                         _currentPositionMs.value = endTime
                     }
                 }
-                delay(50)
             }
         }
     }
@@ -110,6 +112,29 @@ class SpotifyAppRemoteManager @Inject constructor(
     private fun stopProgressTracking() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    fun getCurrentTrack(
+        onResult: (trackId: String, trackName: String, artistName: String, albumArtUrl: String?, durationMs: Long) -> Unit,
+        onError: () -> Unit
+    ) {
+        val remote = spotifyAppRemote
+        if (remote == null || !remote.isConnected) {
+            onError()
+            return
+        }
+        remote.playerApi?.playerState?.setResultCallback { state ->
+            val track = state.track
+            if (track != null) {
+                val trackId = track.uri.removePrefix("spotify:track:")
+                val trackName = track.name ?: ""
+                val artistName = track.artist?.name ?: ""
+                val albumArtUrl = track.imageUri?.raw
+                onResult(trackId, trackName, artistName, albumArtUrl, track.duration)
+            } else {
+                onError()
+            }
+        }?.setErrorCallback { onError() } ?: onError()
     }
 
     fun playTrack(trackId: String, startTimeMs: Long? = 0L, endTimeMs: Long? = null) {

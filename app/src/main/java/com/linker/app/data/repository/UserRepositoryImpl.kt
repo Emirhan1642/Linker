@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.tasks.await
 import kotlin.math.max
+import kotlin.coroutines.resume
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -435,13 +436,89 @@ class UserRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateProfileImage(localImagePath: String): Result<User> = safeCall {
-        // Placeholder for profile image upload
-        throw Exception("Not implemented")
+        val uid = currentUid ?: throw Exception("Not logged in")
+        val remoteUrl = if (localImagePath.startsWith("http://") || localImagePath.startsWith("https://")) {
+            localImagePath
+        } else {
+            kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
+                try {
+                    val uri = if (localImagePath.startsWith("content://") || localImagePath.startsWith("file://")) {
+                        android.net.Uri.parse(localImagePath)
+                    } else {
+                        android.net.Uri.fromFile(java.io.File(localImagePath))
+                    }
+                    val preset = com.linker.app.BuildConfig.CLOUDINARY_UPLOAD_PRESET.ifBlank { "default_preset" }
+                    val req = com.cloudinary.android.MediaManager.get().upload(uri)
+                        .unsigned(preset)
+                        .callback(object : com.cloudinary.android.callback.UploadCallback {
+                            override fun onStart(requestId: String) {}
+                            override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
+                            override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                                cont.resume(resultData["secure_url"] as? String)
+                            }
+                            override fun onError(requestId: String, error: com.cloudinary.android.callback.ErrorInfo) {
+                                cont.resume(null)
+                            }
+                            override fun onReschedule(requestId: String, error: com.cloudinary.android.callback.ErrorInfo) {
+                                cont.resume(null)
+                            }
+                        }).dispatch()
+                    cont.invokeOnCancellation { com.cloudinary.android.MediaManager.get().cancelRequest(req) }
+                } catch (e: Exception) {
+                    cont.resume(null)
+                }
+            } ?: localImagePath
+        }
+
+        firestore.collection("users").document(uid).update("profileImageUrl", remoteUrl).await()
+        val snap = firestore.collection("users").document(uid).get().await()
+        val data = snap.data ?: throw Exception("Failed to retrieve updated user data")
+        val entity = mapToEntity(uid, data)
+        userDao.insertUser(entity)
+        entity.toDomain()
     }
 
     override suspend fun updateCoverImage(localImagePath: String): Result<User> = safeCall {
-        // Placeholder for cover image upload
-        throw Exception("Not implemented")
+        val uid = currentUid ?: throw Exception("Not logged in")
+        val remoteUrl = if (localImagePath.startsWith("http://") || localImagePath.startsWith("https://")) {
+            localImagePath
+        } else {
+            kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
+                try {
+                    val uri = if (localImagePath.startsWith("content://") || localImagePath.startsWith("file://")) {
+                        android.net.Uri.parse(localImagePath)
+                    } else {
+                        android.net.Uri.fromFile(java.io.File(localImagePath))
+                    }
+                    val preset = com.linker.app.BuildConfig.CLOUDINARY_UPLOAD_PRESET.ifBlank { "default_preset" }
+                    val req = com.cloudinary.android.MediaManager.get().upload(uri)
+                        .unsigned(preset)
+                        .callback(object : com.cloudinary.android.callback.UploadCallback {
+                            override fun onStart(requestId: String) {}
+                            override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
+                            override fun onSuccess(requestId: String, resultData: Map<*, *>) {
+                                cont.resume(resultData["secure_url"] as? String)
+                            }
+                            override fun onError(requestId: String, error: com.cloudinary.android.callback.ErrorInfo) {
+                                cont.resume(null)
+                            }
+                            override fun onReschedule(requestId: String, error: com.cloudinary.android.callback.ErrorInfo) {
+                                cont.resume(null)
+                            }
+                        }).dispatch()
+                    cont.invokeOnCancellation { com.cloudinary.android.MediaManager.get().cancelRequest(req) }
+                } catch (e: Exception) {
+                    cont.resume(null)
+                }
+            } ?: localImagePath
+        }
+
+        firestore.collection("users").document(uid).update("coverImageUrl", remoteUrl).await()
+        val snap = firestore.collection("users").document(uid).get().await()
+        val data = snap.data ?: throw Exception("Failed to retrieve updated user data")
+        val entity = mapToEntity(uid, data)
+        userDao.insertUser(entity)
+        entity.toDomain()
     }
 
     override suspend fun setPrivateAccount(isPrivate: Boolean): Result<Unit> = safeCall {

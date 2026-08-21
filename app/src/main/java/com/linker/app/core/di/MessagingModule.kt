@@ -47,9 +47,22 @@ abstract class MessagingModule {
     abstract fun bindCurrentUserProvider(
         impl: CurrentUserProviderImpl
     ): CurrentUserProvider
-    
-    // MessageQueueProcessor is now provided in companion object to attach LifecycleObserver
-    
+
+    /**
+     * Binds TypingIndicatorRepository for typing indicators in chat
+     */
+    @Binds
+    @Singleton
+    abstract fun bindTypingIndicatorRepository(
+        impl: com.linker.app.data.repository.TypingIndicatorRepositoryImpl
+    ): com.linker.app.domain.usecase.chat.TypingIndicatorRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMessageQueueProcessor(
+        impl: MessageQueueProcessorImpl
+    ): MessageQueueProcessor
+
     /**
      * Binds SyncManager for message synchronization
      * 
@@ -91,20 +104,5 @@ abstract class MessagingModule {
         ): GetUserDisplayNameUseCase {
             return GetUserDisplayNameUseCase(userRepository, currentUserProvider)
         }
-
-        @Provides
-        @Singleton
-        fun provideMessageQueueProcessor(
-            impl: MessageQueueProcessorImpl
-        ): MessageQueueProcessor {
-            return impl.also { processor ->
-                androidx.lifecycle.ProcessLifecycleOwner.get().lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
-                    override fun onStop(owner: androidx.lifecycle.LifecycleOwner) {
-                        processor.shutdown()
-                    }
-                })
-            }
-        }
-        
     }
 }

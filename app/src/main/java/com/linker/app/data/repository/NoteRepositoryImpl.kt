@@ -86,18 +86,49 @@ class NoteRepositoryImpl @Inject constructor(
                     // Extract all unique author IDs
                     val authorIds = rawNotesData.mapNotNull { it.second["authorId"] as? String }.toSet()
                     
-                    // Batch fetch authors
+                    // Batch fetch authors with fallback to Firestore
                     val usersMap = if (authorIds.isNotEmpty()) {
-                        userDao.getUsersByIds(authorIds.toList()).associateBy { it.userId }
+                        val localUsers = userDao.getUsersByIds(authorIds.toList()).associateBy { it.userId }.toMutableMap()
+                        val missingIds = authorIds - localUsers.keys
+                        if (missingIds.isNotEmpty()) {
+                            try {
+                                val userDocs = firestore.collection("users")
+                                    .whereIn(com.google.firebase.firestore.FieldPath.documentId(), missingIds.take(10).toList())
+                                    .get()
+                                    .await()
+                                val now = System.currentTimeMillis()
+                                for (uDoc in userDocs) {
+                                    val uEntity = com.linker.app.data.local.entity.UserEntity(
+                                        userId = uDoc.id,
+                                        username = uDoc.getString("username") ?: "user",
+                                        displayName = uDoc.getString("displayName") ?: uDoc.getString("username") ?: "User",
+                                        email = uDoc.getString("email"),
+                                        phoneNumber = uDoc.getString("phoneNumber"),
+                                        bio = uDoc.getString("bio"),
+                                        profileImageUrl = uDoc.getString("profileImageUrl"),
+                                        coverImageUrl = uDoc.getString("coverImageUrl"),
+                                        createdAt = uDoc.getLong("createdAt") ?: now,
+                                        updatedAt = uDoc.getLong("updatedAt") ?: now,
+                                        isFollowing = false
+                                    )
+                                    localUsers[uDoc.id] = uEntity
+                                    userDao.insertUser(uEntity)
+                                }
+                            } catch (e: Exception) {
+                                // Ignore failure fetching user profiles
+                            }
+                        }
+                        localUsers
                     } else {
                         emptyMap()
                     }
 
-                    // Map to domain models with real user data and filter by followers
+                    val currentTs = System.currentTimeMillis()
+                    // Map to domain models with real user data and filter by followers and dynamic expiration
                     val notes = rawNotesData.map { (docId, data) ->
                         mapToNoteWithUser(docId, data, usersMap)
                     }.filter { note ->
-                        note.author.userId == currentUserId || usersMap[note.author.userId]?.isFollowing == true
+                        note.expiresAt > currentTs && (note.author.userId == currentUserId || usersMap[note.author.userId]?.isFollowing == true)
                     }
                     
                     trySend(Result.Success(notes))
@@ -440,6 +471,7 @@ class NoteRepositoryImpl @Inject constructor(
         latitude: Double,
         longitude: Double,
         placeName: String,
+        caption: String,
         backgroundColor: String?,
         textColor: String?
     ): Result<Note.Location> {
@@ -451,7 +483,7 @@ class NoteRepositoryImpl @Inject constructor(
             val noteData = hashMapOf(
                 "authorId" to currentUserId,
                 "noteType" to "LOCATION",
-                "content" to "",
+                "content" to caption,
                 "latitude" to latitude,
                 "longitude" to longitude,
                 "placeName" to placeName,

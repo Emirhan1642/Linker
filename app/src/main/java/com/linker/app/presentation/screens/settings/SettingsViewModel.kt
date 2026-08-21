@@ -98,5 +98,6 @@ class SettingsViewModel @Inject constructor(
     fun setDataSaver(enabled: Boolean) = _uiState.update { it.copy(dataSaver = enabled) }
     fun setAutoPlayVideos(enabled: Boolean) = _uiState.update { it.copy(autoPlayVideos = enabled) }
 
+    fun showSnackbar(message: UiText) = _uiState.update { it.copy(snackbarMessage = message) }
     fun dismissSnackbar() = _uiState.update { it.copy(snackbarMessage = null) }
 }

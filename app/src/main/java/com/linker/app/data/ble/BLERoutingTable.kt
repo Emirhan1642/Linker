@@ -161,11 +161,12 @@ class BLERoutingTable @Inject constructor(
         }
         
         if (existingNode != null) {
-            // Update existing route if new route is better
-            val existingQuality = existingNode.routeQuality
+            val isStale = (timestamp - existingNode.lastSeen > STALE_NODE_THRESHOLD)
+            val isBetterRoute = routeQuality > existingNode.routeQuality
+            val isDirectOverwritingStale = (isStale && hopCount <= existingNode.hopCount) || (timestamp - existingNode.lastSeen > 60_000L)
             
-            if (routeQuality > existingQuality || timestamp - existingNode.lastSeen > 10_000L) {
-                // Update with better route or refresh stale route
+            if (isBetterRoute || isDirectOverwritingStale) {
+                // Update with better route or refresh truly stale route
                 val updatedNode = existingNode.copy(
                     deviceAddress = deviceAddress,
                     rssi = rssi,

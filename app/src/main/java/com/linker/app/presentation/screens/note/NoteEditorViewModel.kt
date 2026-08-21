@@ -61,7 +61,8 @@ data class NoteEditorUiState(
 @HiltViewModel
 class NoteEditorViewModel @Inject constructor(
     private val noteInteractionUseCases: NoteInteractionUseCases,
-    private val liveLocationRepository: LiveLocationRepository
+    private val liveLocationRepository: LiveLocationRepository,
+    private val spotifyAppRemoteManager: com.linker.app.core.util.SpotifyAppRemoteManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NoteEditorUiState())
@@ -247,8 +248,31 @@ class NoteEditorViewModel @Inject constructor(
     fun onCountdownChange(title: String, timeMillis: Long) {
         _uiState.value = _uiState.value.copy(
             countdownTitle = title,
+            textContent = title,
             targetTime = timeMillis,
             error = null
+        )
+    }
+
+    fun fetchCurrentlyPlayingTrack() {
+        spotifyAppRemoteManager.getCurrentTrack(
+            onResult = { trackId, trackName, artistName, albumArtUrl, durationMs ->
+                _uiState.value = _uiState.value.copy(
+                    selectedType = NoteType.MUSIC,
+                    trackId = trackId,
+                    trackName = trackName,
+                    artistName = artistName,
+                    albumArtUrl = albumArtUrl,
+                    clipStartMs = 0L,
+                    clipEndMs = minOf(30000L, durationMs),
+                    error = null
+                )
+            },
+            onError = {
+                _uiState.value = _uiState.value.copy(
+                    error = "Spotify'da çalan şarkı bulunamadı. Spotify uygulamasını açıp bir parça çalın."
+                )
+            }
         )
     }
 
@@ -327,6 +351,7 @@ class NoteEditorViewModel @Inject constructor(
                             latitude = state.latitude, 
                             longitude = state.longitude, 
                             placeName = state.placeName,
+                            caption = state.textContent,
                             backgroundColor = state.selectedBackgroundColor,
                             textColor = state.selectedTextColor
                         )

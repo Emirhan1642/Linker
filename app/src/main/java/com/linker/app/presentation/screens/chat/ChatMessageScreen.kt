@@ -122,6 +122,7 @@ fun ChatMessageScreen(
         viewModel.openChat(chatId)
     }
 
+    var isFirstLoad by remember { mutableStateOf(true) }
     LaunchedEffect(uiState.messages.size, uiState.isSending) {
         val headerCount = 1
         val emptyMessageCount = if (uiState.messages.isEmpty()) 1 else 0
@@ -129,10 +130,20 @@ fun ChatMessageScreen(
         val errorCount = if (uiState.sendError != null) 1 else 0
         val totalItems = headerCount + emptyMessageCount + uiState.messages.size + sendingCount + errorCount
         val targetIndex = if (totalItems > 0) totalItems - 1 else 0
-        try {
-            listState.animateScrollToItem(targetIndex)
-        } catch (e: Exception) {
-            android.util.Log.w("ChatMessageScreen", "Failed to scroll to bottom: ${e.message}")
+        
+        val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val isNearBottom = lastVisible >= (targetIndex - 3)
+        if (isFirstLoad || uiState.isSending || isNearBottom) {
+            try {
+                if (isFirstLoad) {
+                    listState.scrollToItem(targetIndex)
+                    if (totalItems > 0) isFirstLoad = false
+                } else {
+                    listState.animateScrollToItem(targetIndex)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("ChatMessageScreen", "Failed to scroll to bottom: ${e.message}")
+            }
         }
     }
 

@@ -771,10 +771,10 @@ class SpotifyRepositoryImpl @Inject constructor(
         val token = getValidToken() ?: return@withContext Result.Error("Spotify API Keys not configured or invalid.")
 
         try {
-            // Using a generic search query to get popular tracks to avoid 403 Forbidden on Playlists
+            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
             val response = apiService.search(
                 authHeader = "Bearer $token",
-                query = "year:2024",
+                query = "year:${currentYear - 1}-$currentYear",
                 type = "track",
                 limit = 10
             )

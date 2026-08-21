@@ -109,6 +109,7 @@ interface NoteRepository {
         latitude: Double,
         longitude: Double,
         placeName: String,
+        caption: String = "",
         backgroundColor: String? = null,
         textColor: String? = null
     ): Result<Note.Location>

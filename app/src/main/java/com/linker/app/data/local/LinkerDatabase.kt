@@ -143,41 +143,62 @@ abstract class LinkerDatabase : RoomDatabase() {
 
         val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // 1. Create new table without deletedMessage
+                // 1. Create new table with complete MessageEntity schema
                 db.execSQL("""
-                    CREATE TABLE messages_new (
-                        id TEXT PRIMARY KEY NOT NULL,
+                    CREATE TABLE IF NOT EXISTS messages_new (
+                        messageId TEXT PRIMARY KEY NOT NULL,
                         chatId TEXT NOT NULL,
                         senderId TEXT NOT NULL,
-                        content TEXT NOT NULL,
-                        timestamp INTEGER NOT NULL,
                         messageType TEXT NOT NULL,
-                        deliveryMethod TEXT NOT NULL,
+                        content TEXT,
+                        mediaUrl TEXT,
+                        thumbnailUrl TEXT,
+                        mediaWidth INTEGER,
+                        mediaHeight INTEGER,
+                        mediaDuration INTEGER,
+                        sharedLinkId TEXT,
                         replyToMessageId TEXT,
-                        reactions TEXT,
+                        replyToNoteJson TEXT,
+                        forwardedFromMessageId TEXT,
+                        reactions TEXT NOT NULL DEFAULT '{}',
+                        isEdited INTEGER NOT NULL DEFAULT 0,
+                        isDeleted INTEGER NOT NULL DEFAULT 0,
+                        deletedForEveryone INTEGER NOT NULL DEFAULT 0,
                         messageStatus TEXT NOT NULL DEFAULT 'SENT',
-                        readReceipts TEXT,
-                        FOREIGN KEY(chatId) REFERENCES chats(id) ON DELETE CASCADE
+                        deliveryMethod TEXT NOT NULL DEFAULT 'INTERNET',
+                        encryptedContent TEXT,
+                        createdAt INTEGER NOT NULL DEFAULT 0,
+                        updatedAt INTEGER NOT NULL DEFAULT 0,
+                        deliveredAt INTEGER,
+                        readAt INTEGER,
+                        lastSyncedAt INTEGER NOT NULL DEFAULT 0,
+                        isEncrypted INTEGER NOT NULL DEFAULT 0,
+                        FOREIGN KEY(chatId) REFERENCES chats(chatId) ON UPDATE NO ACTION ON DELETE CASCADE
                     )
                 """)
                 
-                // 2. Copy data from old table (excluding deletedMessage)
-                db.execSQL("""
-                    INSERT INTO messages_new 
-                    SELECT id, chatId, senderId, content, timestamp, messageType, 
-                           deliveryMethod, replyToMessageId, reactions, messageStatus, readReceipts
-                    FROM messages
-                """)
+                // 2. Copy data from old table safely
+                try {
+                    db.execSQL("""
+                        INSERT INTO messages_new (messageId, chatId, senderId, content, messageType, deliveryMethod, replyToMessageId, reactions, messageStatus, createdAt, updatedAt)
+                        SELECT id, chatId, senderId, content, messageType, deliveryMethod, replyToMessageId, COALESCE(reactions, '{}'), COALESCE(messageStatus, 'SENT'), timestamp, timestamp
+                        FROM messages
+                    """)
+                } catch (e: Exception) {
+                    android.util.Log.w("LinkerDatabase", "MIGRATION_6_7 copy warning: ${e.message}")
+                }
                 
                 // 3. Drop old table
-                db.execSQL("DROP TABLE messages")
+                db.execSQL("DROP TABLE IF EXISTS messages")
                 
                 // 4. Rename new table
                 db.execSQL("ALTER TABLE messages_new RENAME TO messages")
                 
-                // 5. Recreate indices
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_chatId ON messages(chatId)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS index_messages_timestamp ON messages(timestamp)")
+                // 5. Recreate indices to match Room schema
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_chat_messages ON messages(chatId, createdAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_status ON messages(chatId, messageStatus)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_message_replies ON messages(replyToMessageId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_sender ON messages(senderId, createdAt)")
             }
         }
 
@@ -325,7 +346,11 @@ abstract class LinkerDatabase : RoomDatabase() {
         val MIGRATION_13_14 = object : Migration(13, 14) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Added replyToNoteJson for note reply previews in Chat
-                db.execSQL("ALTER TABLE messages ADD COLUMN replyToNoteJson TEXT")
+                try {
+                    db.execSQL("ALTER TABLE messages ADD COLUMN replyToNoteJson TEXT")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "replyToNoteJson column already exists")
+                }
             }
         }
     }

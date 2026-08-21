@@ -230,7 +230,9 @@ class AuthViewModel @Inject constructor(
     }
 
     fun onCompleteProfile() = viewModelScope.launch {
-        val userId = _uiState.value.currentUser?.userId ?: authState.value?.userId
+        val userId = _uiState.value.currentUser?.userId 
+            ?: authState.value?.userId 
+            ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
         if (userId == null) {
             showError("User not found. Please sign in again.")
             _uiState.update { it.copy(authStep = AuthStep.SIGN_IN) }
@@ -339,13 +341,11 @@ class AuthViewModel @Inject constructor(
         password: String
     ) {
         try {
-            if (email.isBlank() || password.isBlank()) {
-                android.util.Log.w("AuthViewModel", "saveSession: email/password boş, session kaydedilmedi (Google/Phone auth?)")
-                return
+            val credential = if (password.isNotBlank()) {
+                credentialEncoder.encode(email, password)
+            } else {
+                "oauth:${email.ifBlank { uid }}"
             }
-
-            // ✅ SECURITY: Use CredentialEncoder for delimiter-free encoding
-            val credential = credentialEncoder.encode(email, password)
 
             accountRepository.addSession(
                 AccountSession(
@@ -360,9 +360,6 @@ class AuthViewModel @Inject constructor(
             
             // Log session creation
             SecurityLogger.logSessionCreated(uid)
-
-            // Clear Base64 string from memory (best effort)
-            // Note: String immutability means we can't truly clear it, but we can drop references
         } catch (e: Exception) {
             android.util.Log.w("AuthViewModel", "saveSession failed: ${e.message}")
         }

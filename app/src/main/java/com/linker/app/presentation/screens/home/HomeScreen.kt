@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -70,10 +71,12 @@ import androidx.compose.foundation.clickable
 @Composable
 fun HomeScreen(
     onNavigateBottomNav: (BottomNavItem) -> Unit,
-    onNavigateToStoryGrid: () -> Unit = {}
+    onNavigateToStoryGrid: () -> Unit = {},
+    viewModel: HomeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     var topTab by remember { mutableStateOf(0) }
-    val pagerState = rememberPagerState(pageCount = { 10 }) // 10 fake items
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pagerState = rememberPagerState(pageCount = { if (uiState.links.isNotEmpty()) uiState.links.size else 1 })
     
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -111,11 +114,32 @@ fun HomeScreen(
                 .padding(top = paddingValues.calculateTopPadding(), bottom = 0.dp) // paddingValues from Scaffold
         ) {
             // Background / Video Player
-            VerticalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize()
-            ) { page ->
-                FeedItemView(page = page)
+            if (uiState.links.isNotEmpty()) {
+                VerticalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    val link = uiState.links.getOrNull(page)
+                    if (link != null) {
+                        FeedItemView(
+                            link = link,
+                            onLikeClick = { viewModel.toggleLike(link.linkId) },
+                            onSaveClick = { viewModel.toggleSave(link.linkId) },
+                            onRelinkClick = { viewModel.toggleRelink(link.linkId) }
+                        )
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (uiState.isRefreshing) "Yükleniyor..." else "Henüz bir link paylaşılmadı",
+                        color = TextSecondary,
+                        fontSize = 16.sp
+                    )
+                }
             }
 
             // Top Pill Bar
@@ -131,33 +155,82 @@ fun HomeScreen(
                     .align(Alignment.TopCenter)
                     .padding(top = 48.dp) // Status bar padding approx
             )
-            
-            // We ignore bottom padding strictly because bottom nav is translucent and floating!
         }
     }
 }
 
 @Composable
-fun FeedItemView(page: Int) {
+fun FeedItemView(
+    link: com.linker.app.domain.model.Link,
+    onLikeClick: () -> Unit = {},
+    onSaveClick: () -> Unit = {},
+    onRelinkClick: () -> Unit = {}
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Black) // Placeholder for video/image
+            .background(Black)
     ) {
-        // Mock image gradient
+        val primaryMediaUrl = link.primaryMedia.url
+        if (primaryMediaUrl.isNotBlank() && !primaryMediaUrl.startsWith("placeholder://")) {
+            coil3.compose.AsyncImage(
+                model = primaryMediaUrl,
+                contentDescription = link.description,
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF2D1B69).copy(alpha = 0.8f),
+                                Color(0xFF11111F).copy(alpha = 0.95f)
+                            )
+                        )
+                    )
+            )
+        }
+
+        // Overlay gradients
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFE9B584).copy(alpha = 0.5f), // Placeholder theme logic would be required for this
+                            Color.Black.copy(alpha = 0.4f),
                             Color.Transparent, 
-                            Black.copy(alpha = 0.8f)
+                            Black.copy(alpha = 0.85f)
                         )
                     )
                 )
         )
+
+        // Post caption & author info
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 16.dp, end = 80.dp, bottom = 100.dp)
+        ) {
+            Text(
+                text = "@${link.author.username}",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp
+            )
+            if (!link.description.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = link.description,
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 14.sp,
+                    maxLines = 3
+                )
+            }
+        }
 
         // Right side Action Buttons
         Column(
@@ -165,14 +238,30 @@ fun FeedItemView(page: Int) {
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 120.dp), // Clear bottom nav
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ActionButton(icon = R.drawable.ic_heart_outline, count = "1253") // Like
-            ActionButton(icon = R.drawable.ic_ai_commentary_outline, count = "15") // Comment
-            ActionButton(icon = R.drawable.ic_toy_6_outline, count = "278") // Relink
-            ActionButton(icon = R.drawable.ic_bookmark_2_outline, count = "152") // Save
-            ActionButton(icon = R.drawable.ic_ai_send_message_outline, count = "41") // Send
-            ActionButton(icon = R.drawable.ic_more_square_outline, count = null) // More
+            ActionButton(
+                icon = if (link.engagement.isLiked) R.drawable.ic_heart_bold else R.drawable.ic_heart_outline,
+                count = link.engagement.likesCount.toString(),
+                tint = if (link.engagement.isLiked) Color.Red else Color.White,
+                onClick = onLikeClick
+            )
+            ActionButton(
+                icon = R.drawable.ic_ai_commentary_outline,
+                count = link.engagement.commentsCount.toString()
+            )
+            ActionButton(
+                icon = if (link.engagement.isRelinked) R.drawable.ic_toy_6_bold else R.drawable.ic_toy_6_outline,
+                count = link.engagement.relinksCount.toString(),
+                tint = if (link.engagement.isRelinked) LightPurple else Color.White,
+                onClick = onRelinkClick
+            )
+            ActionButton(
+                icon = if (link.engagement.isSaved) R.drawable.ic_bookmark_2_bold else R.drawable.ic_bookmark_2_outline,
+                count = link.engagement.savesCount.toString(),
+                tint = if (link.engagement.isSaved) Color(0xFFFFD700) else Color.White,
+                onClick = onSaveClick
+            )
         }
     }
 }
@@ -224,12 +313,20 @@ fun PillTab(
 }
 
 @Composable
-fun ActionButton(@DrawableRes icon: Int, count: String?) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+fun ActionButton(
+    @DrawableRes icon: Int,
+    count: String?,
+    tint: Color = Color.White,
+    onClick: () -> Unit = {}
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable { onClick() }
+    ) {
         Icon(
             painter = painterResource(id = icon),
             contentDescription = null,
-            tint = Color.White,
+            tint = tint,
             modifier = Modifier.size(38.dp)
         )
         if (count != null) {

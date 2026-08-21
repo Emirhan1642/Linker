@@ -15,13 +15,14 @@ class PostLocationNoteUseCase @Inject constructor(
         latitude: Double,
         longitude: Double,
         placeName: String,
+        caption: String = "",
         backgroundColor: String? = null,
         textColor: String? = null
     ): Result<Note.Location> {
         if (latitude !in -90.0..90.0) return Result.Error("Latitude must be between -90 and 90")
         if (longitude !in -180.0..180.0) return Result.Error("Longitude must be between -180 and 180")
         if (placeName.isBlank()) return Result.Error("Place name cannot be empty")
-        return noteRepository.postLocationNote(latitude, longitude, placeName, backgroundColor, textColor)
+        return noteRepository.postLocationNote(latitude, longitude, placeName, caption, backgroundColor, textColor)
     }
 }
 

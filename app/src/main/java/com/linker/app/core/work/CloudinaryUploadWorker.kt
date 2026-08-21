@@ -99,14 +99,27 @@ class CloudinaryUploadWorker @AssistedInject constructor(
 
     private suspend fun uploadFile(path: String): String? = suspendCancellableCoroutine { cont ->
         try {
-            val uri = if (path.startsWith("content://") || path.startsWith("file://")) {
+            val uploadUri = if (path.startsWith("content://")) {
+                val uri = Uri.parse(path)
+                val tempFile = File(context.cacheDir, "cloudinary_tmp_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}.tmp")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                if (tempFile.exists() && tempFile.length() > 0) {
+                    Uri.fromFile(tempFile)
+                } else {
+                    uri
+                }
+            } else if (path.startsWith("file://")) {
                 Uri.parse(path)
             } else {
                 Uri.fromFile(File(path))
             }
 
             val preset = com.linker.app.BuildConfig.CLOUDINARY_UPLOAD_PRESET.ifBlank { "default_preset" }
-            val requestId = MediaManager.get().upload(uri)
+            val requestId = MediaManager.get().upload(uploadUri)
                 .unsigned(preset)
                 .callback(object : UploadCallback {
                     override fun onStart(requestId: String) {}

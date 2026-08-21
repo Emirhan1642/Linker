@@ -393,7 +393,7 @@ fun NoteEditorScreen(
                 CircularIconButton(
                     icon = Icons.Default.Headphones,
                     tint = Color(0xFFFF9800),
-                    onClick = { viewModel.selectType(NoteType.MUSIC) },
+                    onClick = { viewModel.fetchCurrentlyPlayingTrack() },
                     contentDescription = "Şu an çalan şarkı"
                 )
 

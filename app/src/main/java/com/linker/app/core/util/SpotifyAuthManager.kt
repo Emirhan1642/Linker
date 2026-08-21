@@ -57,7 +57,16 @@ class SpotifyAuthManager @Inject constructor(
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var refreshJob: kotlinx.coroutines.Job? = null
     private val okHttpClient = OkHttpClient()
+
+    private fun scheduleRefresh(refreshToken: String, delayMs: Long) {
+        refreshJob?.cancel()
+        refreshJob = coroutineScope.launch {
+            kotlinx.coroutines.delay(delayMs)
+            refreshAccessToken(refreshToken)
+        }
+    }
 
     /** Temporarily stores the PKCE code verifier between auth start and callback. */
     private var pendingCodeVerifier: String? = null
@@ -169,10 +178,7 @@ class SpotifyAuthManager @Inject constructor(
             
             // Schedule a refresh for when this token expires
             if (savedRefreshToken != null) {
-                coroutineScope.launch {
-                    kotlinx.coroutines.delay(remainingMs)
-                    refreshAccessToken(savedRefreshToken)
-                }
+                scheduleRefresh(savedRefreshToken, remainingMs)
             }
         } else if (savedRefreshToken != null) {
             Log.d(TAG, "Stored token expired, but refresh token exists. Refreshing now...")
@@ -276,10 +282,7 @@ class SpotifyAuthManager @Inject constructor(
                     fetchUserProfile(token)
                     
                     // Schedule next refresh
-                    coroutineScope.launch {
-                        kotlinx.coroutines.delay(TOKEN_LIFETIME_MS)
-                        refreshAccessToken(newRefreshToken)
-                    }
+                    scheduleRefresh(newRefreshToken, TOKEN_LIFETIME_MS)
                 } else {
                     Log.e(TAG, "Token refresh failed: HTTP ${response.code} — $responseBody")
                     clearToken()

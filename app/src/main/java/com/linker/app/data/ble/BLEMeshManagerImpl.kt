@@ -366,7 +366,7 @@ class BLEMeshManagerImpl @Inject constructor(
                             // Real messages will use full Signal Protocol encryption with the recipient's public key
                             val testPayload = "LINKER_HELLO_${System.currentTimeMillis()}".toByteArray(Charsets.UTF_8)
                             val digest = java.security.MessageDigest.getInstance("SHA-256")
-                            val keyStream = digest.digest(deviceAddress.toByteArray(Charsets.UTF_8))
+                            val keyStream = digest.digest("LINKER_BLE_MESH_TEST_KEY".toByteArray(Charsets.UTF_8))
                             val encryptedTestPayload = ByteArray(testPayload.size) { i ->
                                 (testPayload[i].toInt() xor keyStream[i % keyStream.size].toInt()).toByte()
                             }
@@ -628,7 +628,7 @@ class BLEMeshManagerImpl @Inject constructor(
                 // Decrypt test packet payload (SHA-256 key stream decryption matching connectToPeer)
                 try {
                     val digest = java.security.MessageDigest.getInstance("SHA-256")
-                    val keyStream = digest.digest(senderMacAddress.toByteArray(Charsets.UTF_8))
+                    val keyStream = digest.digest("LINKER_BLE_MESH_TEST_KEY".toByteArray(Charsets.UTF_8))
                     val decryptedTestPayload = ByteArray(packet.encryptedPayload.size) { i ->
                         (packet.encryptedPayload[i].toInt() xor keyStream[i % keyStream.size].toInt()).toByte()
                     }

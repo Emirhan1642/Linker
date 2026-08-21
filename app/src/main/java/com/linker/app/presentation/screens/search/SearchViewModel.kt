@@ -28,6 +28,7 @@ data class SearchUiState(
     val query: String = "",
     val recentSearches: List<String> = emptyList(),
     val searchResults: List<User> = emptyList(),
+    val linkResults: List<com.linker.app.domain.model.Link> = emptyList(),
     val isSearching: Boolean = false,
     val selectedTab: SearchTab = SearchTab.USERS,
     val error: String? = null
@@ -39,6 +40,7 @@ enum class SearchTab { LINKS, USERS }
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val userRepository: UserRepository,
+    private val linkRepository: com.linker.app.domain.repository.LinkRepository,
     private val searchHistoryRepository: SearchHistoryRepository
 ) : ViewModel() {
 
@@ -119,15 +121,35 @@ class SearchViewModel @Inject constructor(
     private fun executeSearch(query: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSearching = true, error = null) }
-            when (val result = userRepository.searchUsers(query)) {
-                is Result.Success -> _uiState.update { it.copy(searchResults = result.data.users, isSearching = false) }
-                is Result.Error   -> _uiState.update { it.copy(isSearching = false, error = result.message) }
-                is Result.Loading -> {}
+            if (_uiState.value.selectedTab == SearchTab.USERS) {
+                when (val result = userRepository.searchUsers(query)) {
+                    is Result.Success -> _uiState.update { it.copy(searchResults = result.data.users, isSearching = false) }
+                    is Result.Error   -> _uiState.update { it.copy(isSearching = false, error = result.message) }
+                    is Result.Loading -> {}
+                }
+            } else {
+                when (val result = linkRepository.refreshFeed(30)) {
+                    is Result.Success -> {
+                        val filtered = result.data.filter { 
+                            (it.description?.contains(query, ignoreCase = true) == true) ||
+                            it.author.username.contains(query, ignoreCase = true)
+                        }
+                        _uiState.update { it.copy(linkResults = filtered, isSearching = false) }
+                    }
+                    is Result.Error -> _uiState.update { it.copy(isSearching = false, error = result.message) }
+                    is Result.Loading -> {}
+                }
             }
         }
     }
 
-    fun onTabSelected(tab: SearchTab) = _uiState.update { it.copy(selectedTab = tab) }
+    fun onTabSelected(tab: SearchTab) {
+        _uiState.update { it.copy(selectedTab = tab) }
+        val q = _uiState.value.query.trim()
+        if (q.isNotBlank()) {
+            executeSearch(q)
+        }
+    }
 
     fun onFollowClick(user: User) {
         viewModelScope.launch {

@@ -33,6 +33,7 @@ fun SearchScreen(
     onNavigateBack: () -> Unit,
     onNavigateBottomNav: (BottomNavItem) -> Unit,
     onNavigateToUserProfile: (String) -> Unit = {},
+    onNavigateToLinkDetail: (String) -> Unit = {},
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -135,9 +136,51 @@ fun SearchScreen(
                             }
                         }
                     } else {
-                        Box(modifier = Modifier.fillMaxSize().padding(top = 100.dp),
-                            contentAlignment = Alignment.TopCenter) {
-                            Text(stringResource(R.string.search_links_coming_soon), color = TextSecondary)
+                        when {
+                            uiState.isSearching -> Box(
+                                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                                contentAlignment = Alignment.Center
+                            ) { CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp) }
+
+                            uiState.linkResults.isEmpty() -> Box(
+                                modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Aramanızla eşleşen link bulunamadı", color = TextSecondary, fontSize = 14.sp)
+                            }
+
+                            else -> LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp)) {
+                                items(uiState.linkResults, key = { it.linkId }) { link ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { onNavigateToLinkDetail(link.linkId) }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_link_3_outline),
+                                            contentDescription = null,
+                                            tint = LightPurple,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = link.description?.ifBlank { "Link Gönderisi" } ?: "Link Gönderisi",
+                                                color = TextPrimary,
+                                                fontSize = 15.sp,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = "@${link.author.username}",
+                                                color = TextSecondary,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

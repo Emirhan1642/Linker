@@ -455,7 +455,7 @@ class MessageQueueProcessorImpl @Inject constructor(
             } else {
                 messageBatcher.addMessage(packet)
                 Log.d(TAG, "BLE packet queued in batcher for message ${message.messageId}")
-                Result.success(Unit)
+                Result.failure(sendResult.exceptionOrNull() ?: Exception("BLE send failed, queued in memory batcher"))
             }
         } catch (e: IllegalStateException) {
             Log.e(TAG, "User not logged in", e)

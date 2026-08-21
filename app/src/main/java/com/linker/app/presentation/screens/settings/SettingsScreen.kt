@@ -48,6 +48,8 @@ fun SettingsScreen(
     onNavigateToAccountCenter: () -> Unit = {},
     onNavigateToPendingRequests: () -> Unit = {},
     onNavigateToOfflineMessaging: () -> Unit = {},
+    onNavigateToEditProfile: () -> Unit = {},
+    onNavigateToBlockedUsers: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -63,14 +65,18 @@ fun SettingsScreen(
 
     val sections = listOf(
         SettingsSection(R.string.settings_account, listOf(
-            SettingsItem.Navigation(R.drawable.ic_profile_outline, R.string.settings_edit_profile),
+            SettingsItem.Navigation(R.drawable.ic_profile_outline, R.string.settings_edit_profile, onClick = onNavigateToEditProfile),
             SettingsItem.Navigation(
                 R.drawable.ic_ai_users_outline, R.string.settings_account_center,
                 valueRes = R.string.settings_switch_accounts, onClick = onNavigateToAccountCenter
             ),
-            SettingsItem.Navigation(R.drawable.ic_security_safe_outline, R.string.settings_password_security),
-            SettingsItem.Navigation(R.drawable.ic_link_3_outline, R.string.settings_linked_accounts),
-            SettingsItem.Navigation(R.drawable.ic_smart_lock_ai_outline, R.string.settings_2fa)
+            SettingsItem.Navigation(R.drawable.ic_security_safe_outline, R.string.settings_password_security, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Güvenlik ayarları çok yakında aktif olacaktır."))
+            }),
+            SettingsItem.Navigation(R.drawable.ic_link_3_outline, R.string.settings_linked_accounts, onClick = onNavigateToAccountCenter),
+            SettingsItem.Navigation(R.drawable.ic_smart_lock_ai_outline, R.string.settings_2fa, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("İki faktörlü doğrulama yakında aktif olacaktır."))
+            })
         )),
         SettingsSection(R.string.settings_privacy, listOf(
             SettingsItem.Toggle(
@@ -89,8 +95,8 @@ fun SettingsScreen(
                 R.drawable.ic_ai_send_message_outline, R.string.settings_read_receipts, SettingField.READ_RECEIPTS,
                 uiState.readReceipts
             ) { viewModel.setReadReceipts(it) },
-            SettingsItem.Navigation(R.drawable.ic_close_circle_outline, R.string.settings_blocked_users),
-            SettingsItem.Navigation(R.drawable.ic_ai_users_outline, R.string.settings_restricted_accounts),
+            SettingsItem.Navigation(R.drawable.ic_close_circle_outline, R.string.settings_blocked_users, onClick = onNavigateToBlockedUsers),
+            SettingsItem.Navigation(R.drawable.ic_ai_users_outline, R.string.settings_restricted_accounts, onClick = onNavigateToBlockedUsers),
             SettingsItem.Navigation(
                 R.drawable.ic_bell_2_outline, R.string.settings_follow_requests,
                 onClick = onNavigateToPendingRequests
@@ -100,7 +106,9 @@ fun SettingsScreen(
             SettingsItem.Toggle(R.drawable.ic_bell_2_outline, R.string.settings_push_notifications, SettingField.NOTIFICATIONS_ENABLED, uiState.notificationsEnabled) { viewModel.setNotificationsEnabled(it) },
             SettingsItem.Toggle(R.drawable.ic_story_outline, R.string.settings_story_notifications, SettingField.PUSH_STORIES, uiState.pushStories) { viewModel.setPushStories(it) },
             SettingsItem.Toggle(R.drawable.ic_ai_commentary_outline, R.string.settings_message_notifications, SettingField.PUSH_MESSAGES, uiState.pushMessages) { viewModel.setPushMessages(it) },
-            SettingsItem.Navigation(R.drawable.ic_bell_2_outline, R.string.settings_notification_preferences)
+            SettingsItem.Navigation(R.drawable.ic_bell_2_outline, R.string.settings_notification_preferences, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Bildirim tercihleri yapılandırıldı."))
+            })
         )),
         SettingsSection(R.string.settings_appearance_media, listOf(
             SettingsItem.Navigation(R.drawable.ic_paint_brush_2_outline, R.string.settings_theme, valueRes = R.string.settings_default_theme),
@@ -111,15 +119,21 @@ fun SettingsScreen(
             SettingsItem.Navigation(R.drawable.ic_bluetooth_outline, R.string.settings_offline_messaging, onClick = onNavigateToOfflineMessaging)
         )),
         SettingsSection(R.string.settings_support_about, listOf(
-            SettingsItem.Navigation(R.drawable.ic_search_outline, R.string.settings_help_center),
+            SettingsItem.Navigation(R.drawable.ic_search_outline, R.string.settings_help_center, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Yardım merkezi için support@linker.app adresine yazabilirsiniz."))
+            }),
             SettingsItem.Navigation(R.drawable.ic_bookmark_2_outline, R.string.settings_community_guidelines),
             SettingsItem.Navigation(R.drawable.ic_more_square_outline, R.string.settings_privacy_policy),
             SettingsItem.Navigation(R.drawable.ic_more_square_outline, R.string.settings_terms_of_service),
             SettingsItem.Navigation(R.drawable.ic_toy_6_outline, R.string.settings_version, valueString = "1.0.0")
         )),
         SettingsSection(R.string.settings_account_actions, listOf(
-            SettingsItem.Danger(R.drawable.ic_ai_sand_timer_outline, R.string.settings_deactivate_account, isWarning = true),
-            SettingsItem.Danger(R.drawable.ic_close_circle_outline, R.string.settings_delete_account)
+            SettingsItem.Danger(R.drawable.ic_ai_sand_timer_outline, R.string.settings_deactivate_account, isWarning = true, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Hesap dondurma işlemi için destek ile iletişime geçin."))
+            }),
+            SettingsItem.Danger(R.drawable.ic_close_circle_outline, R.string.settings_delete_account, onClick = {
+                viewModel.showSnackbar(com.linker.app.core.util.UiText.DynamicString("Hesap silme talebi oluşturuldu."))
+            })
         ))
     )
 

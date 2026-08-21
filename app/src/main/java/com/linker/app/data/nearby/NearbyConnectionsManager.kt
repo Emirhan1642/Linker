@@ -612,9 +612,23 @@ class NearbyConnectionsManagerImpl @Inject constructor(
                     PayloadTransferUpdate.Status.SUCCESS -> {
                         val payload = receivedPayloads[update.payloadId]
                         if (payload != null && payload.type == Payload.Type.FILE) {
-                            val file = payload.asFile()?.asJavaFile()
-                            if (file != null) {
-                                receivingInfo.deferred.complete(Result.success(file))
+                            val payloadFile = payload.asFile()
+                            val javaFile = payloadFile?.asJavaFile()
+                            if (javaFile != null && javaFile.exists()) {
+                                receivingInfo.deferred.complete(Result.success(javaFile))
+                            } else if (payloadFile?.asUri() != null) {
+                                try {
+                                    val uri = payloadFile.asUri()!!
+                                    val destFile = File(context.cacheDir, "nearby_file_${update.payloadId}.dat")
+                                    context.contentResolver.openInputStream(uri)?.use { input ->
+                                        destFile.outputStream().use { output ->
+                                            input.copyTo(output)
+                                        }
+                                    }
+                                    receivingInfo.deferred.complete(Result.success(destFile))
+                                } catch (e: Exception) {
+                                    receivingInfo.deferred.complete(Result.failure(NearbyConnectionException.TransferFailedException("Failed to copy URI file", e)))
+                                }
                             } else {
                                 receivingInfo.deferred.complete(Result.failure(NearbyConnectionException.TransferFailedException("File is null")))
                             }

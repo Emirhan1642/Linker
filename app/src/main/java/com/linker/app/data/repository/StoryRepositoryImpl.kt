@@ -43,6 +43,8 @@ class StoryRepositoryImpl @Inject constructor(
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : StoryRepository {
 
+    private val viewedStoriesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     private val storiesCollection = firestore.collection("stories")
     private val usersCollection = firestore.collection("users")
 
@@ -88,10 +90,10 @@ class StoryRepositoryImpl @Inject constructor(
                     }
 
                     val currentUserId = auth.currentUser?.uid ?: ""
-                    val viewedStoryIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-                    if (currentUserId.isNotEmpty() && dataList.isNotEmpty()) {
+                    val unverifiedStories = dataList.filter { (id, _) -> !viewedStoriesCache.contains(id) }
+                    if (currentUserId.isNotEmpty() && unverifiedStories.isNotEmpty()) {
                         coroutineScope {
-                            val deferreds = dataList.map { pair ->
+                            val deferreds = unverifiedStories.take(20).map { pair ->
                                 async {
                                     try {
                                         val viewerDoc = storiesCollection.document(pair.first)
@@ -100,7 +102,7 @@ class StoryRepositoryImpl @Inject constructor(
                                             .get()
                                             .await()
                                         if (viewerDoc.exists()) {
-                                            viewedStoryIds.add(pair.first)
+                                            viewedStoriesCache.add(pair.first)
                                         }
                                     } catch (_: Exception) {}
                                 }
@@ -125,7 +127,7 @@ class StoryRepositoryImpl @Inject constructor(
                             caption = data.caption,
                             viewsCount = data.viewsCount,
                             likesCount = data.likesCount,
-                            isViewed = viewedStoryIds.contains(id),
+                            isViewed = viewedStoriesCache.contains(id),
                             createdAt = data.createdAt,
                             expiresAt = data.expiresAt
                         )

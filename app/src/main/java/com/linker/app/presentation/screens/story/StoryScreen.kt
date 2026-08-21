@@ -128,25 +128,31 @@ fun StoryScreen(
         var currentProgress by remember { mutableStateOf(0f) }
         var showReplyInput by remember { mutableStateOf(false) }
         var replyText by remember { mutableStateOf("") }
+        var isPaused by remember { mutableStateOf(false) }
 
         // Auto-advance timer
-        LaunchedEffect(storyPagerState.currentPage) {
+        LaunchedEffect(storyPagerState.currentPage, isPaused) {
             val story = stories.getOrNull(storyPagerState.currentPage) ?: return@LaunchedEffect
             val durationMs = (story.duration?.toLong()?.times(1000L)) ?: 5000L
             viewModel.markViewed(story.storyId)
-            currentProgress = 0f
 
             val interval = 50L
-            val steps = durationMs / interval
-            repeat(steps.toInt()) {
-                delay(interval)
-                currentProgress = (it + 1).toFloat() / steps
+            val totalSteps = durationMs / interval
+            while (currentProgress < 1f) {
+                if (!isPaused) {
+                    delay(interval)
+                    currentProgress = (currentProgress + (1f / totalSteps)).coerceIn(0f, 1f)
+                } else {
+                    delay(100L)
+                }
             }
 
             // Advance to next story or next user group
             if (storyPagerState.currentPage < stories.lastIndex) {
+                currentProgress = 0f
                 storyPagerState.animateScrollToPage(storyPagerState.currentPage + 1)
             } else if (groupIndex < displayStories.lastIndex) {
+                currentProgress = 0f
                 groupPagerState.animateScrollToPage(groupIndex + 1)
             } else {
                 onNavigateBack()
@@ -155,7 +161,19 @@ fun StoryScreen(
 
         val currentStory = stories.getOrNull(storyPagerState.currentPage)
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onPress = {
+                            isPaused = true
+                            tryAwaitRelease()
+                            isPaused = false
+                        }
+                    )
+                }
+        ) {
             // Story media
             if (currentStory != null) {
                 AsyncImage(
@@ -198,8 +216,11 @@ fun StoryScreen(
                         .fillMaxSize()
                         .clickable {
                             scope.launch {
+                                currentProgress = 0f
                                 if (storyPagerState.currentPage > 0) {
                                     storyPagerState.animateScrollToPage(storyPagerState.currentPage - 1)
+                                } else if (groupIndex > 0) {
+                                    groupPagerState.animateScrollToPage(groupIndex - 1)
                                 }
                             }
                         }
@@ -210,9 +231,10 @@ fun StoryScreen(
                         .fillMaxSize()
                         .clickable {
                             scope.launch {
+                                currentProgress = 0f
                                 if (storyPagerState.currentPage < stories.lastIndex) {
                                     storyPagerState.animateScrollToPage(storyPagerState.currentPage + 1)
-                                } else if (groupIndex < allUserStories.lastIndex) {
+                                } else if (groupIndex < displayStories.lastIndex) {
                                     groupPagerState.animateScrollToPage(groupIndex + 1)
                                 } else {
                                     onNavigateBack()

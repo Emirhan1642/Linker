@@ -51,7 +51,8 @@ class ChatViewModel @Inject constructor(
     private val getUserByIdUseCase: GetUserByIdUseCase,
     private val syncMessagesFromFirestoreUseCase: com.linker.app.domain.usecase.chat.SyncMessagesFromFirestoreUseCase,
     private val userRepository: com.linker.app.domain.repository.UserRepository,
-    private val userCache: com.linker.app.data.cache.UserCache
+    private val userCache: com.linker.app.data.cache.UserCache,
+    private val messageRepository: com.linker.app.domain.repository.MessageRepository
 ) : ViewModel() {
 
     private val _chatListState = MutableStateFlow(ChatListUiState())
@@ -741,6 +742,13 @@ class ChatViewModel @Inject constructor(
     fun reactToMessage(messageId: String, emoji: String?) {
         viewModelScope.launch {
             reactToMessageUseCase(messageId, emoji)
+        }
+    }
+
+    fun forwardMessage(messageId: String, targetChatId: String, onComplete: ((Boolean) -> Unit)? = null) {
+        viewModelScope.launch {
+            val result = messageRepository.forwardMessage(messageId, targetChatId)
+            onComplete?.invoke(result is Result.Success)
         }
     }
 

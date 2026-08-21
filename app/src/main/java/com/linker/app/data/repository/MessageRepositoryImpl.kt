@@ -602,16 +602,16 @@ class MessageRepositoryImpl @Inject constructor(
                 reactions = message.reactions,
                 readAt = message.readAt,
                 deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
-                mediaUrl = null,
-                thumbnailUrl = null,
-                mediaWidth = null,
-                mediaHeight = null,
-                mediaDuration = null,
-                sharedLinkId = null,
+                mediaUrl = message.mediaUrl,
+                thumbnailUrl = message.thumbnailUrl,
+                mediaWidth = message.mediaWidth,
+                mediaHeight = message.mediaHeight,
+                mediaDuration = message.mediaDuration,
+                sharedLinkId = message.sharedLink?.linkId,
                 forwardedFromMessageId = null,
-                isEdited = false,
+                isEdited = message.isEdited,
                 encryptedContent = null,
-                deliveredAt = null
+                deliveredAt = message.deliveredAt
             )
             messageDao.insertMessage(entity)
         } catch (e: Exception) {

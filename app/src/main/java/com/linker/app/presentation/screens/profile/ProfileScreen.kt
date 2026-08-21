@@ -57,12 +57,14 @@ fun ProfileScreen(
         showFullScreenAvatar = false
     }
 
-    val currentLinks = uiState.relinkedPosts
+    val displayedLinks = if (selectedTab == 0) uiState.myPosts else uiState.relinkedPosts
 
     val handleAvatarClick = {
         if (uiState.storyState != StoryState.NONE) onNavigateToStory()
         else showFullScreenAvatar = true
     }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -89,6 +91,15 @@ fun ProfileScreen(
                         storyState = uiState.storyState,
                         onNavigateBack = onNavigateBack,
                         onNavigateToSettings = onNavigateToSettings,
+                        onEditProfileClick = onNavigateToSettings,
+                        onShareProfileClick = {
+                            val username = uiState.user?.username ?: "user"
+                            val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(android.content.Intent.EXTRA_TEXT, "Linker profilimi incele: https://linker.app/u/$username")
+                            }
+                            context.startActivity(android.content.Intent.createChooser(shareIntent, "Profili Paylaş"))
+                        },
                         selectedTab = selectedTab,
                         onTabSelected = { selectedTab = it },
                         onAvatarClick = handleAvatarClick,
@@ -104,24 +115,21 @@ fun ProfileScreen(
                     )
                 }
 
-                if (selectedTab == 0) {
-                    if (currentLinks.isEmpty()) {
-                        item(span = StaggeredGridItemSpan.FullLine) {
-                            Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                                Text(stringResource(R.string.profile_no_links), color = TextSecondary)
-                            }
-                        }
-                    } else {
-                        items(currentLinks) { link -> ProfilePostItem(post = link) }
-                    }
-                    item(span = StaggeredGridItemSpan.FullLine) { Spacer(modifier = Modifier.height(100.dp)) }
-                } else {
+                if (displayedLinks.isEmpty()) {
                     item(span = StaggeredGridItemSpan.FullLine) {
                         Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
-                            Text(stringResource(R.string.profile_no_relink), color = TextSecondary)
+                            Text(
+                                text = if (selectedTab == 0) stringResource(R.string.profile_no_links) else stringResource(R.string.profile_no_relink),
+                                color = TextSecondary
+                            )
                         }
                     }
+                } else {
+                    items(displayedLinks, key = { it.linkId }) { link ->
+                        ProfilePostItem(post = link)
+                    }
                 }
+                item(span = StaggeredGridItemSpan.FullLine) { Spacer(modifier = Modifier.height(100.dp)) }
             }
         }
 
@@ -178,6 +186,8 @@ fun ProfileHeader(
     onTabSelected: (Int) -> Unit,
     onAvatarClick: () -> Unit,
     onAvatarLongClick: () -> Unit,
+    onEditProfileClick: () -> Unit = {},
+    onShareProfileClick: () -> Unit = {},
     onFollowersClick: () -> Unit = {},
     onFollowingClick: () -> Unit = {}
 ) {
@@ -218,14 +228,14 @@ fun ProfileHeader(
         Spacer(modifier = Modifier.height(10.dp))
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = TextSecondary),
+            Button(onClick = onEditProfileClick, colors = ButtonDefaults.buttonColors(containerColor = TextSecondary),
                 shape = RoundedCornerShape(25.dp),
                 modifier = Modifier.weight(1f).height(50.dp).padding(end = 5.dp, start = 40.dp)) {
                 Icon(painterResource(R.drawable.ic_user_edit_outline), null, tint = TextPrimary, modifier = Modifier.size(40.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(stringResource(R.string.profile_action_edit), fontSize = 18.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
             }
-            Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB15879)),
+            Button(onClick = onShareProfileClick, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB15879)),
                 shape = RoundedCornerShape(25.dp),
                 modifier = Modifier.weight(1f).height(50.dp).padding(start = 5.dp, end = 40.dp)) {
                 Icon(painterResource(R.drawable.ic_export_circle_01_outline), null, tint = TextPrimary, modifier = Modifier.size(40.dp))

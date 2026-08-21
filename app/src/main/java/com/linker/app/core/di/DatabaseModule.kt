@@ -261,8 +261,14 @@ class DatabaseBackupManager(
      */
     suspend fun createBackup(): Result<java.io.File> {
         return try {
-            // Close database connections
-            database.close()
+            // Checkpoint WAL pages to main database file without closing singleton DB
+            try {
+                database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").use { cursor ->
+                    cursor.moveToFirst()
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("DatabaseBackupManager", "WAL checkpoint failed, proceeding with copy: ${e.message}")
+            }
             
             // Get database file
             val dbFile = context.getDatabasePath(LinkerDatabase.DATABASE_NAME)
@@ -301,18 +307,23 @@ class DatabaseBackupManager(
                 return Result.failure(IllegalArgumentException("Backup file not found"))
             }
             
-            // Close database connections
-            database.close()
-            
             // Get database file
             val dbFile = context.getDatabasePath(LinkerDatabase.DATABASE_NAME)
             
             // Backup current database before restore
-            val currentBackup = dbFile.resolve("${dbFile.name}.before_restore")
-            dbFile.copyTo(currentBackup, overwrite = true)
+            val currentBackup = java.io.File(dbFile.parentFile, "${dbFile.name}.before_restore")
+            if (dbFile.exists()) {
+                dbFile.copyTo(currentBackup, overwrite = true)
+            }
             
             // Restore from backup
             backupFile.copyTo(dbFile, overwrite = true)
+            
+            // Remove lingering wal and shm files so restored DB starts clean
+            val walFile = java.io.File(dbFile.path + "-wal")
+            if (walFile.exists()) walFile.delete()
+            val shmFile = java.io.File(dbFile.path + "-shm")
+            if (shmFile.exists()) shmFile.delete()
             
             android.util.Log.d("DatabaseBackupManager", "Database restored from: ${backupFile.name}")
             

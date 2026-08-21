@@ -81,15 +81,92 @@ class LinkRepositoryImpl @Inject constructor(
         }
 
     override suspend fun refreshFeed(limit: Int): Result<List<Link>> = safeCall {
-        // TODO: fetch from Supabase and upsert locally
+        try {
+            val snapshot = firestore.collection("links")
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+                .get()
+                .await()
+            
+            val entities = snapshot.documents.mapNotNull { doc ->
+                val typeStr = doc.getString("linkType") ?: "FEED"
+                val mappedType = when (typeStr) {
+                    "VIDEO" -> com.linker.app.data.local.entity.LinkType.VIDEO
+                    "REEL" -> com.linker.app.data.local.entity.LinkType.REEL
+                    else -> com.linker.app.data.local.entity.LinkType.FEED
+                }
+                @Suppress("UNCHECKED_CAST")
+                val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+                com.linker.app.data.local.entity.LinkEntity(
+                    linkId = doc.id,
+                    authorId = doc.getString("authorId") ?: "",
+                    linkType = mappedType,
+                    description = doc.getString("description"),
+                    mediaUrls = mediaList,
+                    thumbnailUrl = doc.getString("thumbnailUrl"),
+                    location = doc.getString("location"),
+                    likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
+                    commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
+                    sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+            }
+            if (entities.isNotEmpty()) {
+                linkDao.insertLinks(entities)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LinkRepositoryImpl", "Remote feed refresh failed: ${e.message}")
+        }
+        
         linkDao.getAllLinks(limit, 0).mapNotNull { entity ->
             runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
         }
     }
 
     override suspend fun loadMoreFeed(beforeTimestamp: Long, limit: Int): Result<List<Link>> = safeCall {
-        // TODO: implement actual pagination
-        emptyList()
+        try {
+            val snapshot = firestore.collection("links")
+                .whereLessThan("createdAt", beforeTimestamp)
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .limit(limit.toLong())
+                .get()
+                .await()
+            
+            val entities = snapshot.documents.mapNotNull { doc ->
+                val typeStr = doc.getString("linkType") ?: "FEED"
+                val mappedType = when (typeStr) {
+                    "VIDEO" -> com.linker.app.data.local.entity.LinkType.VIDEO
+                    "REEL" -> com.linker.app.data.local.entity.LinkType.REEL
+                    else -> com.linker.app.data.local.entity.LinkType.FEED
+                }
+                @Suppress("UNCHECKED_CAST")
+                val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+                com.linker.app.data.local.entity.LinkEntity(
+                    linkId = doc.id,
+                    authorId = doc.getString("authorId") ?: "",
+                    linkType = mappedType,
+                    description = doc.getString("description"),
+                    mediaUrls = mediaList,
+                    thumbnailUrl = doc.getString("thumbnailUrl"),
+                    location = doc.getString("location"),
+                    likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
+                    commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
+                    sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
+                    createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                    updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                )
+            }
+            if (entities.isNotEmpty()) {
+                linkDao.insertLinks(entities)
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LinkRepositoryImpl", "Remote loadMoreFeed failed: ${e.message}")
+        }
+
+        linkDao.getAllLinks(limit, 0).mapNotNull { entity ->
+            runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
+        }
     }
 
     override suspend fun getLinkById(linkId: String): Result<Link> = safeCall {
@@ -168,15 +245,13 @@ class LinkRepositoryImpl @Inject constructor(
         linkDao.insertLink(entity)
 
         try {
-            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             firestore.collection("links").document(linkId).set(
                 mapOf(
-                    "linkId" to linkId,
                     "authorId" to currentUserId,
-                    "linkType" to mappedLinkType.name,
-                    "description" to description,
+                    "linkType" to linkType.name,
+                    "description" to (description ?: ""),
+                    "location" to (location ?: ""),
                     "mediaUrls" to emptyList<String>(),
-                    "location" to location,
                     "likesCount" to 0,
                     "commentsCount" to 0,
                     "sharesCount" to 0,
@@ -212,13 +287,22 @@ class LinkRepositoryImpl @Inject constructor(
 
     override suspend fun deleteLink(linkId: String): Result<Unit> = safeCall {
         linkDao.deleteLinkById(linkId)
-        // Remote delete will be implemented with Supabase integration
+        try {
+            firestore.collection("links").document(linkId).delete().await()
+        } catch (e: Exception) {
+            android.util.Log.w("LinkRepositoryImpl", "Remote link delete failed: ${e.message}")
+        }
     }
 
     override suspend fun deleteLinks(linkIds: List<String>): Result<Int> = safeCall {
         var count = 0
         for (id in linkIds) {
             linkDao.deleteLinkById(id)
+            try {
+                firestore.collection("links").document(id).delete().await()
+            } catch (e: Exception) {
+                // Ignore failure
+            }
             count++
         }
         count
@@ -229,7 +313,23 @@ class LinkRepositoryImpl @Inject constructor(
         val newLiked = !entity.isLiked
         val delta = if (newLiked) 1 else -1
         linkDao.updateLikeStatus(linkId, newLiked, delta)
-        // TODO: sync to Supabase (enqueue if offline)
+        
+        val currentUserId = auth.currentUser?.uid
+        if (currentUserId != null) {
+            try {
+                val linkRef = firestore.collection("links").document(linkId)
+                val likeRef = linkRef.collection("likes").document(currentUserId)
+                if (newLiked) {
+                    likeRef.set(mapOf("likedAt" to System.currentTimeMillis())).await()
+                    linkRef.update("likesCount", com.google.firebase.firestore.FieldValue.increment(1)).await()
+                } else {
+                    likeRef.delete().await()
+                    linkRef.update("likesCount", com.google.firebase.firestore.FieldValue.increment(-1)).await()
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("LinkRepositoryImpl", "Remote like sync failed: ${e.message}")
+            }
+        }
         newLiked
     }
 
@@ -337,6 +437,7 @@ class LinkRepositoryImpl @Inject constructor(
                     "senderId" to currentUserId,
                     "messageType" to "LINK",
                     "linkId" to linkId,
+                    "sharedLinkId" to linkId,
                     "content" to "🔗 Link",
                     "createdAt" to now,
                     "updatedAt" to now,
