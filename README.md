@@ -80,7 +80,7 @@ app/src/main/java/com/linker/app/
 
 ### 1. Clone & Setup
 ```bash
-git clone https://github.com/yourusername/linker.git
+git clone https://github.com/Emirhan1642/linker.git
 cd linker
 ```
 
