@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.linker.app.domain.model.*
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class SpotifyTrack(
     val id: String,
     val name: String,
@@ -33,6 +35,7 @@ data class SpotifyTrack(
     val isExplicit: Boolean = false
 )
 
+@Immutable
 data class SpotifySearchUiState(
     val query: String = "",
     val searchType: SpotifySearchType = SpotifySearchType.ALL,
@@ -91,7 +94,7 @@ class SpotifySearchViewModel @Inject constructor(
     }
 
     fun fetchLyrics(trackName: String, artistName: String) {
-        val cleanTrackName = trackName.replace(Regex("\\(.*?\\)"), "").replace(Regex("\\[.*?\\]"), "").trim()
+        val cleanTrackName = trackName.replace(PARENTHESES_REGEX, "").replace(BRACKETS_REGEX, "").trim()
         
         // Fast synchronous cache check
         val cached = lyricsRepository.getCachedLyrics(cleanTrackName, artistName)
@@ -493,5 +496,10 @@ class SpotifySearchViewModel @Inject constructor(
             delay(100)
         }
         return com.linker.app.core.util.Result.Success(allTracks)
+    }
+
+    companion object {
+        private val PARENTHESES_REGEX = Regex("\\(.*?\\)")
+        private val BRACKETS_REGEX = Regex("\\[.*?\\]")
     }
 }

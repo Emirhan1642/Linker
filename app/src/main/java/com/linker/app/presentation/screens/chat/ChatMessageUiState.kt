@@ -1,7 +1,9 @@
 package com.linker.app.presentation.screens.chat
 
+import androidx.compose.runtime.Immutable
 import com.linker.app.domain.model.MessageStatus
 
+@Immutable
 data class ChatMessageUiState(
     val isLoading: Boolean = true,
     val chatId: String = "",
@@ -18,6 +20,7 @@ data class ChatMessageUiState(
     val canSendMessages: Boolean = true
 )
 
+@Immutable
 data class MessageUiModel(
     val messageId: String,
     val chatId: String = "",
@@ -42,6 +45,7 @@ data class MessageUiModel(
     val formattedReactions: List<String> = emptyList()
 )
 
+@Immutable
 data class SeenByUserUi(
     val userId: String,
     val displayName: String,
@@ -49,6 +53,7 @@ data class SeenByUserUi(
     val seenAt: Long
 )
 
+@Immutable
 data class MessageItem(
     val text: String,
     val isSelf: Boolean,

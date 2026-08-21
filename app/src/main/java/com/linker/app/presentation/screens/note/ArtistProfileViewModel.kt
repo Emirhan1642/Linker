@@ -15,8 +15,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import android.content.Context
+import androidx.compose.runtime.Immutable
 
-
+@Immutable
 data class ArtistProfileUiState(
     val isLoading: Boolean = true,
     val profile: SpotifyArtistProfile? = null,

@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class StoryViewerUiState(
     val currentStories: List<Story> = emptyList(),
     val allUserStories: List<UserStories> = emptyList(),

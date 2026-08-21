@@ -12,7 +12,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.linker.app.core.util.Result
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class LinkDetailUiState(
     val link: Link? = null,
     val isLoading: Boolean = true,

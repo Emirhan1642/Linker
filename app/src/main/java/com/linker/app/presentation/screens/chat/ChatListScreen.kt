@@ -99,14 +99,16 @@ fun ChatListScreen(
     val uiState by viewModel.chatListState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     
-    val filters = listOf(
-        stringResource(R.string.chat_list_filter_all),
-        stringResource(R.string.chat_list_filter_unreads),
-        stringResource(R.string.chat_list_filter_favorites),
-        stringResource(R.string.chat_list_filter_groups),
-        stringResource(R.string.chat_list_filter_archived)
-    )
-    val filterKeys = listOf("All", "Unreads", "Favorites", "Groups", "Archived")
+    val allFilterText = stringResource(R.string.chat_list_filter_all)
+    val unreadsFilterText = stringResource(R.string.chat_list_filter_unreads)
+    val favoritesFilterText = stringResource(R.string.chat_list_filter_favorites)
+    val groupsFilterText = stringResource(R.string.chat_list_filter_groups)
+    val archivedFilterText = stringResource(R.string.chat_list_filter_archived)
+
+    val filters = remember(allFilterText, unreadsFilterText, favoritesFilterText, groupsFilterText, archivedFilterText) {
+        listOf(allFilterText, unreadsFilterText, favoritesFilterText, groupsFilterText, archivedFilterText)
+    }
+    val filterKeys = remember { listOf("All", "Unreads", "Favorites", "Groups", "Archived") }
     
     val listState = rememberLazyListState()
     

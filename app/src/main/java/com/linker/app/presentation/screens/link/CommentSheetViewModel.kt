@@ -6,6 +6,7 @@ import com.linker.app.core.util.Result
 import com.linker.app.domain.model.Comment
 import com.linker.app.domain.model.CommentVersion
 import com.linker.app.domain.usecase.comment.CommentUseCases
+import androidx.compose.runtime.Immutable
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@Immutable
 data class CommentSheetUiState(
     val comments: List<Comment> = emptyList(),
     val isLoading: Boolean = false,

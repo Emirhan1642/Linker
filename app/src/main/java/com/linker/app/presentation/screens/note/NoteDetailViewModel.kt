@@ -19,7 +19,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class NoteDetailUiState(
     val isLoadingLyrics: Boolean = false,
     val lyrics: List<SyncedLyricLine> = emptyList(),
@@ -85,7 +87,7 @@ class NoteDetailViewModel @Inject constructor(
     }
 
     private fun fetchLyrics(trackName: String, artistName: String) {
-        val cleanTrackName = trackName.replace(Regex("\\(.*?\\)"), "").replace(Regex("\\[.*?\\]"), "").trim()
+        val cleanTrackName = trackName.replace(PARENTHESES_REGEX, "").replace(BRACKETS_REGEX, "").trim()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoadingLyrics = true)
             when (val result = lyricsRepository.getSyncedLyrics(cleanTrackName, artistName)) {
@@ -185,5 +187,10 @@ class NoteDetailViewModel @Inject constructor(
         currentNoteId = null
         audioPlayerManager.stop()
         spotifyAppRemoteManager.pauseAndDisconnect()
+    }
+
+    companion object {
+        private val PARENTHESES_REGEX = Regex("\\(.*?\\)")
+        private val BRACKETS_REGEX = Regex("\\[.*?\\]")
     }
 }

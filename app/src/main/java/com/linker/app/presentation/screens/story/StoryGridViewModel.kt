@@ -15,7 +15,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class StoryGridUiState(
     val userStories: List<UserStories> = emptyList(),
     val isLoading: Boolean = true,

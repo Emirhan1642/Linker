@@ -1,5 +1,8 @@
 package com.linker.app.presentation.screens.chat
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class MessageInfoState(
     val isLoading: Boolean = false,
     val messageId: String = "",
@@ -18,6 +21,7 @@ data class MessageInfoState(
     val readReceipts: List<ReadReceiptInfo> = emptyList()
 )
 
+@Immutable
 data class ParticipantReceiptInfo(
     val userId: String,
     val userName: String,
@@ -25,6 +29,7 @@ data class ParticipantReceiptInfo(
     val avatarUrl: String?
 )
 
+@Immutable
 data class ReplyInfo(
     val messageId: String,
     val senderId: String,
@@ -32,12 +37,14 @@ data class ReplyInfo(
     val avatarUrl: String?
 )
 
+@Immutable
 data class ReplyPreview(
     val senderName: String,
     val previewText: String,
     val isSelf: Boolean
 )
 
+@Immutable
 data class ReadReceiptInfo(
     val userId: String,
     val userName: String,

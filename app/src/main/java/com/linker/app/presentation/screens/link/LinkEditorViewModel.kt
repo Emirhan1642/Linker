@@ -14,7 +14,9 @@ import javax.inject.Inject
 import android.net.Uri
 import com.linker.app.domain.repository.LinkRepository
 import com.linker.app.domain.model.LinkType
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class LinkEditorUiState(
     val description: String = "",
     val mediaUris: List<Uri> = emptyList(),
@@ -96,7 +98,10 @@ class LinkEditorViewModel @Inject constructor(
     }
 
     private fun extractHashtags(desc: String): List<String> {
-        val regex = Regex("#(\\w+)")
-        return regex.findAll(desc).map { it.groupValues[1] }.toList()
+        return HASHTAG_REGEX.findAll(desc).map { it.groupValues[1] }.toList()
+    }
+
+    companion object {
+        private val HASHTAG_REGEX = Regex("#(\\w+)")
     }
 }

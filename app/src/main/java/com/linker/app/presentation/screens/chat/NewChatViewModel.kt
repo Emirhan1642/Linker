@@ -11,7 +11,9 @@ import kotlinx.coroutines.launch
 import com.linker.app.core.util.Result
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class NewChatUiState(
     val query: String = "",
     val isLoading: Boolean = false,

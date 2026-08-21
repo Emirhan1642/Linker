@@ -22,9 +22,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+@Immutable
 data class ChatBasicInfo(
     val chat: Chat? = null,
     val chatName: String = "",
@@ -38,6 +40,7 @@ data class ChatBasicInfo(
     val groupCreatedBy: String? = null
 )
 
+@Immutable
 data class ChatSettingsState(
     val isMuted: Boolean = false,
     val isPinned: Boolean = false,
@@ -47,11 +50,13 @@ data class ChatSettingsState(
     val theme: String? = null
 )
 
+@Immutable
 data class SharedMediaState(
     val sharedMedia: List<SharedMediaItem> = emptyList(),
     val sharedLinks: List<SharedLinkItem> = emptyList()
 )
 
+@Immutable
 data class ChatInfoUiState(
     val isLoading: Boolean = true,
     val error: UiText? = null,
@@ -62,6 +67,7 @@ data class ChatInfoUiState(
     val shouldCloseScreen: Boolean = false
 )
 
+@Immutable
 data class SharedMediaItem(
     val mediaUrl: String,
     val mediaType: MediaType,
@@ -70,6 +76,7 @@ data class SharedMediaItem(
 
 enum class MediaType { IMAGE, VIDEO, GIF }
 
+@Immutable
 data class SharedLinkItem(
     val linkId: String,
     val title: String,

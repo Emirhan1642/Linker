@@ -1,7 +1,9 @@
 package com.linker.app.presentation.screens.chat
 
+import androidx.compose.runtime.Immutable
 import com.linker.app.domain.model.Note
 
+@Immutable
 data class ChatListUiState(
     val isLoading: Boolean = true,
     val chats: List<ChatUiModel> = emptyList(),
@@ -14,6 +16,7 @@ data class ChatListUiState(
 )
 
 /** Lightweight model for the chat list screen. */
+@Immutable
 data class ChatUiModel(
     val chatId: String,
     val displayName: String,

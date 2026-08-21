@@ -26,7 +26,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.linker.app.core.util.UiText
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class UserProfileUiState(
     val isLoading: Boolean = true,
     val user: User? = null,

@@ -32,6 +32,7 @@ import com.linker.app.core.util.UiText
  * - Service control
  * - Settings management with DataStore persistence
  */
+@androidx.compose.runtime.Immutable
 data class OfflineMessagingSettingsUiState(
     // Service status
     val isServiceRunning: Boolean = false,

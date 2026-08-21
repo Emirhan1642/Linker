@@ -19,6 +19,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val descriptionHistoryDateFormat = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault())
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DescriptionHistorySheet(
@@ -73,7 +75,7 @@ fun DescriptionHistorySheet(
                                 modifier = Modifier.padding(top = 4.dp)
                             )
                             Text(
-                                text = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(Date(version.editedAt)),
+                                text = descriptionHistoryDateFormat.format(Date(version.editedAt)),
                                 color = TextSecondary,
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(top = 4.dp)

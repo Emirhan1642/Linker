@@ -29,6 +29,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private val commentTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+private val commentHistoryDateFormat = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault())
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CommentSheet(
@@ -231,7 +234,7 @@ fun CommentSheet(
                                 modifier = Modifier.padding(top = 4.dp)
                             )
                             Text(
-                                text = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault()).format(Date(version.editedAt)),
+                                text = commentHistoryDateFormat.format(Date(version.editedAt)),
                                 color = TextSecondary,
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -277,7 +280,7 @@ fun CommentItem(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(comment.createdAt)),
+                    text = commentTimeFormat.format(Date(comment.createdAt)),
                     color = TextSecondary,
                     fontSize = 12.sp
                 )

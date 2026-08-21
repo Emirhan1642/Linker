@@ -30,8 +30,10 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+import androidx.compose.runtime.Immutable
 import javax.inject.Inject
 
+@Immutable
 data class AuthUiState(
     val isLoading: Boolean = false,
     val currentUser: User? = null,

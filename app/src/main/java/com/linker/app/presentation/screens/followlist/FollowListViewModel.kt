@@ -17,9 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
 enum class FollowListType { FOLLOWERS, FOLLOWING, PENDING_REQUESTS, SENT_REQUESTS }
 
+@Immutable
 data class FollowListUiState(
     val isLoading: Boolean = true,
     val users: List<User> = emptyList(),

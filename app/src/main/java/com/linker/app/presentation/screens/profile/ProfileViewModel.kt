@@ -19,7 +19,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.linker.app.core.util.Result
 import com.linker.app.presentation.components.StoryState
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class ProfileUiState(
     val isLoading: Boolean = false,
     val user: User? = null,
