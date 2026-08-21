@@ -48,7 +48,7 @@ fun AlbumDetailScreen(
     val currentRemoteTrackId by viewModel.currentRemoteTrackId.collectAsStateWithLifecycle()
     val loadingPreviewTrackId by viewModel.loadingPreviewTrackId.collectAsStateWithLifecycle()
     val playingPreviewTrackId = remember { mutableStateOf<String?>(null) }
-    val context = LocalContext.current as Activity
+    val context = LocalContext.current
 
     val handleTrackSelected: (SpotifyTrack) -> Unit = { track ->
         viewModel.saveRecentTrack(track)

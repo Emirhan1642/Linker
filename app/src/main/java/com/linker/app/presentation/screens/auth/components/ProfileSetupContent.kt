@@ -22,6 +22,8 @@ import com.linker.app.R
 import com.linker.app.presentation.screens.auth.AuthUiState
 import com.linker.app.presentation.theme.*
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun ProfileSetupContent(
     uiState: AuthUiState,
@@ -38,7 +40,7 @@ fun ProfileSetupContent(
         Spacer(modifier = Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onGoBack) {
-                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = stringResource(R.string.action_back), tint = TextPrimary, modifier = Modifier.size(30.dp))
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -46,20 +48,20 @@ fun ProfileSetupContent(
             modifier = Modifier.size(120.dp).clip(CircleShape).border(3.dp, LinkerAngularGradient, CircleShape).padding(4.dp).clip(CircleShape).background(LightGray).clickable { onImageClick() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(painter = painterResource(id = R.drawable.ic_profile_outline), contentDescription = "Add photo", tint = TextSecondary, modifier = Modifier.size(48.dp))
+            Icon(painter = painterResource(id = R.drawable.ic_profile_outline), contentDescription = stringResource(R.string.auth_tap_to_add_photo), tint = TextSecondary, modifier = Modifier.size(48.dp))
         }
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Tap to add photo", color = TextHint, fontSize = 13.sp)
+        Text(stringResource(R.string.auth_tap_to_add_photo), color = TextHint, fontSize = 13.sp)
         Spacer(modifier = Modifier.height(32.dp))
-        Text("Complete Your Profile", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.auth_complete_profile_title), color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(6.dp))
-        Text("Choose a unique username", color = TextSecondary, fontSize = 14.sp)
+        Text(stringResource(R.string.auth_choose_username_subtitle), color = TextSecondary, fontSize = 14.sp)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerTextField(value = uiState.username, onValueChange = onUsernameChange, placeholder = "Username (e.g. alex_145)", errorMessage = uiState.usernameError, leadingIcon = R.drawable.ic_profile_outline)
+        LinkerTextField(value = uiState.username, onValueChange = onUsernameChange, placeholder = stringResource(R.string.auth_username_hint), errorMessage = uiState.usernameError, leadingIcon = R.drawable.ic_profile_outline)
         Spacer(modifier = Modifier.height(16.dp))
-        LinkerTextField(value = uiState.displayName, onValueChange = onDisplayNameChange, placeholder = "Display name", leadingIcon = R.drawable.ic_user_edit_outline)
+        LinkerTextField(value = uiState.displayName, onValueChange = onDisplayNameChange, placeholder = stringResource(R.string.auth_display_name_placeholder), leadingIcon = R.drawable.ic_user_edit_outline)
         Spacer(modifier = Modifier.height(40.dp))
-        LinkerGradientButton(text = "Let's Go!", onClick = onComplete)
+        LinkerGradientButton(text = stringResource(R.string.auth_lets_go), onClick = onComplete)
         Spacer(modifier = Modifier.height(32.dp))
     }
 }

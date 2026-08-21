@@ -17,6 +17,8 @@ import com.linker.app.R
 import com.linker.app.presentation.screens.auth.AuthUiState
 import com.linker.app.presentation.theme.*
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun SignUpContent(
     uiState: AuthUiState,
@@ -33,22 +35,22 @@ fun SignUpContent(
         Spacer(modifier = Modifier.height(60.dp))
         LinkerLogo()
         Spacer(modifier = Modifier.height(12.dp))
-        Text("Create Account", color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Join the Linker community", color = TextSecondary, fontSize = 15.sp)
+        Text(stringResource(R.string.auth_sign_up_title), color = TextPrimary, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.auth_sign_up_subtitle), color = TextSecondary, fontSize = 15.sp)
         Spacer(modifier = Modifier.height(40.dp))
-        LinkerTextField(value = uiState.email, onValueChange = onEmailChange, placeholder = "Email address", keyboardType = KeyboardType.Email, errorMessage = uiState.emailError, leadingIcon = R.drawable.ic_enhance_user_ai_outline)
+        LinkerTextField(value = uiState.email, onValueChange = onEmailChange, placeholder = stringResource(R.string.auth_email_placeholder), keyboardType = KeyboardType.Email, errorMessage = uiState.emailError, leadingIcon = R.drawable.ic_enhance_user_ai_outline)
         Spacer(modifier = Modifier.height(16.dp))
-        LinkerTextField(value = uiState.password, onValueChange = onPasswordChange, placeholder = "Password (min 8 characters)", isPassword = true, errorMessage = uiState.passwordError, leadingIcon = R.drawable.ic_smart_lock_ai_outline)
+        LinkerTextField(value = uiState.password, onValueChange = onPasswordChange, placeholder = stringResource(R.string.auth_password_min_length), isPassword = true, errorMessage = uiState.passwordError, leadingIcon = R.drawable.ic_smart_lock_ai_outline)
         Spacer(modifier = Modifier.height(16.dp))
-        LinkerTextField(value = uiState.confirmPassword, onValueChange = onConfirmPasswordChange, placeholder = "Confirm password", isPassword = true, errorMessage = if (uiState.confirmPassword.isNotEmpty() && uiState.password != uiState.confirmPassword) "Passwords do not match" else null, leadingIcon = R.drawable.ic_smart_lock_ai_outline)
+        LinkerTextField(value = uiState.confirmPassword, onValueChange = onConfirmPasswordChange, placeholder = stringResource(R.string.auth_confirm_password_placeholder), isPassword = true, errorMessage = if (uiState.confirmPassword.isNotEmpty() && uiState.password != uiState.confirmPassword) stringResource(R.string.auth_error_password_mismatch) else null, leadingIcon = R.drawable.ic_smart_lock_ai_outline)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerGradientButton(text = "Sign Up", onClick = onSignUp)
+        LinkerGradientButton(text = stringResource(R.string.auth_sign_up_button), onClick = onSignUp)
         Spacer(modifier = Modifier.height(20.dp))
-        Text("By signing up, you agree to our Terms of Service\nand Privacy Policy", color = TextHint, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 18.sp)
+        Text(stringResource(R.string.auth_terms_agreement), color = TextHint, fontSize = 12.sp, textAlign = TextAlign.Center, lineHeight = 18.sp)
         Spacer(modifier = Modifier.height(32.dp))
         Row {
-            Text("Already have an account? ", color = TextSecondary, fontSize = 14.sp)
-            Text("Sign In", color = AccentGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onGoToSignIn() })
+            Text(stringResource(R.string.auth_have_account), color = TextSecondary, fontSize = 14.sp)
+            Text(stringResource(R.string.auth_sign_in_button), color = AccentGreen, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { onGoToSignIn() })
         }
         Spacer(modifier = Modifier.height(32.dp))
     }

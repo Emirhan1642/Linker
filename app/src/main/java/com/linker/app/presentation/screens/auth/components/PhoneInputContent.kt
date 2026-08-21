@@ -23,6 +23,8 @@ import com.linker.app.R
 import com.linker.app.presentation.screens.auth.AuthUiState
 import com.linker.app.presentation.theme.*
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun PhoneInputContent(
     uiState: AuthUiState,
@@ -37,7 +39,7 @@ fun PhoneInputContent(
         Spacer(modifier = Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onGoBack) {
-                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = stringResource(R.string.action_back), tint = TextPrimary, modifier = Modifier.size(30.dp))
             }
         }
         Spacer(modifier = Modifier.height(40.dp))
@@ -45,14 +47,14 @@ fun PhoneInputContent(
             Icon(painter = painterResource(id = R.drawable.ic_ai_send_message_outline), contentDescription = null, tint = InfoBlue, modifier = Modifier.size(48.dp))
         }
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Phone Verification", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.auth_phone_verification_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Enter your phone number with country\ncode to receive a verification code", color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+        Text(stringResource(R.string.auth_phone_verification_subtitle), color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerTextField(value = uiState.phoneNumber, onValueChange = onPhoneChange, placeholder = "+90 5XX XXX XXXX", keyboardType = KeyboardType.Phone, errorMessage = uiState.phoneError, leadingIcon = R.drawable.ic_ai_send_message_outline)
+        LinkerTextField(value = uiState.phoneNumber, onValueChange = onPhoneChange, placeholder = stringResource(R.string.auth_phone_placeholder), keyboardType = KeyboardType.Phone, errorMessage = uiState.phoneError, leadingIcon = R.drawable.ic_ai_send_message_outline)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerGradientButton(text = "Send Code", onClick = onSendOtp)
+        LinkerGradientButton(text = stringResource(R.string.auth_send_otp), onClick = onSendOtp)
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Use Email Instead", color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onGoBack() })
+        Text(stringResource(R.string.auth_use_email_instead), color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onGoBack() })
     }
 }

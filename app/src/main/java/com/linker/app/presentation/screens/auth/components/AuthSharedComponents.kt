@@ -90,7 +90,7 @@ fun LinkerGradientButton(text: String, onClick: () -> Unit) {
 fun OrDivider() {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.weight(1f).height(1.dp).background(LightGray))
-        Text("  or  ", color = TextHint, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text("  ${androidx.compose.ui.res.stringResource(R.string.auth_or_divider)}  ", color = TextHint, fontSize = 13.sp, fontWeight = FontWeight.Medium)
         Box(modifier = Modifier.weight(1f).height(1.dp).background(LightGray))
     }
 }

@@ -23,6 +23,8 @@ import com.linker.app.R
 import com.linker.app.presentation.screens.auth.AuthUiState
 import com.linker.app.presentation.theme.*
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun ForgotPasswordContent(
     uiState: AuthUiState,
@@ -37,7 +39,7 @@ fun ForgotPasswordContent(
         Spacer(modifier = Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onGoBack) {
-                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = stringResource(R.string.action_back), tint = TextPrimary, modifier = Modifier.size(30.dp))
             }
         }
         Spacer(modifier = Modifier.height(40.dp))
@@ -45,14 +47,14 @@ fun ForgotPasswordContent(
             Icon(painter = painterResource(id = R.drawable.ic_smart_lock_ai_outline), contentDescription = null, tint = AccentGreen, modifier = Modifier.size(48.dp))
         }
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Reset Password", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.auth_forgot_password_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Enter the email associated with your\naccount and we'll send a reset link", color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+        Text(stringResource(R.string.auth_forgot_password_subtitle), color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerTextField(value = uiState.email, onValueChange = onEmailChange, placeholder = "Email address", keyboardType = KeyboardType.Email, errorMessage = uiState.emailError, leadingIcon = R.drawable.ic_enhance_user_ai_outline)
+        LinkerTextField(value = uiState.email, onValueChange = onEmailChange, placeholder = stringResource(R.string.auth_email_placeholder), keyboardType = KeyboardType.Email, errorMessage = uiState.emailError, leadingIcon = R.drawable.ic_enhance_user_ai_outline)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerGradientButton(text = "Send Reset Link", onClick = onSendReset)
+        LinkerGradientButton(text = stringResource(R.string.auth_send_reset_link), onClick = onSendReset)
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Back to Sign In", color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onGoBack() })
+        Text(stringResource(R.string.auth_back_to_sign_in), color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { onGoBack() })
     }
 }

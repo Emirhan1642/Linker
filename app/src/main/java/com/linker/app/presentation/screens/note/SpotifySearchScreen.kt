@@ -53,7 +53,7 @@ fun SpotifySearchScreen(
     val playingPreviewTrackId = remember { mutableStateOf<String?>(null) }
     val loadingPreviewTrackId by viewModel.loadingPreviewTrackId.collectAsStateWithLifecycle()
     
-    val context = LocalContext.current as Activity
+    val context = LocalContext.current
 
     val handleTrackSelected: (SpotifyTrack) -> Unit = { track ->
         viewModel.saveRecentTrack(track)

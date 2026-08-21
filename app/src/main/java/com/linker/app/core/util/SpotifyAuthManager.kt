@@ -90,7 +90,7 @@ class SpotifyAuthManager @Inject constructor(
      * Starts the Spotify PKCE login flow by opening the system browser.
      * The result comes back via deep link → MainActivity.onNewIntent() → handleBrowserCallback().
      */
-    fun openLoginInBrowser(activity: Activity, clientId: String = BuildConfig.SPOTIFY_CLIENT_ID) {
+    fun openLoginInBrowser(context: Context, clientId: String = BuildConfig.SPOTIFY_CLIENT_ID) {
         val verifier = generateCodeVerifier()
         val challenge = generateCodeChallenge(verifier)
         pendingCodeVerifier = verifier
@@ -108,9 +108,12 @@ class SpotifyAuthManager @Inject constructor(
         Log.d(TAG, "Opening browser for PKCE auth.")
         val browserIntent = Intent(Intent.ACTION_VIEW, authUri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NO_HISTORY)
+            if (context !is Activity) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         }
         try {
-            activity.startActivity(browserIntent)
+            context.startActivity(browserIntent)
         } catch (e: ActivityNotFoundException) {
             Log.e(TAG, "No browser found to handle Spotify auth intent", e)
             _isPremium.value = false

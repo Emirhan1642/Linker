@@ -47,8 +47,18 @@ class LanguageManager @Inject constructor(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 config.setLocales(LocaleList(locale))
             }
-            return baseContext.createConfigurationContext(config)
+            val configContext = baseContext.createConfigurationContext(config)
+            return LocalizedContextWrapper(baseContext, configContext)
         }
+    }
+
+    class LocalizedContextWrapper(
+        private val baseActivityContext: Context,
+        private val localizedConfigContext: Context
+    ) : android.content.ContextWrapper(baseActivityContext) {
+        override fun getResources(): android.content.res.Resources = localizedConfigContext.resources
+        override fun getAssets(): android.content.res.AssetManager = localizedConfigContext.assets
+        override fun getTheme(): android.content.res.Resources.Theme = baseActivityContext.theme
     }
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

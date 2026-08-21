@@ -19,6 +19,8 @@ import com.linker.app.R
 import com.linker.app.presentation.screens.auth.AuthUiState
 import com.linker.app.presentation.theme.*
 
+import androidx.compose.ui.res.stringResource
+
 @Composable
 fun PhoneOtpVerifyContent(
     uiState: AuthUiState,
@@ -33,18 +35,18 @@ fun PhoneOtpVerifyContent(
         Spacer(modifier = Modifier.height(20.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             IconButton(onClick = onGoBack) {
-                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = "Back", tint = TextPrimary, modifier = Modifier.size(30.dp))
+                Icon(painter = painterResource(id = R.drawable.ic_arrow_left_01_outline), contentDescription = stringResource(R.string.action_back), tint = TextPrimary, modifier = Modifier.size(30.dp))
             }
         }
         Spacer(modifier = Modifier.height(40.dp))
-        Text("Enter Code", color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.auth_enter_code_title), color = TextPrimary, fontSize = 26.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
-        Text("We sent a 6-digit code to\n${uiState.phoneNumber}", color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
+        Text(stringResource(R.string.auth_code_sent_to, uiState.phoneNumber), color = TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center, lineHeight = 20.sp)
         Spacer(modifier = Modifier.height(40.dp))
         OtpInputRow(otp = uiState.otp, onOtpChange = onOtpChange, otpLength = 6, errorMessage = uiState.otpError)
         Spacer(modifier = Modifier.height(32.dp))
-        LinkerGradientButton(text = "Verify", onClick = onVerify)
+        LinkerGradientButton(text = stringResource(R.string.auth_verify_otp), onClick = onVerify)
         Spacer(modifier = Modifier.height(24.dp))
-        Text("Didn't receive the code? Resend", color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { })
+        Text(stringResource(R.string.auth_resend_code), color = LightPurple, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { })
     }
 }
