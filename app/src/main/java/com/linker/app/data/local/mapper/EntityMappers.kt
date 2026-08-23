@@ -92,14 +92,15 @@ fun LinkEntity.toDomain(author: User?): Link {
     
     // Convert legacy flat media structure to MediaItem sealed class
     val mediaItems = if (mediaUrls.isNotEmpty()) {
-        mediaUrls.mapIndexed { index, url ->
+        mediaUrls.mapIndexed { index, rawUrl ->
+            val url = if (rawUrl.isBlank()) "placeholder://empty" else rawUrl
             if (videoDuration != null && index == 0) {
                 // First item is a video
                 MediaItem.Video(
                     url = url,
                     aspectRatio = aspectRatio,
                     thumbnailUrl = thumbnailUrl,
-                    duration = videoDuration,
+                    duration = videoDuration ?: 15,
                     width = null,
                     height = null
                 )
@@ -114,7 +115,7 @@ fun LinkEntity.toDomain(author: User?): Link {
             }
         }
     } else {
-        emptyList()
+        listOf(MediaItem.Image(url = "placeholder://text_only", aspectRatio = null, width = null, height = null))
     }
     
     return Link(

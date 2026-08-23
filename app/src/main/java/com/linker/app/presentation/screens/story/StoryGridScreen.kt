@@ -11,6 +11,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -51,6 +53,7 @@ import com.linker.app.presentation.theme.*
 fun StoryGridScreen(
     onNavigateBack: () -> Unit,
     onOpenStoryViewer: (userId: String) -> Unit,
+    onNavigateToStoryEditor: () -> Unit = {},
     viewModel: StoryGridViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -62,7 +65,10 @@ fun StoryGridScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar
-            StoryGridTopBar(onNavigateBack = onNavigateBack)
+            StoryGridTopBar(
+                onNavigateBack = onNavigateBack,
+                onNavigateToStoryEditor = onNavigateToStoryEditor
+            )
 
             when {
                 uiState.isLoading -> {
@@ -70,7 +76,7 @@ fun StoryGridScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = GradientBlue)
+                        CircularProgressIndicator(color = LinkerPrimary)
                     }
                 }
 
@@ -84,6 +90,62 @@ fun StoryGridScreen(
                             color = TextSecondary,
                             fontSize = 14.sp
                         )
+                    }
+                }
+
+                uiState.userStories.isEmpty() -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(LinkerPrimary.copy(alpha = 0.15f))
+                                .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhotoCamera,
+                                contentDescription = null,
+                                tint = LinkerPrimary,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Henüz Hikaye Yok",
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Takip ettiğin kullanıcıların paylaştığı hikayeler burada görünür.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Brush.horizontalGradient(LinkerBrandGradient))
+                                .bouncyClick { onNavigateToStoryEditor() }
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "İlk Hikayeni Paylaş",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
 
@@ -112,7 +174,10 @@ fun StoryGridScreen(
 }
 
 @Composable
-private fun StoryGridTopBar(onNavigateBack: () -> Unit) {
+private fun StoryGridTopBar(
+    onNavigateBack: () -> Unit,
+    onNavigateToStoryEditor: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -127,11 +192,38 @@ private fun StoryGridTopBar(onNavigateBack: () -> Unit) {
         )
         Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = "Stories",
+            text = "Hikayeler",
             color = TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.weight(1f)
         )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(Brush.horizontalGradient(LinkerBrandGradient))
+                .bouncyClick { onNavigateToStoryEditor() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PhotoCamera,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = "Ekle",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
     }
 }
 

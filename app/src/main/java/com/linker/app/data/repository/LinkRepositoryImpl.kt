@@ -164,7 +164,7 @@ class LinkRepositoryImpl @Inject constructor(
             android.util.Log.w("LinkRepositoryImpl", "Remote loadMoreFeed failed: ${e.message}")
         }
 
-        linkDao.getAllLinks(limit, 0).mapNotNull { entity ->
+        linkDao.getLinksBeforeTimestamp(beforeTimestamp, limit).mapNotNull { entity ->
             runCatching { entity.toDomain(resolveAuthor(entity.authorId)) }.getOrNull()
         }
     }
@@ -211,7 +211,7 @@ class LinkRepositoryImpl @Inject constructor(
         val now = System.currentTimeMillis()
 
         // Local placeholder for immediate UI feedback
-        val placeholderMedia = mediaLocalPaths.map { "placeholder://$it" }
+        val placeholderMedia = if (mediaLocalPaths.isNotEmpty()) mediaLocalPaths.map { "placeholder://$it" } else listOf("placeholder://text_only")
 
         val mappedLinkType = when(linkType) {
             LinkType.FEED -> com.linker.app.data.local.entity.LinkType.FEED

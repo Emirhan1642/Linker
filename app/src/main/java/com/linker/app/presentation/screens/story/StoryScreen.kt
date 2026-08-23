@@ -160,20 +160,98 @@ fun StoryScreen(
         }
 
         val currentStory = stories.getOrNull(storyPagerState.currentPage)
+        val isOwnStory = currentStory != null && currentStory.author.userId == viewModel.currentUserId
+        var showMenu by remember { mutableStateOf(false) }
+        var showDeleteDialog by remember { mutableStateOf(false) }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            isPaused = true
-                            tryAwaitRelease()
+        // Background Preload next story
+        val context = androidx.compose.ui.platform.LocalContext.current
+        LaunchedEffect(storyPagerState.currentPage) {
+            val nextStory = stories.getOrNull(storyPagerState.currentPage + 1)
+            if (nextStory != null && nextStory.mediaUrl.isNotBlank()) {
+                val request = coil3.request.ImageRequest.Builder(context)
+                    .data(nextStory.mediaUrl)
+                    .build()
+                coil3.SingletonImageLoader.get(context).enqueue(request)
+            }
+        }
+
+        if (showDeleteDialog && currentStory != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { 
+                    showDeleteDialog = false
+                    isPaused = false
+                },
+                title = { Text("Hikayeyi Sil", color = com.linker.app.presentation.theme.TextPrimary, fontWeight = FontWeight.Bold) },
+                text = { Text("Bu hikayeyi silmek istediğinize emin misiniz?", color = com.linker.app.presentation.theme.TextSecondary) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showDeleteDialog = false
+                            isPaused = false
+                            viewModel.deleteStory(currentStory.storyId) {
+                                if (stories.size <= 1) {
+                                    onNavigateBack()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Sil", color = com.linker.app.presentation.theme.ErrorRed, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showDeleteDialog = false
                             isPaused = false
                         }
-                    )
-                }
+                    ) {
+                        Text("İptal", color = com.linker.app.presentation.theme.TextSecondary)
+                    }
+                },
+                containerColor = com.linker.app.presentation.theme.DarkGray,
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+
+        androidx.compose.foundation.layout.BoxWithConstraints(
+            modifier = Modifier.fillMaxSize()
         ) {
+            val screenWidth = maxWidth
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                isPaused = true
+                                tryAwaitRelease()
+                                isPaused = false
+                            },
+                            onTap = { offset ->
+                                val isLeft = offset.x < screenWidth.toPx() * 0.35f
+                                scope.launch {
+                                    currentProgress = 0f
+                                    if (isLeft) {
+                                        if (storyPagerState.currentPage > 0) {
+                                            storyPagerState.animateScrollToPage(storyPagerState.currentPage - 1)
+                                        } else if (groupIndex > 0) {
+                                            groupPagerState.animateScrollToPage(groupIndex - 1)
+                                        }
+                                    } else {
+                                        if (storyPagerState.currentPage < stories.lastIndex) {
+                                            storyPagerState.animateScrollToPage(storyPagerState.currentPage + 1)
+                                        } else if (groupIndex < displayStories.lastIndex) {
+                                            groupPagerState.animateScrollToPage(groupIndex + 1)
+                                        } else {
+                                            onNavigateBack()
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
+            ) {
             // Story media
             if (currentStory != null) {
                 AsyncImage(
@@ -207,42 +285,6 @@ fun StoryScreen(
                         )
                     )
             )
-
-            // Tap zones (skip backward / forward)
-            Row(modifier = Modifier.fillMaxSize()) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .clickable {
-                            scope.launch {
-                                currentProgress = 0f
-                                if (storyPagerState.currentPage > 0) {
-                                    storyPagerState.animateScrollToPage(storyPagerState.currentPage - 1)
-                                } else if (groupIndex > 0) {
-                                    groupPagerState.animateScrollToPage(groupIndex - 1)
-                                }
-                            }
-                        }
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxSize()
-                        .clickable {
-                            scope.launch {
-                                currentProgress = 0f
-                                if (storyPagerState.currentPage < stories.lastIndex) {
-                                    storyPagerState.animateScrollToPage(storyPagerState.currentPage + 1)
-                                } else if (groupIndex < displayStories.lastIndex) {
-                                    groupPagerState.animateScrollToPage(groupIndex + 1)
-                                } else {
-                                    onNavigateBack()
-                                }
-                            }
-                        }
-                )
-            }
 
             // Top HUD
             Column(
@@ -316,17 +358,59 @@ fun StoryScreen(
                         }
                     }
 
-                    // 3-dot menu
-                    var showMenu by remember { mutableStateOf(false) }
-                    IconButton(onClick = { showMenu = true }) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Daha fazla",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
+                    // 3-dot menu with owner delete / report
+                    Box {
+                        IconButton(onClick = { 
+                            isPaused = true
+                            showMenu = true 
+                        }) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Daha fazla",
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        androidx.compose.material3.DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { 
+                                showMenu = false
+                                isPaused = false 
+                            },
+                            modifier = Modifier.background(com.linker.app.presentation.theme.DarkGray)
+                        ) {
+                            if (isOwnStory) {
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { 
+                                        Text("Görüntüleyenler (${currentStory?.viewsCount ?: 0})", color = com.linker.app.presentation.theme.TextPrimary) 
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        isPaused = false
+                                    }
+                                )
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text("Hikayeyi Sil", color = com.linker.app.presentation.theme.ErrorRed) },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteDialog = true
+                                    }
+                                )
+                            } else {
+                                androidx.compose.material3.DropdownMenuItem(
+                                    text = { Text("Şikayet Et", color = com.linker.app.presentation.theme.ErrorRed) },
+                                    onClick = {
+                                        showMenu = false
+                                        isPaused = false
+                                        currentStory?.let {
+                                            viewModel.reportStory(it.storyId, com.linker.app.domain.model.ReportReason.INAPPROPRIATE)
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
-                    // Menu shown via ContentReportSheet in real impl; placeholder for now
                 }
             }
 
@@ -462,6 +546,7 @@ fun StoryScreen(
             }
         }
     }
+}
 }
 
 private fun formatLikes(count: Int): String = when {

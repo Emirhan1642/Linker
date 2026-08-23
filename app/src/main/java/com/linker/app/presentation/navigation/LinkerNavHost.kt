@@ -163,7 +163,8 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryGrid) },
                 onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
                 onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
-                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) },
+                onNavigateToStoryEditor = { navController.navigate(Route.StoryEditor) }
             )
         }
 
@@ -185,7 +186,8 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryGrid) },
                 onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
                 onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
-                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) },
+                onNavigateToStoryEditor = { navController.navigate(Route.StoryEditor) }
             )
         }
 
@@ -207,7 +209,8 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryGrid) },
                 onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
                 onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
-                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) },
+                onNavigateToStoryEditor = { navController.navigate(Route.StoryEditor) }
             )
         }
 
@@ -231,7 +234,8 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryGrid) },
                 onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
                 onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
-                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) },
+                onNavigateToStoryEditor = { navController.navigate(Route.StoryEditor) }
             )
         }
 
@@ -286,14 +290,15 @@ fun LinkerNavHost(
                 onNavigateBack = { navController.popBackStack() },
                 onOpenStoryViewer = { userId ->
                     navController.navigate(Route.StoryViewer(userId))
+                },
+                onNavigateToStoryEditor = {
+                    navController.navigate(Route.StoryEditor)
                 }
             )
         }
 
         composable<Route.StoryViewer> { backStackEntry ->
             val route = backStackEntry.toRoute<Route.StoryViewer>()
-            // Note: allUserStories would be passed from a shared ViewModel in a real impl.
-            // For now we pass empty list; StoryGridViewModel is the source of truth.
             StoryScreen(
                 userId = route.userId,
                 allUserStories = emptyList(),
@@ -301,6 +306,13 @@ fun LinkerNavHost(
                 onUserTap = { uid ->
                     if (uid != currentUserId) navController.navigate(Route.UserProfile(uid))
                 }
+            )
+        }
+
+        composable<Route.StoryEditor> {
+            com.linker.app.presentation.screens.story.StoryEditorScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onStoryPublished = { navController.popBackStack() }
             )
         }
 
@@ -316,7 +328,7 @@ fun LinkerNavHost(
             val route = backStackEntry.toRoute<Route.LinkEditor>()
             com.linker.app.presentation.screens.link.LinkEditorScreen(
                 linkId = null,
-                initialDescription = null, // Can be passed via safe args if needed
+                initialDescription = null,
                 onNavigateBack = { navController.popBackStack() },
                 onSaved = { navController.popBackStack() }
             )
@@ -479,7 +491,8 @@ fun LinkerNavHost(
                 onNavigateToStory = { navController.navigate(Route.StoryGrid) },
                 onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
                 onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
-                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) },
+                onNavigateToStoryEditor = { navController.navigate(Route.StoryEditor) }
             )
         }
 

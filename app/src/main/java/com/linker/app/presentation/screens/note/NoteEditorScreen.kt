@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -166,7 +167,7 @@ fun NoteEditorScreen(
             Icon(
                 imageVector = Icons.Default.Edit,
                 contentDescription = "Edit Color",
-                tint = if (uiState.isColorPickerVisible) GradientBlue else Color.White,
+                tint = if (uiState.isColorPickerVisible) LinkerPrimary else Color.White,
                 modifier = Modifier.size(30.dp)
             )
         }
@@ -509,16 +510,18 @@ fun NoteEditorScreen(
                 Text(text = "Hedef kitle: arkadaşlar >", color = Color.Gray, fontSize = 14.sp)
             }
 
-            Button(
-                onClick = { viewModel.saveNote() },
-                enabled = !uiState.isSaving,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F51B5)),
-                shape = RoundedCornerShape(20.dp)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Brush.horizontalGradient(LinkerBrandGradient))
+                    .bouncyClick(enabled = !uiState.isSaving) { viewModel.saveNote() }
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
             ) {
                 if (uiState.isSaving) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                 } else {
-                    Text("Paylaş", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text("Paylaş", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 }
             }
         }

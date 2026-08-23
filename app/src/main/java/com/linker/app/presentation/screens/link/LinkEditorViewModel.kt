@@ -55,6 +55,29 @@ class LinkEditorViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(mediaUris = uris)
     }
 
+    fun appendMedia(uris: List<Uri>) {
+        val current = _uiState.value.mediaUris
+        _uiState.value = _uiState.value.copy(mediaUris = current + uris)
+    }
+
+    fun removeMediaAt(index: Int) {
+        val current = _uiState.value.mediaUris.toMutableList()
+        if (index in current.indices) {
+            current.removeAt(index)
+            _uiState.value = _uiState.value.copy(mediaUris = current)
+        }
+    }
+
+    fun setLocation(loc: String?) {
+        _uiState.value = _uiState.value.copy(location = loc)
+    }
+
+    fun appendToDescription(text: String) {
+        val current = _uiState.value.description
+        val separator = if (current.isNotEmpty() && !current.endsWith(" ")) " " else ""
+        _uiState.value = _uiState.value.copy(description = "$current$separator$text", error = null)
+    }
+
     fun onAiLabelToggled(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(aiLabelEnabled = enabled)
     }
@@ -80,9 +103,16 @@ class LinkEditorViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(isSaving = false, error = result.message)
                 }
             } else {
+                // Determine if media is video or standard image feed
+                val containsVideo = _uiState.value.mediaUris.any { uri ->
+                    val uriStr = uri.toString().lowercase()
+                    uriStr.endsWith(".mp4") || uriStr.endsWith(".mov") || uriStr.endsWith(".mkv") || uriStr.contains("video")
+                }
+                val determinedType = if (containsVideo) LinkType.VIDEO else LinkType.FEED
+
                 // Create new link
                 val result = linkRepository.createLink(
-                    linkType = LinkType.FEED,
+                    linkType = determinedType,
                     description = desc,
                     mediaLocalPaths = _uiState.value.mediaUris.map { it.toString() },
                     location = _uiState.value.location

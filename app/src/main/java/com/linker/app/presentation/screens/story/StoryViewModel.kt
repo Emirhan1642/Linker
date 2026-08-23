@@ -110,6 +110,23 @@ class StoryViewModel @Inject constructor(
         }
     }
 
+    val currentUserId: String
+        get() = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+
+    fun deleteStory(storyId: String, onDeleted: () -> Unit = {}) {
+        viewModelScope.launch {
+            val result = storyRepository.deleteStory(storyId)
+            if (result is Result.Success) {
+                _uiState.update { state ->
+                    state.copy(
+                        currentStories = state.currentStories.filter { it.storyId != storyId }
+                    )
+                }
+                onDeleted()
+            }
+        }
+    }
+
     fun reportStory(storyId: String, reason: com.linker.app.domain.model.ReportReason) {
         viewModelScope.launch {
             reportStoryUseCase(storyId, reason)

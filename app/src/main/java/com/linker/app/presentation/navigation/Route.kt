@@ -22,6 +22,7 @@ sealed interface Route {
     @Serializable data class ChatInfo(val chatId: String) : Route
     @Serializable data object NewChat : Route
     @Serializable data class StoryViewer(val userId: String) : Route
+    @Serializable data object StoryEditor : Route
 
     /** Link post detail — displays the full post with comments. */
     @Serializable data class LinkDetail(val linkId: String) : Route

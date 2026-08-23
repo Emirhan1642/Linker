@@ -586,12 +586,11 @@ fun NoteDetailBottomSheet(
                 }
             }
 
-            // Auto-close when clip finishes
+            // Auto-pause playback when clip finishes (keep sheet open for replay)
             LaunchedEffect(currentPosMs) {
                 if (note is com.linker.app.domain.model.Note.Music) {
                     if (currentPosMs >= note.clipEndTime && note.clipEndTime > 0) {
                         viewModel.clearNote()
-                        onDismiss()
                     }
                 }
             }

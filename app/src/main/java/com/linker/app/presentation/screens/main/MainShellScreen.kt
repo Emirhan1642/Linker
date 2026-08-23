@@ -46,7 +46,8 @@ fun MainShellScreen(
     onNavigateToStory: () -> Unit,
     onNavigateToFollowers: (String) -> Unit,
     onNavigateToFollowing: (String) -> Unit,
-    onNavigateToLinkEditor: () -> Unit
+    onNavigateToLinkEditor: () -> Unit,
+    onNavigateToStoryEditor: () -> Unit = {}
 ) {
     val pagerState = rememberPagerState(
         initialPage = initialTab.coerceIn(0, 3),
@@ -97,6 +98,7 @@ fun MainShellScreen(
                     0 -> HomeScreen(
                         onNavigateBottomNav = onNavigateBottomNav,
                         onNavigateToStoryGrid = onNavigateToStoryGrid,
+                        onNavigateToLinkDetail = onNavigateToLinkDetail,
                         showBottomBar = false
                     )
                     1 -> SearchScreen(
@@ -139,7 +141,7 @@ fun MainShellScreen(
             },
             onStorySelected = {
                 showContentPicker = false
-                onNavigateToStoryGrid()
+                onNavigateToStoryEditor()
             }
         )
     }

@@ -119,8 +119,10 @@ fun NoteCard(
                             var remainingStr by remember { mutableStateOf(getRemainingTime(note.countdownTargetTime)) }
                             LaunchedEffect(note.countdownTargetTime) {
                                 while(true) {
-                                    remainingStr = getRemainingTime(note.countdownTargetTime)
-                                    kotlinx.coroutines.delay(1000)
+                                    val rem = getRemainingTime(note.countdownTargetTime)
+                                    remainingStr = rem
+                                    if (rem == "00:00") break
+                                    kotlinx.coroutines.delay(10_000)
                                 }
                             }
                             PillBadge(

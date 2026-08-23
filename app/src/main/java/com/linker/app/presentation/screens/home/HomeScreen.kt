@@ -75,11 +75,17 @@ import com.linker.app.presentation.animation.bouncyClick
 import com.linker.app.presentation.animation.shimmerEffect
 import com.linker.app.presentation.animation.DoubleTapHeartOverlay
 
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import com.linker.app.domain.model.LinkType
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateBottomNav: (BottomNavItem) -> Unit,
     onNavigateToStoryGrid: () -> Unit = {},
+    onNavigateToLinkDetail: (String) -> Unit = {},
     showBottomBar: Boolean = true,
     viewModel: HomeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
@@ -134,9 +140,11 @@ fun HomeScreen(
                     if (link != null) {
                         FeedItemView(
                             link = link,
+                            isCurrentPage = pagerState.currentPage == page,
                             onLikeClick = { viewModel.toggleLike(link.linkId) },
                             onSaveClick = { viewModel.toggleSave(link.linkId) },
-                            onRelinkClick = { viewModel.toggleRelink(link.linkId) }
+                            onRelinkClick = { viewModel.toggleRelink(link.linkId) },
+                            onCommentClick = { onNavigateToLinkDetail(link.linkId) }
                         )
                     }
                 }
@@ -180,12 +188,62 @@ fun HomeScreen(
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+fun VideoPlayerView(
+    videoUrl: String,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val exoPlayer = remember(videoUrl) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoUrl)
+            setMediaItem(mediaItem)
+            repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+            playWhenReady = isPlaying
+            prepare()
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            exoPlayer.play()
+        } else {
+            exoPlayer.pause()
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            androidx.media3.ui.PlayerView(ctx).apply {
+                player = exoPlayer
+                useController = false
+                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        },
+        modifier = modifier
+    )
+}
+
 @Composable
 fun FeedItemView(
     link: com.linker.app.domain.model.Link,
+    isCurrentPage: Boolean = true,
     onLikeClick: () -> Unit = {},
     onSaveClick: () -> Unit = {},
-    onRelinkClick: () -> Unit = {}
+    onRelinkClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {}
 ) {
     var showHeartOverlay by remember { mutableStateOf(false) }
 
@@ -205,7 +263,62 @@ fun FeedItemView(
             }
     ) {
         val primaryMediaUrl = link.primaryMedia.url
-        if (primaryMediaUrl.isNotBlank() && !primaryMediaUrl.startsWith("placeholder://")) {
+        val isVideo = link.linkType == LinkType.VIDEO || link.linkType == LinkType.REEL ||
+                primaryMediaUrl.endsWith(".mp4") || primaryMediaUrl.endsWith(".mov")
+
+        if (isVideo && primaryMediaUrl.isNotBlank() && !primaryMediaUrl.startsWith("placeholder://")) {
+            VideoPlayerView(
+                videoUrl = primaryMediaUrl,
+                isPlaying = isCurrentPage,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (link.mediaItems.size > 1) {
+            val mediaUrls = link.mediaItems.map { it.url }
+            val carouselState = rememberPagerState(pageCount = { mediaUrls.size })
+            HorizontalPager(
+                state = carouselState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val media = mediaUrls.getOrNull(page) ?: ""
+                if (media.isNotBlank() && !media.startsWith("placeholder://")) {
+                    coil3.compose.AsyncImage(
+                        model = media,
+                        contentDescription = link.description,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            // Multi-media Badge
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 96.dp, end = 16.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Black.copy(alpha = 0.65f))
+                    .border(1.dp, GlassCardBorder, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_gallery_outline),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = "${carouselState.currentPage + 1}/${mediaUrls.size}",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        } else if (primaryMediaUrl.isNotBlank() && !primaryMediaUrl.startsWith("placeholder://")) {
             coil3.compose.AsyncImage(
                 model = primaryMediaUrl,
                 contentDescription = link.description,
@@ -258,7 +371,7 @@ fun FeedItemView(
                 Column {
                     Text(
                         text = "@${link.author.username}",
-                        color = GradientBlue,
+                        color = LinkerPrimary,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp
                     )
@@ -292,7 +405,8 @@ fun FeedItemView(
             )
             ActionButton(
                 icon = R.drawable.ic_ai_commentary_outline,
-                count = link.engagement.commentsCount.toString()
+                count = link.engagement.commentsCount.toString(),
+                onClick = onCommentClick
             )
             ActionButton(
                 icon = if (link.engagement.isRelinked) R.drawable.ic_toy_6_bold else R.drawable.ic_toy_6_outline,

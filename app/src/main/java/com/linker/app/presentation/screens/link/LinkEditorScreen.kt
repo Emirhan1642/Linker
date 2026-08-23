@@ -39,10 +39,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.linker.app.R
-import com.linker.app.presentation.theme.Black
-import com.linker.app.presentation.theme.DarkGray
-import com.linker.app.presentation.theme.TextPrimary
-import com.linker.app.presentation.theme.TextSecondary
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.graphics.Brush
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.theme.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,34 +118,42 @@ fun LinkEditorScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // Taslaklar (Drafts) Button
-                    Button(
-                        onClick = { onNavigateBack() },
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkGray),
-                        shape = RoundedCornerShape(12.dp),
+                    Box(
                         modifier = Modifier
-                            .weight(0.4f)
+                            .weight(0.35f)
                             .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(DarkGrayTransparent)
+                            .border(1.dp, GlassCardBorder, RoundedCornerShape(14.dp))
+                            .bouncyClick { onNavigateBack() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text("Taslaklar", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                        Text("Taslaklar", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                     }
                     
                     // Paylaş (Share) Button
-                    Button(
-                        onClick = { viewModel.saveLink() },
-                        enabled = !uiState.isSaving && (uiState.description.isNotBlank() || uiState.mediaUris.isNotEmpty()),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        ),
-                        shape = RoundedCornerShape(12.dp),
+                    val canShare = !uiState.isSaving && (uiState.description.isNotBlank() || uiState.mediaUris.isNotEmpty())
+                    Box(
                         modifier = Modifier
-                            .weight(0.6f)
+                            .weight(0.65f)
                             .height(48.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .then(
+                                if (canShare) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
+                                else Modifier.background(DarkGray)
+                            )
+                            .bouncyClick(enabled = canShare) { viewModel.saveLink() },
+                        contentAlignment = Alignment.Center
                     ) {
                         if (uiState.isSaving) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                         } else {
-                            Text("Paylaş", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                text = "Paylaş",
+                                color = if (canShare) Color.White else TextSecondary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp
+                            )
                         }
                     }
                 }
@@ -161,10 +170,11 @@ fun LinkEditorScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 32.dp, vertical = 16.dp)
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
                     .aspectRatio(1f) // Square box for image preview
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(DarkGray),
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(DarkGrayTransparent)
+                    .border(1.dp, GlassCardBorder, RoundedCornerShape(20.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 if (uiState.mediaUris.isNotEmpty()) {
@@ -173,12 +183,53 @@ fun LinkEditorScreen(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
-                        AsyncImage(
-                            model = uiState.mediaUris[page],
-                            contentDescription = "Selected Media",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            AsyncImage(
+                                model = uiState.mediaUris[page],
+                                contentDescription = "Selected Media",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Delete button on current item
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(12.dp)
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Black.copy(alpha = 0.7f))
+                                    .border(1.dp, GlassCardBorder, CircleShape)
+                                    .bouncyClick { viewModel.removeMediaAt(page) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Kaldır",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Add more media button
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Black.copy(alpha = 0.75f))
+                            .border(1.dp, GlassCardBorder, RoundedCornerShape(12.dp))
+                            .bouncyClick {
+                                mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Text("Ekle", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                     
                     // Pager Indicators
@@ -188,17 +239,17 @@ fun LinkEditorScreen(
                                 .wrapContentHeight()
                                 .fillMaxWidth()
                                 .align(Alignment.BottomCenter)
-                                .padding(bottom = 8.dp),
+                                .padding(bottom = 12.dp),
                             horizontalArrangement = Arrangement.Center
                         ) {
                             repeat(uiState.mediaUris.size) { iteration ->
-                                val color = if (pagerState.currentPage == iteration) MaterialTheme.colorScheme.primary else Color.LightGray
+                                val isCurrent = pagerState.currentPage == iteration
                                 Box(
                                     modifier = Modifier
-                                        .padding(2.dp)
+                                        .padding(3.dp)
                                         .clip(CircleShape)
-                                        .background(color)
-                                        .size(6.dp)
+                                        .background(if (isCurrent) LinkerPrimary else Color.White.copy(alpha = 0.5f))
+                                        .size(if (isCurrent) 8.dp else 6.dp)
                                 )
                             }
                         }
@@ -206,13 +257,27 @@ fun LinkEditorScreen(
                 } else {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable {
-                            mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
-                        }
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .bouncyClick {
+                                mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                            },
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = TextSecondary, modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Görsel veya Video Ekle", color = TextSecondary, fontSize = 14.sp)
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(LinkerPrimary.copy(alpha = 0.15f))
+                                .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = "Add", tint = LinkerPrimary, modifier = Modifier.size(32.dp))
+                        }
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text("Görsel veya Video Ekle", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Akışta veya Keşfet'te paylaşın", color = TextSecondary, fontSize = 12.sp)
                     }
                 }
             }
@@ -225,7 +290,7 @@ fun LinkEditorScreen(
             ) {
                 if (uiState.description.isEmpty()) {
                     Text(
-                        text = "Bir açıklama ekle...",
+                        text = "Bir açıklama veya düşünceni yaz...",
                         color = TextSecondary,
                         fontSize = 15.sp
                     )
@@ -234,7 +299,7 @@ fun LinkEditorScreen(
                     value = uiState.description,
                     onValueChange = { viewModel.onDescriptionChange(it) },
                     textStyle = TextStyle(color = TextPrimary, fontSize = 15.sp),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    cursorBrush = SolidColor(LinkerPrimary),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -243,70 +308,60 @@ fun LinkEditorScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QuickActionButton(text = "Anket", icon = null)
-                QuickActionButton(text = "İstem", icon = null)
-                Spacer(modifier = Modifier.weight(1f))
-                SmallIconButton(text = "#")
-                SmallIconButton(text = "@")
-            }
-
-            Divider(color = DarkGray, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
-
-            // Action Rows
-            ActionRow(
-                icon = Icons.Default.MusicNote,
-                title = "Müzik ekle",
-                subtitle = uiState.music,
-                onClick = { /* TODO: Navigate to Music Picker */ }
-            )
-            ActionRow(
-                icon = Icons.Default.PersonAdd,
-                title = "Kişileri etiketle",
-                subtitle = if (uiState.taggedUsers.isNotEmpty()) "${uiState.taggedUsers.size} kişi" else null,
-                onClick = { /* TODO: Navigate to Tagging */ }
-            )
-            ActionRow(
-                icon = Icons.Default.LocationOn,
-                title = "Konum ekle",
-                subtitle = uiState.location,
-                onClick = { /* TODO: Navigate to Location Picker */ }
-            )
-
-            // Location Chips (Mock)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                LocationChip("Bursa")
-                LocationChip("İstanbul")
-                LocationChip("Kadıköy")
+                SmallIconButton(text = "#") { viewModel.appendToDescription("#") }
+                SmallIconButton(text = "@") { viewModel.appendToDescription("@") }
+            }
+
+            HorizontalDivider(color = GlassCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+
+            // Action Rows
+            ActionRow(
+                icon = Icons.Default.LocationOn,
+                title = "Konum",
+                subtitle = uiState.location,
+                onClick = { /* Selected via chips or picker */ }
+            )
+
+            // Location Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("İstanbul", "Bursa", "İzmir", "Ankara", "Antalya").forEach { city ->
+                    val isSelected = uiState.location == city
+                    LocationChip(
+                        text = city,
+                        isSelected = isSelected,
+                        onClick = { viewModel.setLocation(if (isSelected) null else city) }
+                    )
+                }
             }
             
             Text(
-                text = "Bu içeriği paylaştığınız kişiler, etiketlediğiniz konumu görebilir ve bu içeriği haritada görüntüleyebilir.",
+                text = "Bu içeriği paylaştığınız kişiler, etiketlediğiniz konumu görebilir ve haritada görüntüleyebilir.",
                 color = TextSecondary,
                 fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
 
-            Divider(color = DarkGray, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(color = GlassCardBorder, thickness = 1.dp, modifier = Modifier.padding(vertical = 8.dp))
 
             // AI Label Switch
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Star,
                     contentDescription = "AI",
-                    tint = TextPrimary,
+                    tint = LinkerPrimary,
                     modifier = Modifier.size(24.dp)
                 )
                 Column(
@@ -316,7 +371,7 @@ fun LinkEditorScreen(
                 ) {
                     Text("Yapay zeka etiketi ekle", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                     Text(
-                        text = "Yapay zekayla oluşturulan belirli gerçekçi içerikleri etiketlemenizi zorunlu tutuyoruz.",
+                        text = "Yapay zekayla oluşturulan gerçekçi içerikleri etiketlemenizi öneriyoruz.",
                         color = TextSecondary,
                         fontSize = 12.sp
                     )
@@ -326,45 +381,30 @@ fun LinkEditorScreen(
                     onCheckedChange = { viewModel.onAiLabelToggled(it) },
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = LinkerPrimary,
                         uncheckedThumbColor = TextSecondary,
                         uncheckedTrackColor = DarkGray
                     )
                 )
             }
             
-            Spacer(modifier = Modifier.height(40.dp)) // Extra padding at bottom
+            Spacer(modifier = Modifier.height(40.dp))
         }
     }
 }
 
 @Composable
-private fun QuickActionButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector?) {
-    Row(
-        modifier = Modifier
-            .background(DarkGray, RoundedCornerShape(8.dp))
-            .clickable { }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (icon != null) {
-            Icon(imageVector = icon, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(16.dp))
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        Text(text = text, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-@Composable
-private fun SmallIconButton(text: String) {
+private fun SmallIconButton(text: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(28.dp)
-            .background(DarkGray, CircleShape)
-            .clickable { },
+            .size(34.dp)
+            .clip(CircleShape)
+            .background(DarkGrayTransparent)
+            .border(1.dp, GlassCardBorder, CircleShape)
+            .bouncyClick { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(text = text, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -378,12 +418,12 @@ private fun ActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .bouncyClick { onClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(imageVector = icon, contentDescription = title, tint = TextPrimary, modifier = Modifier.size(24.dp))
-        Spacer(modifier = Modifier.width(16.dp))
+        Icon(imageVector = icon, contentDescription = title, tint = LinkerPrimary, modifier = Modifier.size(22.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = title,
             color = TextPrimary,
@@ -394,8 +434,9 @@ private fun ActionRow(
         if (subtitle != null) {
             Text(
                 text = subtitle,
-                color = TextSecondary,
-                fontSize = 14.sp,
+                color = GradientBlue,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(end = 8.dp)
             )
         }
@@ -403,19 +444,32 @@ private fun ActionRow(
             imageVector = Icons.Default.ChevronRight,
             contentDescription = "Go",
             tint = TextSecondary,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(18.dp)
         )
     }
 }
 
 @Composable
-private fun LocationChip(text: String) {
+private fun LocationChip(
+    text: String,
+    isSelected: Boolean = false,
+    onClick: () -> Unit
+) {
     Box(
         modifier = Modifier
-            .background(DarkGray, RoundedCornerShape(8.dp))
-            .clickable { }
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (isSelected) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
+                else Modifier.background(DarkGrayTransparent).border(1.dp, GlassCardBorder, RoundedCornerShape(10.dp))
+            )
+            .bouncyClick { onClick() }
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        Text(text = text, color = TextSecondary, fontSize = 12.sp)
+        Text(
+            text = text,
+            color = if (isSelected) Color.White else TextSecondary,
+            fontSize = 12.sp,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+        )
     }
 }
