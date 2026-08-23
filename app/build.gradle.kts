@@ -203,6 +203,7 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.coil.gif)
+    implementation(libs.coil.video)
 
     // Video Player
     implementation(libs.androidx.media3.exoplayer)

@@ -21,8 +21,10 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import coil3.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -536,6 +538,9 @@ fun StatGlassCard(
 @Composable
 fun ProfilePostItem(post: Link) {
     val aspectRatio = post.primaryMedia.aspectRatio ?: 1f
+    val rawUrl = post.primaryMedia.url
+    val cleanUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(rawUrl)
+
     GlassBox(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -543,6 +548,15 @@ fun ProfilePostItem(post: Link) {
             .aspectRatio(aspectRatio)
             .bouncyClick {}
     ) {
+        if (cleanUrl.isNotBlank()) {
+            AsyncImage(
+                model = cleanUrl,
+                contentDescription = post.description,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()

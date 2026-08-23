@@ -52,12 +52,25 @@ class CloudinaryUploadWorker @AssistedInject constructor(
                 return@withContext Result.retry()
             }
 
-            val uploadedUrls = paths.map { path ->
-                async { uploadFile(path) }
-            }.awaitAll().filterNotNull()
+            val uploadedUrls = mutableListOf<String>()
+            for ((index, path) in paths.withIndex()) {
+                SecureLogger.d(TAG, "Uploading item ${index + 1}/${paths.size} for $targetId")
+                var uploadedUrl = uploadFile(path)
+                if (uploadedUrl == null) {
+                    // Retry once immediately after short delay
+                    kotlinx.coroutines.delay(1000)
+                    uploadedUrl = uploadFile(path)
+                }
+                if (uploadedUrl != null) {
+                    uploadedUrls.add(uploadedUrl)
+                } else {
+                    SecureLogger.w(TAG, "Item ${index + 1}/${paths.size} failed for $targetId ($path). Rescheduling work.")
+                    return@withContext Result.retry()
+                }
+            }
 
-            if (uploadedUrls.isEmpty()) {
-                SecureLogger.w(TAG, "All media uploads failed for $targetId")
+            if (uploadedUrls.size != paths.size) {
+                SecureLogger.w(TAG, "Upload count mismatch (${uploadedUrls.size}/${paths.size}) for $targetId. Rescheduling work.")
                 return@withContext Result.retry()
             }
 
@@ -101,38 +114,55 @@ class CloudinaryUploadWorker @AssistedInject constructor(
         try {
             val uploadUri = if (path.startsWith("content://")) {
                 val uri = Uri.parse(path)
-                val tempFile = File(context.cacheDir, "cloudinary_tmp_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}.tmp")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
+                try {
+                    val tempFile = File(context.cacheDir, "cloudinary_tmp_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(6)}.tmp")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
-                }
-                if (tempFile.exists() && tempFile.length() > 0) {
-                    Uri.fromFile(tempFile)
-                } else {
+                    if (tempFile.exists() && tempFile.length() > 0) {
+                        Uri.fromFile(tempFile)
+                    } else {
+                        uri
+                    }
+                } catch (e: Exception) {
+                    SecureLogger.w(TAG, "Fallback to direct URI as stream copy failed: ${e.message}")
                     uri
                 }
             } else if (path.startsWith("file://")) {
-                Uri.parse(path)
+                val uri = Uri.parse(path)
+                val file = File(uri.path ?: "")
+                if (file.exists()) Uri.fromFile(file) else uri
             } else {
-                Uri.fromFile(File(path))
+                val file = File(path)
+                Uri.fromFile(file)
             }
 
             val preset = com.linker.app.BuildConfig.CLOUDINARY_UPLOAD_PRESET.ifBlank { "default_preset" }
-            val requestId = MediaManager.get().upload(uploadUri)
-                .unsigned(preset)
+            val uploadRequest = if (com.linker.app.BuildConfig.CLOUDINARY_API_SECRET.isNotBlank()) {
+                MediaManager.get().upload(uploadUri)
+            } else {
+                MediaManager.get().upload(uploadUri).unsigned(preset)
+            }
+
+            val requestId = uploadRequest
                 .callback(object : UploadCallback {
-                    override fun onStart(requestId: String) {}
+                    override fun onStart(requestId: String) {
+                        SecureLogger.d(TAG, "Cloudinary upload started for $path (id: $requestId)")
+                    }
                     override fun onProgress(requestId: String, bytes: Long, totalBytes: Long) {}
                     override fun onSuccess(requestId: String, resultData: Map<*, *>) {
                         val url = resultData["secure_url"] as? String
+                        SecureLogger.d(TAG, "Cloudinary upload succeeded: $url")
                         cont.resume(url)
                     }
                     override fun onError(requestId: String, error: ErrorInfo) {
-                        SecureLogger.e(TAG, "Cloudinary upload error: ${error.description}")
+                        SecureLogger.e(TAG, "Cloudinary upload error (${error.code}): ${error.description}")
                         cont.resume(null)
                     }
                     override fun onReschedule(requestId: String, error: ErrorInfo) {
+                        SecureLogger.w(TAG, "Cloudinary upload rescheduled (${error.code}): ${error.description}")
                         cont.resume(null)
                     }
                 })

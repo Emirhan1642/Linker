@@ -67,26 +67,20 @@ class StoryViewModel @Inject constructor(
 
     fun likeStory(storyId: String) {
         viewModelScope.launch {
-            // Optimistic update
+            // Optimistic update for both currentStories and allUserStories
             _uiState.update { state ->
                 state.copy(
                     currentStories = state.currentStories.map { story ->
                         if (story.storyId == storyId) story.toggleLike() else story
+                    },
+                    allUserStories = state.allUserStories.map { group ->
+                        group.copy(stories = group.stories.map { story ->
+                            if (story.storyId == storyId) story.toggleLike() else story
+                        })
                     }
                 )
             }
-            // Fire-and-forget; on error we revert
-            val result = likeStoryUseCase(storyId)
-            if (result is Result.Error) {
-                // Revert optimistic update
-                _uiState.update { state ->
-                    state.copy(
-                        currentStories = state.currentStories.map { story ->
-                            if (story.storyId == storyId) story.toggleLike() else story
-                        }
-                    )
-                }
-            }
+            likeStoryUseCase(storyId)
         }
     }
 
@@ -97,6 +91,11 @@ class StoryViewModel @Inject constructor(
                 state.copy(
                     currentStories = state.currentStories.map { story ->
                         if (story.storyId == storyId) story.withReaction(emoji) else story
+                    },
+                    allUserStories = state.allUserStories.map { group ->
+                        group.copy(stories = group.stories.map { story ->
+                            if (story.storyId == storyId) story.withReaction(emoji) else story
+                        })
                     }
                 )
             }
@@ -119,7 +118,10 @@ class StoryViewModel @Inject constructor(
             if (result is Result.Success) {
                 _uiState.update { state ->
                     state.copy(
-                        currentStories = state.currentStories.filter { it.storyId != storyId }
+                        currentStories = state.currentStories.filter { it.storyId != storyId },
+                        allUserStories = state.allUserStories.map { group ->
+                            group.copy(stories = group.stories.filter { it.storyId != storyId })
+                        }.filter { it.stories.isNotEmpty() }
                     )
                 }
                 onDeleted()

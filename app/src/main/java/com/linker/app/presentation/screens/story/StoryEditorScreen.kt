@@ -53,12 +53,13 @@ fun StoryEditorScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     val mediaPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            val uriStr = uri.toString().lowercase()
-            val isVideo = uriStr.endsWith(".mp4") || uriStr.endsWith(".mov") || uriStr.contains("video")
+            val isVideo = com.linker.app.core.util.MediaUtils.isVideoUri(context, uri)
             viewModel.onMediaSelected(uri, isVideo)
         }
     }

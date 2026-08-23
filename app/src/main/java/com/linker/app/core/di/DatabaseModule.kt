@@ -103,8 +103,10 @@ object DatabaseModule {
                     LinkerDatabase.MIGRATION_10_11,
                     LinkerDatabase.MIGRATION_11_12,
                     LinkerDatabase.MIGRATION_12_13,
-                    LinkerDatabase.MIGRATION_13_14
+                    LinkerDatabase.MIGRATION_13_14,
+                    LinkerDatabase.MIGRATION_14_15
                 )
+                .fallbackToDestructiveMigration()
                 .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : androidx.room.RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {

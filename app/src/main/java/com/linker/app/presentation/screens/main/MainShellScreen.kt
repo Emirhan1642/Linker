@@ -92,6 +92,7 @@ fun MainShellScreen(
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = false,
                 beyondViewportPageCount = 1
             ) { page ->
                 when (page) {

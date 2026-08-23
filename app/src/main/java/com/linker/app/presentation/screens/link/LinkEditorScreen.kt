@@ -64,6 +64,8 @@ fun LinkEditorScreen(
         }
     }
 
+    var showLocationPicker by remember { mutableStateOf(false) }
+
     LaunchedEffect(linkId, initialDescription) {
         viewModel.initialize(linkId, initialDescription)
     }
@@ -72,6 +74,18 @@ fun LinkEditorScreen(
         if (uiState.isSaved) {
             onSaved()
         }
+    }
+
+    if (showLocationPicker) {
+        LocationPickerScreen(
+            locationService = viewModel.locationService,
+            onLocationSelected = { loc ->
+                viewModel.setLocation(loc)
+                showLocationPicker = false
+            },
+            onDismiss = { showLocationPicker = false }
+        )
+        return
     }
 
     Scaffold(
@@ -179,17 +193,28 @@ fun LinkEditorScreen(
             ) {
                 if (uiState.mediaUris.isNotEmpty()) {
                     val pagerState = rememberPagerState(pageCount = { uiState.mediaUris.size })
+                    val context = androidx.compose.ui.platform.LocalContext.current
                     HorizontalPager(
                         state = pagerState,
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
+                        val uri = uiState.mediaUris[page]
+                        val isVideo = com.linker.app.core.util.MediaUtils.isVideoUri(context, uri)
                         Box(modifier = Modifier.fillMaxSize()) {
-                            AsyncImage(
-                                model = uiState.mediaUris[page],
-                                contentDescription = "Selected Media",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
+                            if (isVideo) {
+                                com.linker.app.presentation.screens.home.VideoPlayerView(
+                                    videoUrl = uri.toString(),
+                                    isPlaying = pagerState.currentPage == page,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = "Selected Media",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
 
                             // Delete button on current item
                             Box(
@@ -321,29 +346,55 @@ fun LinkEditorScreen(
             ActionRow(
                 icon = Icons.Default.LocationOn,
                 title = "Konum",
-                subtitle = uiState.location,
-                onClick = { /* Selected via chips or picker */ }
+                subtitle = uiState.location ?: "Mekan veya konum seç",
+                onClick = { showLocationPicker = true }
             )
 
-            // Location Chips
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf("İstanbul", "Bursa", "İzmir", "Ankara", "Antalya").forEach { city ->
-                    val isSelected = uiState.location == city
-                    LocationChip(
-                        text = city,
-                        isSelected = isSelected,
-                        onClick = { viewModel.setLocation(if (isSelected) null else city) }
-                    )
+            if (!uiState.location.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(GradientBlue.copy(alpha = 0.15f))
+                            .border(1.dp, GradientBlue.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = GradientBlue,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = uiState.location ?: "",
+                                color = GradientBlue,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Kaldır",
+                                tint = GradientBlue,
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { viewModel.setLocation(null) }
+                            )
+                        }
+                    }
                 }
             }
             
             Text(
-                text = "Bu içeriği paylaştığınız kişiler, etiketlediğiniz konumu görebilir ve haritada görüntüleyebilir.",
+                text = "Paylaştığınız konum, akışta ve harita aramasında kullanıcılara gösterilir.",
                 color = TextSecondary,
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)

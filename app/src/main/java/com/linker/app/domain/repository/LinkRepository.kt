@@ -55,7 +55,8 @@ interface LinkRepository {
         linkType: LinkType,
         description: String?,
         mediaLocalPaths: List<String>,
-        location: String?
+        location: String?,
+        isAiGenerated: Boolean = false
     ): Result<Link>
 
     /** Deletes a Link. */

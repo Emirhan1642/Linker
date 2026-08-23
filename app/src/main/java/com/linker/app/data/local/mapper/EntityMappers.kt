@@ -136,6 +136,7 @@ fun LinkEntity.toDomain(author: User?): Link {
             isRelinked    = isRelinked
         ),
         location  = location,
+        isAiGenerated = isAiGenerated,
         hashtags  = hashtags,
         mentions  = mentions,
         createdAt = createdAt,
@@ -200,14 +201,16 @@ fun Link.toEntity(): LinkEntity {
  */
 fun StoryEntity.toDomain(author: User?): Story {
     val safeAuthor = author ?: User.deletedUser(authorId)
+    val mappedMediaType = mediaType.toDomain()
+    val safeDuration = if (mappedMediaType == StoryMediaType.VIDEO) (duration ?: 15).coerceAtLeast(1) else null
     
     return Story(
         storyId      = storyId,
         author       = StoryAuthor.from(safeAuthor),
         mediaUrl     = mediaUrl,
-        mediaType    = mediaType.toDomain(),
+        mediaType    = mappedMediaType,
         thumbnailUrl = thumbnailUrl,
-        duration     = duration,
+        duration     = safeDuration,
         caption      = caption,
         viewsCount   = viewsCount,
         isViewed     = isViewed,

@@ -65,7 +65,7 @@ import kotlin.system.exitProcess
  * @see SessionCleanupWorker
  */
 @HiltAndroidApp
-class LinkerApp : Application(), Configuration.Provider {
+class LinkerApp : Application(), Configuration.Provider, coil3.SingletonImageLoader.Factory {
 
     @Inject lateinit var securityManager: SecurityManager
     @Inject lateinit var workerFactory: HiltWorkerFactory
@@ -82,6 +82,15 @@ class LinkerApp : Application(), Configuration.Provider {
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
+
+    override fun newImageLoader(context: coil3.PlatformContext): coil3.ImageLoader {
+        return coil3.ImageLoader.Builder(context)
+            .components {
+                add(coil3.video.VideoFrameDecoder.Factory())
+                add(coil3.gif.GifDecoder.Factory())
+            }
+            .build()
+    }
 
     override fun onCreate() {
         super.onCreate()

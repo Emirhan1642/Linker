@@ -145,6 +145,18 @@ class ReportCommentUseCase @Inject constructor(
     }
 }
 
+/**
+ * Fetches replies for a parent comment.
+ */
+class GetRepliesUseCase @Inject constructor(
+    private val commentRepository: CommentRepository
+) {
+    suspend operator fun invoke(parentCommentId: String): Result<List<Comment>> {
+        if (parentCommentId.isBlank()) return Result.Error("Parent comment ID cannot be empty")
+        return commentRepository.getReplies(parentCommentId)
+    }
+}
+
 data class CommentUseCases @Inject constructor(
     val addComment: AddCommentUseCase,
     val observeComments: ObserveCommentsUseCase,
@@ -153,5 +165,6 @@ data class CommentUseCases @Inject constructor(
     val deleteComment: DeleteCommentUseCase,
     val likeComment: LikeCommentUseCase,
     val replyToComment: ReplyToCommentUseCase,
+    val getReplies: GetRepliesUseCase,
     val reportComment: ReportCommentUseCase
 )

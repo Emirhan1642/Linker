@@ -251,9 +251,11 @@ private fun StoryGridCard(
             .bouncyClick(onClick = onClick)
     ) {
         // Thumbnail background
-        if (mostRecentStory?.thumbnailUrl != null || mostRecentStory?.mediaUrl != null) {
+        val rawUrl = mostRecentStory?.thumbnailUrl ?: mostRecentStory?.mediaUrl
+        val cleanUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(rawUrl)
+        if (cleanUrl.isNotBlank()) {
             AsyncImage(
-                model = mostRecentStory.thumbnailUrl ?: mostRecentStory.mediaUrl,
+                model = cleanUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

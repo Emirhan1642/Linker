@@ -32,7 +32,8 @@ data class LinkEditorUiState(
 @HiltViewModel
 class LinkEditorViewModel @Inject constructor(
     private val linkInteractionUseCases: LinkInteractionUseCases,
-    private val linkRepository: LinkRepository
+    private val linkRepository: LinkRepository,
+    val locationService: com.linker.app.core.location.LocationService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LinkEditorUiState())
@@ -105,8 +106,7 @@ class LinkEditorViewModel @Inject constructor(
             } else {
                 // Determine if media is video or standard image feed
                 val containsVideo = _uiState.value.mediaUris.any { uri ->
-                    val uriStr = uri.toString().lowercase()
-                    uriStr.endsWith(".mp4") || uriStr.endsWith(".mov") || uriStr.endsWith(".mkv") || uriStr.contains("video")
+                    com.linker.app.core.util.MediaUtils.isVideoUrl(uri.toString())
                 }
                 val determinedType = if (containsVideo) LinkType.VIDEO else LinkType.FEED
 
@@ -115,7 +115,8 @@ class LinkEditorViewModel @Inject constructor(
                     linkType = determinedType,
                     description = desc,
                     mediaLocalPaths = _uiState.value.mediaUris.map { it.toString() },
-                    location = _uiState.value.location
+                    location = _uiState.value.location,
+                    isAiGenerated = _uiState.value.aiLabelEnabled
                 )
                 
                 if (result is Result.Success) {

@@ -113,17 +113,22 @@ class StoryRepositoryImpl @Inject constructor(
 
                     val stories = dataList.mapNotNull { (id, data) ->
                         val author = usersMap[data.authorId] ?: return@mapNotNull null
+                        val mappedType = try {
+                            StoryMediaType.valueOf(data.mediaType)
+                        } catch (_: Exception) {
+                            StoryMediaType.IMAGE
+                        }
+                        val storyDuration = if (mappedType == StoryMediaType.VIDEO) {
+                            (data.duration ?: 15).coerceAtLeast(1)
+                        } else null
+
                         Story(
                             storyId = id,
                             author = author,
                             mediaUrl = data.mediaUrl,
-                            mediaType = try {
-                                StoryMediaType.valueOf(data.mediaType)
-                            } catch (_: Exception) {
-                                StoryMediaType.IMAGE
-                            },
+                            mediaType = mappedType,
                             thumbnailUrl = data.thumbnailUrl,
-                            duration = null,
+                            duration = storyDuration,
                             caption = data.caption,
                             viewsCount = data.viewsCount,
                             likesCount = data.likesCount,
@@ -172,17 +177,22 @@ class StoryRepositoryImpl @Inject constructor(
 
         snapshot.documents.mapNotNull { doc ->
             doc.toObject(StoryDocument::class.java)?.let { data ->
+                val mappedType = try {
+                    StoryMediaType.valueOf(data.mediaType)
+                } catch (_: Exception) {
+                    StoryMediaType.IMAGE
+                }
+                val storyDuration = if (mappedType == StoryMediaType.VIDEO) {
+                    (data.duration ?: 15).coerceAtLeast(1)
+                } else null
+
                 Story(
                     storyId = doc.id,
                     author = author,
                     mediaUrl = data.mediaUrl,
-                    mediaType = try {
-                        StoryMediaType.valueOf(data.mediaType)
-                    } catch (_: Exception) {
-                        StoryMediaType.IMAGE
-                    },
+                    mediaType = mappedType,
                     thumbnailUrl = data.thumbnailUrl,
-                    duration = null,
+                    duration = storyDuration,
                     caption = data.caption,
                     viewsCount = data.viewsCount,
                     likesCount = data.likesCount,
@@ -205,7 +215,12 @@ class StoryRepositoryImpl @Inject constructor(
         val now = System.currentTimeMillis()
         val expiresAt = now + com.linker.app.core.util.TimeConstants.DAY_MS
 
-        val mediaUrl = "placeholder://$mediaLocalPath"
+        val persistentPath = com.linker.app.core.util.MediaUtils.copyUriToInternalStorage(appContext, mediaLocalPath)
+        val mediaUrl = "placeholder://$persistentPath"
+
+        val calculatedDuration = if (mediaType == StoryMediaType.VIDEO) {
+            (com.linker.app.core.util.MediaUtils.getVideoDurationSeconds(appContext, persistentPath) ?: 15.0).toInt().coerceAtLeast(1)
+        } else null
 
         val storyData = hashMapOf(
             "storyId" to storyId,
@@ -213,6 +228,7 @@ class StoryRepositoryImpl @Inject constructor(
             "mediaUrl" to mediaUrl,
             "mediaType" to mediaType.name,
             "caption" to caption,
+            "duration" to calculatedDuration,
             "viewsCount" to 0,
             "createdAt" to now,
             "expiresAt" to expiresAt,
@@ -225,7 +241,7 @@ class StoryRepositoryImpl @Inject constructor(
         val workData = androidx.work.workDataOf(
             "targetId" to storyId,
             "targetType" to "STORY",
-            "mediaLocalPath" to mediaLocalPath
+            "mediaLocalPath" to persistentPath
         )
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.linker.app.core.work.CloudinaryUploadWorker>()
             .setInputData(workData)
@@ -237,7 +253,7 @@ class StoryRepositoryImpl @Inject constructor(
             .build()
             
         androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
-        
+
         Story(
             storyId = storyId,
             author = StoryAuthor(
@@ -249,7 +265,7 @@ class StoryRepositoryImpl @Inject constructor(
             mediaUrl = mediaUrl,
             mediaType = mediaType,
             thumbnailUrl = null,
-            duration = null,
+            duration = calculatedDuration,
             caption = caption,
             viewsCount = 0,
             likesCount = 0,
@@ -311,7 +327,56 @@ class StoryRepositoryImpl @Inject constructor(
 
     override suspend fun getViewCount(storyId: String): Result<Int> = Result.Success(0)
     override suspend fun getViewers(storyId: String): Result<List<com.linker.app.domain.repository.StoryViewer>> = Result.Success(emptyList())
-    override suspend fun replyToStory(storyId: String, content: String): Result<Unit> = Result.Success(Unit)
+
+    override suspend fun replyToStory(storyId: String, content: String): Result<Unit> = RetryUtil.retrySafeCall {
+        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val storyDoc = storiesCollection.document(storyId).get().await()
+        val authorId = storyDoc.getString("authorId") ?: return@retrySafeCall
+        
+        // 1. Save reply to story replies subcollection
+        val replyId = UUID.randomUUID().toString()
+        storiesCollection.document(storyId).collection("replies").document(replyId).set(
+            mapOf(
+                "replyId" to replyId,
+                "storyId" to storyId,
+                "senderId" to currentUserId,
+                "content" to content,
+                "createdAt" to System.currentTimeMillis()
+            )
+        ).await()
+
+        // 2. Send direct message in chat with story author
+        try {
+            val chatId = if (currentUserId < authorId) "${currentUserId}_${authorId}" else "${authorId}_${currentUserId}"
+            val messageId = UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+            val messageText = "📷 Hikayeye yanıt verdi: $content"
+            
+            firestore.collection("chats").document(chatId).collection("messages").document(messageId).set(
+                mapOf(
+                    "messageId" to messageId,
+                    "chatId" to chatId,
+                    "senderId" to currentUserId,
+                    "content" to messageText,
+                    "timestamp" to now,
+                    "status" to "SENT"
+                )
+            ).await()
+            
+            firestore.collection("chats").document(chatId).set(
+                mapOf(
+                    "chatId" to chatId,
+                    "participants" to listOf(currentUserId, authorId),
+                    "lastMessage" to messageText,
+                    "lastMessageTimestamp" to now,
+                    "updatedAt" to now
+                ),
+                com.google.firebase.firestore.SetOptions.merge()
+            ).await()
+        } catch (e: Exception) {
+            android.util.Log.e("StoryRepo", "Failed to send chat message for story reply", e)
+        }
+    }
     override suspend fun getReplyCount(storyId: String): Result<Int> = Result.Success(0)
     override suspend fun updateStoryPrivacy(storyId: String, privacy: com.linker.app.domain.repository.StoryPrivacy): Result<Unit> = Result.Success(Unit)
     override suspend fun updateCloseFriendsList(userIds: List<String>): Result<Unit> = Result.Success(Unit)
@@ -391,6 +456,7 @@ class StoryRepositoryImpl @Inject constructor(
         val mediaUrl: String = "",
         val mediaType: String = "IMAGE",
         val thumbnailUrl: String? = null,
+        val duration: Int? = null,
         val caption: String? = null,
         val viewsCount: Int = 0,
         val likesCount: Int = 0,

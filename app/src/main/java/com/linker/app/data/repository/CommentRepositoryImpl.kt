@@ -41,23 +41,41 @@ class CommentRepositoryImpl @Inject constructor(
     private val usersCollection = firestore.collection("users")
     private val linksCollection = firestore.collection("links")
 
+    private fun extractCommentDocument(doc: com.google.firebase.firestore.DocumentSnapshot): CommentDocument {
+        @Suppress("UNCHECKED_CAST")
+        val likedBy = (doc.get("likedBy") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+        return CommentDocument(
+            commentId = doc.getString("commentId") ?: doc.id,
+            authorId = doc.getString("authorId") ?: "",
+            content = doc.getString("content") ?: "",
+            gifUrl = doc.getString("gifUrl"),
+            parentCommentId = doc.getString("parentCommentId"),
+            likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
+            repliesCount = (doc.getLong("repliesCount") ?: 0L).toInt(),
+            isPinned = doc.getBoolean("isPinned") ?: false,
+            isEdited = doc.getBoolean("isEdited") ?: false,
+            isDeleted = doc.getBoolean("isDeleted") ?: false,
+            editCount = (doc.getLong("editCount") ?: 0L).toInt(),
+            createdAt = doc.getLong("createdAt") ?: 0L,
+            updatedAt = doc.getLong("updatedAt") ?: 0L,
+            likedBy = likedBy
+        )
+    }
+
     override fun observeComments(linkId: String): Flow<Result<List<Comment>>> = callbackFlow {
         val listener = commentsCollection
             .whereEqualTo("linkId", linkId)
-            .whereEqualTo("parentCommentId", null) // Top-level comments only
-            .orderBy("createdAt", Query.Direction.DESCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Result.Success(emptyList()))
+                    android.util.Log.e("CommentRepo", "observeComments snapshot error", error)
+                    trySend(Result.Error(error.message ?: "Yorumlar alınamadı"))
                     return@addSnapshotListener
                 }
 
                 launch(kotlinx.coroutines.Dispatchers.IO) {
-                    val dataList = snapshot?.documents?.mapNotNull { doc ->
-                        doc.toObject(CommentDocument::class.java)?.let { data ->
-                            Pair(doc.id, data)
-                        }
-                    } ?: emptyList()
+                    val dataList = snapshot?.documents?.map { doc ->
+                        Pair(doc.id, extractCommentDocument(doc))
+                    }?.sortedByDescending { it.second.createdAt } ?: emptyList()
 
                     val comments = mapDocumentsToComments(dataList)
                     trySend(Result.Success(comments))
@@ -72,23 +90,24 @@ class CommentRepositoryImpl @Inject constructor(
         limit: Int,
         beforeTimestamp: Long?
     ): Result<List<Comment>> = RetryUtil.retrySafeCall {
-        var query = commentsCollection
+        val snapshot = commentsCollection
             .whereEqualTo("linkId", linkId)
-            .whereEqualTo("parentCommentId", null)
-            .orderBy("createdAt", Query.Direction.DESCENDING)
-            
-        if (beforeTimestamp != null) {
-            query = query.whereLessThan("createdAt", beforeTimestamp)
-        }
-        
-        val snapshot = query
-            .limit(limit.toLong())
             .get()
             .await()
 
-        val dataList = snapshot.documents.mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.let { Pair(doc.id, it) }
+        var dataList = snapshot.documents.map { doc ->
+            Pair(doc.id, extractCommentDocument(doc))
+        }.filter { it.second.parentCommentId == null }
+         .sortedByDescending { it.second.createdAt }
+
+        if (beforeTimestamp != null) {
+            dataList = dataList.filter { it.second.createdAt < beforeTimestamp }
         }
+
+        if (dataList.size > limit) {
+            dataList = dataList.take(limit)
+        }
+
         mapDocumentsToComments(dataList)
     }
 
@@ -100,13 +119,13 @@ class CommentRepositoryImpl @Inject constructor(
     override suspend fun getReplies(parentCommentId: String): Result<List<Comment>> = RetryUtil.retrySafeCall {
         val snapshot = commentsCollection
             .whereEqualTo("parentCommentId", parentCommentId)
-            .orderBy("createdAt", Query.Direction.ASCENDING)
             .get()
             .await()
 
-        val dataList = snapshot.documents.mapNotNull { doc ->
-            doc.toObject(CommentDocument::class.java)?.let { Pair(doc.id, it) }
-        }
+        val dataList = snapshot.documents.map { doc ->
+            Pair(doc.id, extractCommentDocument(doc))
+        }.sortedBy { it.second.createdAt }
+
         mapDocumentsToComments(dataList)
     }
 
@@ -208,14 +227,16 @@ class CommentRepositoryImpl @Inject constructor(
             batch.delete(likesRef)
             batch.update(
                 commentsCollection.document(commentId),
-                "likesCount", com.google.firebase.firestore.FieldValue.increment(-1)
+                "likesCount", com.google.firebase.firestore.FieldValue.increment(-1),
+                "likedBy", com.google.firebase.firestore.FieldValue.arrayRemove(currentUserId)
             )
         } else {
             // Like
             batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis()))
             batch.update(
                 commentsCollection.document(commentId),
-                "likesCount", com.google.firebase.firestore.FieldValue.increment(1)
+                "likesCount", com.google.firebase.firestore.FieldValue.increment(1),
+                "likedBy", com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId)
             )
         }
         batch.commit().await()
@@ -375,7 +396,13 @@ class CommentRepositoryImpl @Inject constructor(
         return kotlinx.coroutines.coroutineScope {
             dataList.map { (docId, data) ->
                 async {
-                    val author = usersMap[data.authorId] ?: return@async null
+                    val author = usersMap[data.authorId] ?: CommentAuthor(
+                        userId = data.authorId,
+                        username = "kullanici_${data.authorId.take(4)}",
+                        displayName = "Kullanıcı",
+                        profileImageUrl = null,
+                        isVerified = false
+                    )
 
                     val isLiked = if (currentUserId != null) {
                         if (data.likedBy.contains(currentUserId)) {

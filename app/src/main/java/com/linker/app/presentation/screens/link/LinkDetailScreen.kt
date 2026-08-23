@@ -100,44 +100,104 @@ fun LinkDetailScreen(
                 )
             } else if (uiState.error != null) {
                 Text(
-                    text = uiState.error ?: "Error",
+                    text = uiState.error ?: "Gönderi yüklenemedi",
                     color = TextSecondary,
                     modifier = Modifier.align(Alignment.Center)
                 )
-            } else {
+            } else if (uiState.link != null) {
+                val post = uiState.link!!
+                val rawPrimaryUrl = post.primaryMedia.url
+                val cleanPrimaryUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(rawPrimaryUrl)
+                val isVideo = post.linkType == com.linker.app.domain.model.LinkType.VIDEO ||
+                        post.linkType == com.linker.app.domain.model.LinkType.REEL ||
+                        com.linker.app.core.util.MediaUtils.isVideoUrl(cleanPrimaryUrl)
+
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 100.dp)
                 ) {
-                    // Link content would be here
+                    // Author Header
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            com.linker.app.presentation.components.LinkerAvatar(
+                                imageUrl = post.author.profileImageUrl,
+                                size = 40.dp
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = post.author.displayName,
+                                    color = TextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "@${post.author.username}",
+                                    color = com.linker.app.presentation.theme.LinkerPrimary,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                    }
+
+                    // Media Content
                     item {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(300.dp)
+                                .heightIn(min = 250.dp, max = 520.dp)
                                 .background(DarkGray),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(text = "Link Media Placeholder", color = TextSecondary)
+                            if (isVideo && cleanPrimaryUrl.isNotBlank()) {
+                                com.linker.app.presentation.screens.home.VideoPlayerView(
+                                    videoUrl = cleanPrimaryUrl,
+                                    isPlaying = true,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else if (cleanPrimaryUrl.isNotBlank()) {
+                                coil3.compose.AsyncImage(
+                                    model = cleanPrimaryUrl,
+                                    contentDescription = post.description,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
                         }
                     }
 
+                    // Description and Actions
                     item {
                         Column(
                             modifier = Modifier.padding(16.dp)
                         ) {
-                            Text(
-                                text = "This is the link description.",
-                                color = TextPrimary,
-                                fontSize = 15.sp
-                            )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            if (!post.description.isNullOrBlank()) {
+                                Text(
+                                    text = post.description ?: "",
+                                    color = TextPrimary,
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 TextButton(onClick = { showCommentSheet = true }) {
-                                    Text("Yorumları Gör", color = TextPrimary)
+                                    Text(
+                                        text = if (post.engagement.commentsCount > 0)
+                                            "${post.engagement.commentsCount} Yorumun Tümünü Gör"
+                                        else "Yorum Yap...",
+                                        color = com.linker.app.presentation.theme.LinkerPrimary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                             }
                         }

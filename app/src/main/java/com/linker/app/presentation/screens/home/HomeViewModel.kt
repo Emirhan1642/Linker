@@ -48,15 +48,26 @@ class HomeViewModel @Inject constructor(
     private fun observeFeed() {
         viewModelScope.launch {
             linkRepository.observeFeed().collect { result ->
-                if (result is Result.Success) {
-                    val allLinks = result.data
-                    val followingPosts = allLinks.filter { followingUserIds.contains(it.author.userId) }
-                    _uiState.update { 
-                        it.copy(
-                            links = allLinks,
-                            followingLinks = followingPosts,
-                            hasFollowingPosts = followingPosts.isNotEmpty()
-                        )
+                when (result) {
+                    is Result.Loading -> {
+                        _uiState.update { it.copy(isLoading = it.links.isEmpty()) }
+                    }
+                    is Result.Success -> {
+                        val allLinks = result.data
+                        val followingPosts = allLinks.filter { followingUserIds.contains(it.author.userId) }
+                        _uiState.update { 
+                            it.copy(
+                                isLoading = false,
+                                isRefreshing = false,
+                                links = allLinks,
+                                followingLinks = followingPosts,
+                                hasFollowingPosts = followingPosts.isNotEmpty(),
+                                error = null
+                            )
+                        }
+                    }
+                    is Result.Error -> {
+                        _uiState.update { it.copy(isLoading = false, isRefreshing = false, error = result.message) }
                     }
                 }
             }
@@ -133,6 +144,24 @@ class HomeViewModel @Inject constructor(
     fun toggleRelink(linkId: String) {
         viewModelScope.launch {
             linkRepository.toggleRelink(linkId)
+        }
+    }
+
+    fun hidePost(linkId: String) {
+        _uiState.update { state ->
+            state.copy(
+                links = state.links.filter { it.linkId != linkId },
+                followingLinks = state.followingLinks.filter { it.linkId != linkId }
+            )
+        }
+    }
+
+    fun hideUserPosts(userId: String) {
+        _uiState.update { state ->
+            state.copy(
+                links = state.links.filter { it.author.userId != userId },
+                followingLinks = state.followingLinks.filter { it.author.userId != userId }
+            )
         }
     }
 }

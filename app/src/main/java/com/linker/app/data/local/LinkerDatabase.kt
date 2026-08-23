@@ -22,7 +22,7 @@ import kotlinx.coroutines.TimeoutCancellationException
         SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class,
         SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class, com.linker.app.data.local.converter.NoteReferenceConverter::class)
@@ -350,6 +350,17 @@ abstract class LinkerDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE messages ADD COLUMN replyToNoteJson TEXT")
                 } catch (e: Exception) {
                     android.util.Log.d("LinkerDatabase", "replyToNoteJson column already exists")
+                }
+            }
+        }
+
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Added isAiGenerated field for AI tagged link posts
+                try {
+                    db.execSQL("ALTER TABLE links ADD COLUMN isAiGenerated INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "isAiGenerated column already exists: ${e.message}")
                 }
             }
         }

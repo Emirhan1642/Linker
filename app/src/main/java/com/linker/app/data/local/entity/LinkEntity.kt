@@ -48,6 +48,7 @@ data class LinkEntity(
     val isSaved: Boolean = false,
     val isRelinked: Boolean = false,
     val location: String? = null,
+    val isAiGenerated: Boolean = false,
     val hashtags: List<String> = emptyList(),
     val mentions: List<String> = emptyList(),
     val createdAt: Long,

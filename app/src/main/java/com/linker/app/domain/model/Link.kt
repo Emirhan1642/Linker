@@ -224,6 +224,7 @@ data class Link(
     val mediaItems: List<MediaItem> = emptyList(),
     val engagement: EngagementMetrics = EngagementMetrics(),
     val location: String? = null,
+    val isAiGenerated: Boolean = false,
     val hashtags: List<String> = emptyList(),
     val mentions: List<String> = emptyList(),
     val createdAt: Long,

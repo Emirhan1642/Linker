@@ -13,8 +13,11 @@ import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.LinkType
 import com.linker.app.domain.model.ReportReason
 import com.linker.app.domain.repository.LinkRepository
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -72,13 +75,65 @@ class LinkRepositoryImpl @Inject constructor(
         updatedAt = updatedAt
     )
 
-    override fun observeFeed(): Flow<Result<List<Link>>> =
-        linkDao.observeAllLinks().map { entities ->
-            val links = entities.map { entity ->
-                entity.toDomain(resolveAuthor(entity.authorId))
+    override fun observeFeed(): Flow<Result<List<Link>>> = callbackFlow {
+        trySend(Result.Loading())
+        val listener = firestore.collection("links")
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(50)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    trySend(Result.Error(error.message ?: "Firestore error"))
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val currentUserId = auth.currentUser?.uid ?: ""
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                        val entities = snapshot.documents.mapNotNull { doc ->
+                            val typeStr = doc.getString("linkType") ?: "FEED"
+                            val mappedType = when (typeStr) {
+                                "VIDEO" -> com.linker.app.data.local.entity.LinkType.VIDEO
+                                "REEL" -> com.linker.app.data.local.entity.LinkType.REEL
+                                else -> com.linker.app.data.local.entity.LinkType.FEED
+                            }
+                            @Suppress("UNCHECKED_CAST")
+                            val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+                            val authorId = doc.getString("authorId") ?: ""
+                            val linkId = doc.id
+
+                            // Fallback to local placeholder only if server mediaUrls is empty and current user is author
+                            val resolvedMedia = if (mediaList.isEmpty() && authorId == currentUserId) {
+                                val local = linkDao.getLinkById(linkId)
+                                local?.mediaUrls ?: emptyList()
+                            } else {
+                                mediaList
+                            }
+
+                            com.linker.app.data.local.entity.LinkEntity(
+                                linkId = linkId,
+                                authorId = authorId,
+                                linkType = mappedType,
+                                description = doc.getString("description"),
+                                mediaUrls = resolvedMedia,
+                                thumbnailUrl = doc.getString("thumbnailUrl"),
+                                location = doc.getString("location"),
+                                isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
+                                likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
+                                commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
+                                sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
+                                createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+                                updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+                            )
+                        }
+
+                        val links = entities.map { entity ->
+                            entity.toDomain(resolveAuthor(entity.authorId))
+                        }
+                        trySend(Result.Success(links))
+                    }
+                }
             }
-            Result.Success(links)
-        }
+        awaitClose { listener.remove() }
+    }
 
     override suspend fun refreshFeed(limit: Int): Result<List<Link>> = safeCall {
         try {
@@ -105,6 +160,7 @@ class LinkRepositoryImpl @Inject constructor(
                     mediaUrls = mediaList,
                     thumbnailUrl = doc.getString("thumbnailUrl"),
                     location = doc.getString("location"),
+                    isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
                     likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
                     commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
                     sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
@@ -150,6 +206,7 @@ class LinkRepositoryImpl @Inject constructor(
                     mediaUrls = mediaList,
                     thumbnailUrl = doc.getString("thumbnailUrl"),
                     location = doc.getString("location"),
+                    isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
                     likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
                     commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
                     sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
@@ -202,7 +259,8 @@ class LinkRepositoryImpl @Inject constructor(
         linkType: LinkType,
         description: String?,
         mediaLocalPaths: List<String>,
-        location: String?
+        location: String?,
+        isAiGenerated: Boolean
     ): Result<Link> = safeCall {
         val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             ?: throw IllegalStateException("Not authenticated")
@@ -210,8 +268,13 @@ class LinkRepositoryImpl @Inject constructor(
         val linkId = java.util.UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
 
+        // Persistently copy picked media to internal app storage while permissions are active
+        val persistentPaths = mediaLocalPaths.map {
+            com.linker.app.core.util.MediaUtils.copyUriToInternalStorage(appContext, it)
+        }
+
         // Local placeholder for immediate UI feedback
-        val placeholderMedia = if (mediaLocalPaths.isNotEmpty()) mediaLocalPaths.map { "placeholder://$it" } else listOf("placeholder://text_only")
+        val placeholderMedia = if (persistentPaths.isNotEmpty()) persistentPaths.map { "placeholder://$it" } else listOf("placeholder://text_only")
 
         val mappedLinkType = when(linkType) {
             LinkType.FEED -> com.linker.app.data.local.entity.LinkType.FEED
@@ -228,6 +291,7 @@ class LinkRepositoryImpl @Inject constructor(
             thumbnailUrl = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) "placeholder" else null,
             videoDuration = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) 15 else null,
             location = location,
+            isAiGenerated = isAiGenerated,
             likesCount = 0,
             commentsCount = 0,
             sharesCount = 0,
@@ -251,6 +315,7 @@ class LinkRepositoryImpl @Inject constructor(
                     "linkType" to linkType.name,
                     "description" to (description ?: ""),
                     "location" to (location ?: ""),
+                    "isAiGenerated" to isAiGenerated,
                     "mediaUrls" to emptyList<String>(),
                     "likesCount" to 0,
                     "commentsCount" to 0,
@@ -264,11 +329,11 @@ class LinkRepositoryImpl @Inject constructor(
             android.util.Log.w("LinkRepositoryImpl", "Could not create initial remote link doc: ${e.message}")
         }
 
-        if (mediaLocalPaths.isNotEmpty()) {
+        if (persistentPaths.isNotEmpty()) {
             val workData = androidx.work.workDataOf(
                 "targetId" to linkId,
                 "targetType" to "LINK",
-                "mediaLocalPaths" to mediaLocalPaths.toTypedArray()
+                "mediaLocalPaths" to persistentPaths.toTypedArray()
             )
             val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.linker.app.core.work.CloudinaryUploadWorker>()
                 .setInputData(workData)
