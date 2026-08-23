@@ -28,6 +28,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.linker.app.R
 import com.linker.app.domain.model.AccountSession
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.components.AmbientGlow
+import com.linker.app.presentation.components.GlassBox
+import com.linker.app.presentation.components.GlassIconButton
+import com.linker.app.presentation.components.PillBadge
 import com.linker.app.presentation.theme.*
 
 @Composable
@@ -40,7 +45,6 @@ fun AccountCenterScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var pendingRemoveUid by remember { mutableStateOf<String?>(null) }
 
-    // Hesap geçişi tamamlandığında Home'a git
     LaunchedEffect(Unit) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -52,75 +56,80 @@ fun AccountCenterScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Black)
-            // Scaffold yok — system bar padding manuel
+            .background(ObsidianBackgroundGradient)
             .systemBarsPadding()
     ) {
+        // Ambient glow
+        AmbientGlow(
+            glowColor = GradientBlue,
+            size = 260.dp,
+            alpha = 0.16f,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
+        )
+
         Column(modifier = Modifier.fillMaxSize()) {
 
             // ── Top Bar ──────────────────────────────────────────────────────
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left_01_outline),
-                        contentDescription = "Back",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+                GlassIconButton(
+                    iconRes = R.drawable.ic_arrow_left_01_outline,
+                    onClick = onNavigateBack,
+                    size = 44.dp
+                )
                 Text(
                     "Account Center",
                     color = TextPrimary,
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.Bold
                 )
-                IconButton(onClick = onNavigateToAuth) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(AccentGreen),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_ai_add_outline),
-                            contentDescription = "Add account",
-                            tint = Black,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                        .bouncyClick(onClick = onNavigateToAuth),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_ai_add_outline),
+                        contentDescription = "Add account",
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
 
             // ── Security Note ─────────────────────────────────────────────────
-            Row(
+            GlassBox(
+                shape = RoundedCornerShape(16.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A2E1A))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
             ) {
-                Icon(
-                    painterResource(R.drawable.ic_security_safe_outline),
-                    null,
-                    tint = AccentGreen,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    "Sessions are encrypted with Android Keystore. No passwords are stored.",
-                    color = AccentGreen,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_security_safe_outline),
+                        null,
+                        tint = AccentGreen,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "Sessions are encrypted with Android Keystore. No passwords are stored.",
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -136,7 +145,7 @@ fun AccountCenterScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(bottom = 32.dp)
                 ) {
                     items(
@@ -167,15 +176,15 @@ fun AccountCenterScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f)),
+                    .background(Color.Black.copy(alpha = 0.75f)),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator(color = AccentGreen, strokeWidth = 3.dp, modifier = Modifier.size(48.dp))
-                    Text("Switching account…", color = TextPrimary, fontSize = 15.sp)
+                    CircularProgressIndicator(color = GradientBlue, strokeWidth = 3.dp, modifier = Modifier.size(48.dp))
+                    Text("Switching account…", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -186,10 +195,10 @@ fun AccountCenterScreen(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
                 action = {
                     TextButton(onClick = { viewModel.dismissError() }) {
-                        Text("Dismiss", color = AccentGreen)
+                        Text("Dismiss", color = GradientBlue)
                     }
                 },
-                containerColor = DarkGray
+                containerColor = DarkGrayTransparent
             ) { Text(error, color = TextPrimary) }
         }
     }
@@ -204,7 +213,7 @@ fun AccountCenterScreen(
                 Icon(painterResource(R.drawable.ic_close_circle_outline), null, tint = ErrorRed)
             },
             title = {
-                Text("Remove account?", color = TextPrimary, fontWeight = FontWeight.SemiBold)
+                Text("Remove account?", color = TextPrimary, fontWeight = FontWeight.Bold)
             },
             text = {
                 Text(
@@ -214,7 +223,7 @@ fun AccountCenterScreen(
             },
             confirmButton = {
                 TextButton(onClick = { viewModel.removeAccount(uid); pendingRemoveUid = null }) {
-                    Text("Remove", color = ErrorRed, fontWeight = FontWeight.SemiBold)
+                    Text("Remove", color = ErrorRed, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
@@ -237,77 +246,80 @@ private fun AccountCard(
     onRemove: () -> Unit
 ) {
     val borderBrush = if (isActive) LinkerAngularGradient
-    else Brush.linearGradient(listOf(LightGray, LightGray))
+    else Brush.linearGradient(listOf(GlassCardBorder, GlassCardBorder))
     val borderWidth by animateDpAsState(if (isActive) 2.dp else 1.dp, label = "border")
 
-    Row(
+    GlassBox(
+        shape = RoundedCornerShape(20.dp),
+        borderColor = if (isActive) Color.Transparent else GlassCardBorder,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(DarkGray)
-            .border(borderWidth, borderBrush, RoundedCornerShape(18.dp))
-            .clickable(enabled = !isSwitching && !isActive, onClick = onSwitch)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+            .then(
+                if (isActive) Modifier.border(borderWidth, borderBrush, RoundedCornerShape(20.dp))
+                else Modifier
+            )
+            .bouncyClick(enabled = !isSwitching && !isActive, onClick = onSwitch)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.weight(1f)
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Box(modifier = Modifier.size(52.dp)) {
-                if (session.avatarUrl != null) {
-                    AsyncImage(
-                        model = session.avatarUrl,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize().clip(CircleShape)
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize().clip(CircleShape).background(LightGray),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(painterResource(R.drawable.ic_profile_outline), null, tint = TextSecondary, modifier = Modifier.size(28.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Box(modifier = Modifier.size(52.dp)) {
+                    if (session.avatarUrl != null) {
+                        AsyncImage(
+                            model = session.avatarUrl,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize().clip(CircleShape).background(DarkGrayTransparent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(painterResource(R.drawable.ic_profile_outline), null, tint = TextSecondary, modifier = Modifier.size(28.dp))
+                        }
                     }
-                }
-                if (isActive) {
-                    Box(
-                        modifier = Modifier
-                            .size(14.dp).align(Alignment.BottomEnd)
-                            .clip(CircleShape).background(Black)
-                            .padding(2.dp).clip(CircleShape).background(AccentGreen)
-                    )
-                }
-            }
-
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(session.displayName, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     if (isActive) {
-                        Text(
-                            "Active", color = AccentGreen, fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
+                        Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(AccentGreen.copy(alpha = 0.15f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                .size(14.dp).align(Alignment.BottomEnd)
+                                .clip(CircleShape).background(Black)
+                                .padding(2.dp).clip(CircleShape).background(AccentGreen)
                         )
                     }
                 }
-                Text("@${session.username}", color = TextSecondary, fontSize = 13.sp)
-            }
-        }
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (isSwitching) {
-                CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-            } else if (!isActive) {
-                Icon(painterResource(R.drawable.ic_arrow_left_01_outline), "Switch", tint = TextHint, modifier = Modifier.size(18.dp))
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(session.displayName, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        if (isActive) {
+                            PillBadge(text = "Active", accentColor = AccentGreen, fontSize = 10)
+                        }
+                    }
+                    Text("@${session.username}", color = GradientBlue, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                }
             }
-            if (!isActive) {
-                IconButton(onClick = onRemove, modifier = Modifier.size(36.dp)) {
-                    Icon(painterResource(R.drawable.ic_close_circle_outline), "Remove", tint = ErrorRed.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (isSwitching) {
+                    CircularProgressIndicator(color = GradientBlue, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                } else if (!isActive) {
+                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline), "Switch", tint = TextHint, modifier = Modifier.size(18.dp))
+                }
+                if (!isActive) {
+                    IconButton(
+                        onClick = onRemove,
+                        modifier = Modifier.size(36.dp).bouncyClick(onClick = onRemove)
+                    ) {
+                        Icon(painterResource(R.drawable.ic_close_circle_outline), "Remove", tint = ErrorRed.copy(alpha = 0.8f), modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }
@@ -318,29 +330,30 @@ private fun AccountCard(
 
 @Composable
 private fun AddAccountRow(onClick: () -> Unit) {
-    Row(
+    GlassBox(
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(DarkGray)
-            .border(1.dp, LightGray.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+            .bouncyClick(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(52.dp).clip(CircleShape)
-                .background(AccentGreen.copy(alpha = 0.12f))
-                .border(1.dp, AccentGreen.copy(alpha = 0.4f), CircleShape),
-            contentAlignment = Alignment.Center
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Icon(painterResource(R.drawable.ic_ai_add_outline), null, tint = AccentGreen, modifier = Modifier.size(26.dp))
-        }
-        Column {
-            Text("Add another account", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-            Text("Log in or create a new Linker account", color = TextSecondary, fontSize = 12.sp)
+            Box(
+                modifier = Modifier
+                    .size(52.dp).clip(CircleShape)
+                    .background(GradientBlue.copy(alpha = 0.15f))
+                    .border(1.dp, GradientBlue.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(painterResource(R.drawable.ic_ai_add_outline), null, tint = GradientBlue, modifier = Modifier.size(26.dp))
+            }
+            Column {
+                Text("Add another account", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Log in or create a new Linker account", color = TextSecondary, fontSize = 12.sp)
+            }
         }
     }
 }
@@ -355,17 +368,19 @@ private fun EmptyState(onAddAccount: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Icon(painterResource(R.drawable.ic_ai_users_outline), null, tint = TextHint, modifier = Modifier.size(64.dp))
-        Text("No saved accounts", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+        Text("No saved accounts", color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
         Text(
             "Add an account to switch between profiles without signing in every time.",
             color = TextSecondary, fontSize = 14.sp, lineHeight = 20.sp
         )
-        Button(
-            onClick = onAddAccount,
-            colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-            shape = RoundedCornerShape(14.dp)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(24.dp))
+                .background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                .bouncyClick(onClick = onAddAccount)
+                .padding(horizontal = 24.dp, vertical = 12.dp)
         ) {
-            Text("Add account", color = Black, fontWeight = FontWeight.SemiBold)
+            Text("Add account", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
     }
 }

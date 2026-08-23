@@ -45,6 +45,12 @@ import com.linker.app.presentation.theme.DarkGray
 import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import com.linker.app.presentation.screens.main.MainShellScreen
+import com.linker.app.presentation.screens.onboarding.OnboardingScreen
+
 @Composable
 fun LinkerNavHost(
     modifier: Modifier = Modifier,
@@ -54,36 +60,62 @@ fun LinkerNavHost(
 ) {
     val navController = rememberNavController()
 
-    var showContentPicker by remember { mutableStateOf(false) }
-
-    val onNavigateBottomNav: (BottomNavItem) -> Unit = { item ->
-        if (item == BottomNavItem.Add) {
-            showContentPicker = true
-        } else {
-            val route = when (item) {
-                BottomNavItem.Explore -> Route.Home
-                BottomNavItem.Search  -> Route.Search
-                BottomNavItem.Chat    -> Route.Chat
-                BottomNavItem.Profile -> Route.Profile
-                else -> Route.Home
-            }
-            navController.navigate(route) {
-                popUpTo(Route.Home) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
-            }
+    NavHost(
+        navController = navController,
+        startDestination = Route.Splash,
+        modifier = modifier,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(350, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(350))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(350, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(350))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(350, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(350))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(350, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(350))
         }
-    }
+    ) {
 
-    NavHost(navController = navController, startDestination = Route.Splash, modifier = modifier) {
-
-        composable<Route.Splash> {
+        composable<Route.Splash>(
+            enterTransition = { fadeIn(tween(400)) },
+            exitTransition = { fadeOut(tween(400)) }
+        ) {
             SplashScreen(
+                onNavigateToOnboarding = {
+                    navController.navigate(Route.Onboarding) { popUpTo(Route.Splash) { inclusive = true } }
+                },
                 onNavigateToAuth = {
                     navController.navigate(Route.Auth) { popUpTo(Route.Splash) { inclusive = true } }
                 },
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) { popUpTo(Route.Splash) { inclusive = true } }
+                    navController.navigate(Route.Main) { popUpTo(Route.Splash) { inclusive = true } }
+                }
+            )
+        }
+
+        composable<Route.Onboarding>(
+            enterTransition = { fadeIn(tween(400)) },
+            exitTransition = { fadeOut(tween(350)) }
+        ) {
+            OnboardingScreen(
+                onFinishOnboarding = {
+                    navController.navigate(Route.Auth) {
+                        popUpTo(Route.Onboarding) { inclusive = true }
+                    }
                 }
             )
         }
@@ -91,7 +123,7 @@ fun LinkerNavHost(
         composable<Route.Auth> {
             AuthScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) { popUpTo(Route.Auth) { inclusive = true } }
+                    navController.navigate(Route.Main) { popUpTo(Route.Auth) { inclusive = true } }
                 },
                 isAddingAccount = false
             )
@@ -100,7 +132,7 @@ fun LinkerNavHost(
         composable<Route.AddAccountAuth> {
             AuthScreen(
                 onNavigateToHome = {
-                    navController.navigate(Route.Home) { popUpTo(Route.Home) { inclusive = true } }
+                    navController.navigate(Route.Main) { popUpTo(Route.Main) { inclusive = true } }
                 },
                 onNavigateToAccountCenter = {
                     navController.navigate(Route.AccountCenter) { popUpTo(Route.AccountCenter) { inclusive = true } }
@@ -109,42 +141,97 @@ fun LinkerNavHost(
             )
         }
 
+        composable<Route.Main>(
+            enterTransition = { fadeIn(tween(350)) }
+        ) {
+            MainShellScreen(
+                initialTab = 0,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) },
+                onNavigateToUserProfile = { userId ->
+                    if (userId != currentUserId) {
+                        navController.navigate(Route.UserProfile(userId))
+                    }
+                },
+                onNavigateToLinkDetail = { linkId -> navController.navigate(Route.LinkDetail(linkId)) },
+                onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) },
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
+                },
+                onNavigateToSettings = { navController.navigate(Route.Settings) },
+                onNavigateToStory = { navController.navigate(Route.StoryGrid) },
+                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
+                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
+            )
+        }
+
         composable<Route.Home> {
-            HomeScreen(
-                onNavigateBottomNav = onNavigateBottomNav,
-                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) }
+            MainShellScreen(
+                initialTab = 0,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) },
+                onNavigateToUserProfile = { userId ->
+                    if (userId != currentUserId) navController.navigate(Route.UserProfile(userId))
+                },
+                onNavigateToLinkDetail = { linkId -> navController.navigate(Route.LinkDetail(linkId)) },
+                onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) },
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
+                },
+                onNavigateToSettings = { navController.navigate(Route.Settings) },
+                onNavigateToStory = { navController.navigate(Route.StoryGrid) },
+                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
+                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
             )
         }
 
         composable<Route.Search> {
-            SearchScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateBottomNav = onNavigateBottomNav,
+            MainShellScreen(
+                initialTab = 1,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) },
                 onNavigateToUserProfile = { userId ->
-                    if (userId == currentUserId) {
-                        navController.navigate(Route.Profile) {
-                            popUpTo(Route.Home) { saveState = true }
-                            launchSingleTop = true; restoreState = true
-                        }
-                    } else {
-                        navController.navigate(Route.UserProfile(userId))
-                    }
-                }
+                    if (userId != currentUserId) navController.navigate(Route.UserProfile(userId))
+                },
+                onNavigateToLinkDetail = { linkId -> navController.navigate(Route.LinkDetail(linkId)) },
+                onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) },
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
+                },
+                onNavigateToSettings = { navController.navigate(Route.Settings) },
+                onNavigateToStory = { navController.navigate(Route.StoryGrid) },
+                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
+                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
             )
         }
 
         composable<Route.Create> { }
 
         composable<Route.Chat> {
-            ChatListScreen(
+            MainShellScreen(
+                initialTab = 2,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) },
+                onNavigateToUserProfile = { userId ->
+                    if (userId != currentUserId) navController.navigate(Route.UserProfile(userId))
+                },
+                onNavigateToLinkDetail = { linkId -> navController.navigate(Route.LinkDetail(linkId)) },
                 onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
-                onNavigateBack = { navController.popBackStack() },
-                onNavigateBottomNav = onNavigateBottomNav,
                 onNavigateToNewChat = { navController.navigate(Route.NewChat) },
                 onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
                 onNavigateToNoteLocationMap = { lat, lon, placeName ->
                     navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
-                }
+                },
+                onNavigateToSettings = { navController.navigate(Route.Settings) },
+                onNavigateToStory = { navController.navigate(Route.StoryGrid) },
+                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
+                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
             )
         }
 
@@ -375,23 +462,24 @@ fun LinkerNavHost(
         }
 
         composable<Route.Profile> {
-            ProfileScreen(
-                onNavigateBack = { navController.popBackStack() },
+            MainShellScreen(
+                initialTab = 3,
+                onNavigateToStoryGrid = { navController.navigate(Route.StoryGrid) },
+                onNavigateToUserProfile = { userId ->
+                    if (userId != currentUserId) navController.navigate(Route.UserProfile(userId))
+                },
+                onNavigateToLinkDetail = { linkId -> navController.navigate(Route.LinkDetail(linkId)) },
+                onNavigateToChatDetail = { chatId -> navController.navigate(Route.ChatDetail(chatId)) },
+                onNavigateToNewChat = { navController.navigate(Route.NewChat) },
+                onNavigateToNoteEditor = { navController.navigate(Route.NoteEditor) },
+                onNavigateToNoteLocationMap = { lat, lon, placeName ->
+                    navController.navigate(Route.NoteLocationMap(lat, lon, placeName))
+                },
                 onNavigateToSettings = { navController.navigate(Route.Settings) },
-                onNavigateBottomNav = onNavigateBottomNav,
-                onNavigateToStory = {
-                    val uid = currentUserId ?: ""
-                    if (uid.isNotBlank()) {
-                        navController.navigate(Route.StoryViewer(uid))
-                    }
-                },
-                // followers/following sayısı 0 ise FollowList'e gitme
-                onNavigateToFollowers = { uid ->
-                    navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS))
-                },
-                onNavigateToFollowing = { uid ->
-                    navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING))
-                }
+                onNavigateToStory = { navController.navigate(Route.StoryGrid) },
+                onNavigateToFollowers = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWERS)) },
+                onNavigateToFollowing = { uid -> navController.navigate(Route.FollowList(uid, FollowListType.FOLLOWING)) },
+                onNavigateToLinkEditor = { navController.navigate(Route.LinkEditor) }
             )
         }
 
@@ -454,7 +542,7 @@ fun LinkerNavHost(
                 onSwitchComplete = {
                     // Home'a git, tüm backstack'i temizle — ProfileViewModel yeni
                     // AccountCenter hesabını AuthStateListener sayesinde otomatik yükleyecek
-                    navController.navigate(Route.Home) {
+                    navController.navigate(Route.Main) {
                         popUpTo(navController.graph.id) { inclusive = true }
                         launchSingleTop = true
                     }
@@ -468,68 +556,5 @@ fun LinkerNavHost(
             navController.navigate(Route.ChatDetail(initialChatId))
             onChatDeepLinkHandled()
         }
-    }
-
-    if (showContentPicker) {
-        ContentPickerBottomSheet(
-            onDismiss = { showContentPicker = false },
-            onLinkSelected = {
-                showContentPicker = false
-                navController.navigate(Route.LinkEditor)
-            },
-            onStorySelected = {
-                showContentPicker = false
-                navController.navigate(Route.StoryGrid)
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ContentPickerBottomSheet(
-    onDismiss: () -> Unit,
-    onLinkSelected: () -> Unit,
-    onStorySelected: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState()
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = DarkGray,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = TextSecondary) }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 32.dp, top = 16.dp, start = 16.dp, end = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_title), color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(24.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                ContentPickerOption(icon = Icons.Default.Link, title = androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_link), onClick = onLinkSelected)
-                ContentPickerOption(icon = Icons.Default.PhotoCamera, title = androidx.compose.ui.res.stringResource(com.linker.app.R.string.content_picker_story), onClick = onStorySelected)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ContentPickerOption(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable { onClick() }) {
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .background(Color.Black, shape = CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(imageVector = icon, contentDescription = title, tint = Color.White, modifier = Modifier.size(32.dp))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(text = title, color = TextPrimary, fontSize = 14.sp)
     }
 }

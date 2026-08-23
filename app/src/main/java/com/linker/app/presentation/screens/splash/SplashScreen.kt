@@ -36,6 +36,7 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun SplashScreen(
+    onNavigateToOnboarding: () -> Unit,
     onNavigateToAuth: () -> Unit,
     onNavigateToHome: () -> Unit,
     viewModel: SplashViewModel = hiltViewModel()
@@ -85,14 +86,12 @@ fun SplashScreen(
         val destinationAsync = async { viewModel.resolveStartDestination() }
         
         minDelay.await()
-        val destination = destinationAsync.await()
-        
-        if (destination == SplashDestination.HOME) {
-            onNavigateToHome()
-        } else {
-            onNavigateToAuth()
+        when (destinationAsync.await()) {
+            SplashDestination.HOME -> onNavigateToHome()
+            SplashDestination.ONBOARDING -> onNavigateToOnboarding()
+            SplashDestination.AUTH -> onNavigateToAuth()
         }
     }
 }
 
-enum class SplashDestination { HOME, AUTH }
+enum class SplashDestination { HOME, AUTH, ONBOARDING }

@@ -39,6 +39,23 @@
     <string name="nav_chat">Sohbet</string>
     <string name="nav_profile">Profil</string>
 
+    <!-- Onboarding -->
+    <string name="onboarding_skip">Atla</string>
+    <string name="onboarding_next">İlerle</string>
+    <string name="onboarding_get_started">Başlayalım</string>
+    <string name="onboarding_card1_title">Linklerle Dünyayı Keşfet</string>
+    <string name="onboarding_card1_desc">Sana özel zengin dikey video ve link akışıyla en yeni içerikleri keşfet ve paylaş.</string>
+    <string name="onboarding_card1_badge">Dinamik Akış</string>
+    <string name="onboarding_card2_title">Ruh Halini Notlara Dök</string>
+    <string name="onboarding_card2_desc">Anlık çalan Spotify şarkını, konumunu veya geri sayımını 24 saatlik notlarla arkadaşlarına duyur.</string>
+    <string name="onboarding_card2_badge">24 Saatlik Notlar</string>
+    <string name="onboarding_card3_title">Anılarını Hikayeleştir</string>
+    <string name="onboarding_card3_desc">Fotoğraf ve videolarını hızlıca paylaş, basılı tutarak duraklat ve kimlerin izlediğini anında gör.</string>
+    <string name="onboarding_card3_badge">Görsel Hikayeler</string>
+    <string name="onboarding_card4_title">Çevrimdışı ve Uçtan Uca Şifreli</string>
+    <string name="onboarding_card4_desc">İnternetin olmasa bile Bluetooth Mesh ağıyla yakındaki arkadaşlarınla güvenle ve şifreli mesajlaş.</string>
+    <string name="onboarding_card4_badge">BLE Mesh &amp; E2EE</string>
+
     <!-- Home Feed -->
     <string name="feed_tab_all">Akış</string>
     <string name="feed_tab_followed">Takip Edilen</string>

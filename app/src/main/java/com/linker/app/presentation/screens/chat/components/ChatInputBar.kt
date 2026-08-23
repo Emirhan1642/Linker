@@ -1,19 +1,10 @@
 package com.linker.app.presentation.screens.chat.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,11 +15,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -36,10 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.components.GlassBox
 import com.linker.app.presentation.screens.chat.ReplyPreview
-import com.linker.app.presentation.theme.TextHint
-import com.linker.app.presentation.theme.TextPrimary
-import com.linker.app.presentation.theme.TextSecondary
+import com.linker.app.presentation.theme.*
 
 /**
  * Chat input bar with reply preview and send button
@@ -58,8 +50,9 @@ fun ChatInputBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .background(DarkGrayTransparent)
+            .border(1.dp, GlassCardBorder)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .navigationBarsPadding()
             .imePadding()
     ) {
@@ -75,14 +68,15 @@ fun ChatInputBar(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             // Text input
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(DarkGray)
+                    .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 BasicTextField(
@@ -91,6 +85,7 @@ fun ChatInputBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
+                    cursorBrush = SolidColor(GradientBlue),
                     textStyle = TextStyle(
                         color = TextPrimary,
                         fontSize = 15.sp
@@ -111,28 +106,30 @@ fun ChatInputBar(
             }
 
             // Send button
+            val hasText = text.isNotBlank()
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(22.dp))
+                    .size(46.dp)
+                    .clip(CircleShape)
                     .background(
-                        if (text.isNotBlank() && !isSending) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                        if (hasText && !isSending) Brush.horizontalGradient(NeonBlueGreenGradient)
+                        else Brush.horizontalGradient(listOf(DarkGray, LightGray))
                     )
-                    .clickable(enabled = text.isNotBlank() && !isSending) { onSend() },
+                    .bouncyClick(enabled = hasText && !isSending, onClick = onSend),
                 contentAlignment = Alignment.Center
             ) {
                 if (isSending) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = Color.White,
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_ai_send_message_outline),
                         contentDescription = stringResource(id = R.string.action_send),
-                        tint = if (text.isNotBlank()) MaterialTheme.colorScheme.onPrimary else TextSecondary,
-                        modifier = Modifier.size(20.dp)
+                        tint = if (hasText) Color.White else TextHint,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -146,47 +143,53 @@ fun ReplyPreviewBar(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    GlassBox(
+        shape = RoundedCornerShape(14.dp),
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        // Reply indicator line
-        Box(
-            modifier = Modifier
-                .width(3.dp)
-                .height(32.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(if (preview.isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary)
-        )
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = preview.senderName,
-                color = if (preview.isSelf) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Reply indicator line
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .height(34.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (preview.isSelf) GradientPurple else GradientBlue)
             )
-            Text(
-                text = preview.previewText,
-                color = TextSecondary,
-                fontSize = 13.sp,
-                maxLines = 1
-            )
-        }
 
-        IconButton(onClick = onCancel) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_close_circle_outline),
-                contentDescription = stringResource(id = R.string.action_cancel_reply),
-                tint = TextSecondary,
-                modifier = Modifier.size(18.dp)
-            )
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = preview.senderName,
+                    color = if (preview.isSelf) GradientPurple else GradientBlue,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = preview.previewText,
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    maxLines = 1
+                )
+            }
+
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier.size(28.dp).bouncyClick { onCancel() }
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_close_circle_outline),
+                    contentDescription = stringResource(id = R.string.action_cancel_reply),
+                    tint = TextHint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
     }
 }

@@ -5,6 +5,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.Brush
+import com.linker.app.presentation.theme.*
+import com.linker.app.presentation.animation.*
+import com.linker.app.presentation.components.*
 import com.linker.app.core.util.findActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -94,6 +99,7 @@ fun ChatListScreen(
     onNavigateToNewChat: () -> Unit,
     onNavigateToNoteEditor: () -> Unit,
     onNavigateToNoteLocationMap: (Double, Double, String) -> Unit,
+    showBottomBar: Boolean = true,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.chatListState.collectAsStateWithLifecycle()
@@ -126,197 +132,214 @@ fun ChatListScreen(
     Scaffold(
         containerColor = Black,
         bottomBar = {
-            LinkerBottomNavigationBar(
-                currentRoute = "Chat",
-                onNavigate = onNavigateBottomNav,
-                modifier = Modifier.background(Color.Transparent)
-            )
+            if (showBottomBar) {
+                LinkerBottomNavigationBar(
+                    currentRoute = "Chat",
+                    onNavigate = onNavigateBottomNav,
+                    modifier = Modifier.background(Color.Transparent)
+                )
+            }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
                 .padding(paddingValues)
         ) {
-            // Top Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(
-                        painterResource(R.drawable.ic_arrow_left_01_outline),
-                        contentDescription = stringResource(R.string.action_back),
-                        tint = TextPrimary,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                LinkerSearchBar(
-                    query = uiState.searchQuery,
-                    onQueryChange = viewModel::updateSearchQuery,
-                    modifier = Modifier.weight(1f)
-                )
-                IconButton(onClick = onNavigateToNewChat) {
-                    Icon(
-                        painterResource(R.drawable.ic_play_add_outline),
-                        contentDescription = "New Chat",
-                        tint = TextPrimary,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-            }
+            // Ambient Neon Glow
+            com.linker.app.presentation.components.AmbientGlow(
+                glowColor = GradientPurple,
+                size = 260.dp,
+                alpha = 0.16f,
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (-40).dp, y = (-20).dp)
+            )
 
-            // Notes / Stories Row
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                modifier = Modifier.padding(vertical = 10.dp)
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                item {
-                    val noteContent = when (val userNote = uiState.userNote) {
-                        is com.linker.app.domain.model.Note.Text -> userNote.content
-                        is com.linker.app.domain.model.Note.Music -> if (userNote.content.isNotBlank()) userNote.content else "🎵 ${userNote.musicTrackName}"
-                        is com.linker.app.domain.model.Note.Countdown -> userNote.content
-                        is com.linker.app.domain.model.Note.Location -> if (userNote.placeName.isNotBlank()) "📍 ${userNote.placeName}" else "📍 Location"
-                        is com.linker.app.domain.model.Note.Gif -> "GIF"
-                        null -> "Bugün nasılsın?"
+                // Top Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    com.linker.app.presentation.components.GlassIconButton(
+                        iconRes = R.drawable.ic_arrow_left_01_outline,
+                        onClick = onNavigateBack,
+                        size = 44.dp
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    LinkerSearchBar(
+                        query = uiState.searchQuery,
+                        onQueryChange = viewModel::updateSearchQuery,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    com.linker.app.presentation.components.GlassIconButton(
+                        iconRes = R.drawable.ic_play_add_outline,
+                        onClick = onNavigateToNewChat,
+                        size = 44.dp,
+                        tint = AccentGreen
+                    )
+                }
+
+                // Notes / Stories Row
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.padding(vertical = 8.dp)
+                ) {
+                    item {
+                        val noteContent = when (val userNote = uiState.userNote) {
+                            is com.linker.app.domain.model.Note.Text -> userNote.content
+                            is com.linker.app.domain.model.Note.Music -> if (userNote.content.isNotBlank()) userNote.content else "🎵 ${userNote.musicTrackName}"
+                            is com.linker.app.domain.model.Note.Countdown -> userNote.content
+                            is com.linker.app.domain.model.Note.Location -> if (userNote.placeName.isNotBlank()) "📍 ${userNote.placeName}" else "📍 Location"
+                            is com.linker.app.domain.model.Note.Gif -> "GIF"
+                            null -> "Bugün nasılsın?"
+                        }
+                        NoteItem(
+                            name = stringResource(R.string.chat_list_your_note),
+                            question = noteContent,
+                            isSelf = true,
+                            note = uiState.userNote,
+                            onClick = { 
+                                if (uiState.userNote != null) {
+                                    selectedNoteForDetailState.value = uiState.userNote
+                                } else {
+                                    onNavigateToNoteEditor()
+                                }
+                            }
+                        )
                     }
-                    NoteItem(
-                        name = stringResource(R.string.chat_list_your_note),
-                        question = noteContent,
-                        isSelf = true,
-                        note = uiState.userNote,
-                        onClick = { 
-                            if (uiState.userNote != null) {
-                                selectedNoteForDetailState.value = uiState.userNote
-                            } else {
-                                onNavigateToNoteEditor()
+                    items(uiState.otherNotes.size) { index ->
+                        val note = uiState.otherNotes[index]
+                        val noteContent = when (note) {
+                            is com.linker.app.domain.model.Note.Text -> note.content
+                            is com.linker.app.domain.model.Note.Music -> if (note.content.isNotBlank()) note.content else "🎵 ${note.musicTrackName}"
+                            is com.linker.app.domain.model.Note.Countdown -> note.content
+                            is com.linker.app.domain.model.Note.Location -> if (note.placeName.isNotBlank()) "📍 ${note.placeName}" else "📍 Location"
+                            is com.linker.app.domain.model.Note.Gif -> "GIF"
+                        }
+                        NoteItem(
+                            name = note.author.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
+                            question = noteContent,
+                            note = note,
+                            onClick = { selectedNoteForDetailState.value = note }
+                        )
+                    }
+                    items(uiState.onlineUsers.size) { index ->
+                        val user = uiState.onlineUsers[index]
+                        NoteItem(
+                            name = user.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
+                            question = "", // No note bubble
+                            note = null,
+                            isOnline = true,
+                            avatarUrl = user.profileImageUrl,
+                            onClick = { onNavigateToChatDetail(user.userId) } // Click navigates to chat
+                        )
+                    }
+                }
+
+                // Filters
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(filters.size) { index ->
+                        val filterDisplay = filters[index]
+                        val filterKey = filterKeys[index]
+                        val isSelected = filterKey == uiState.selectedFilter
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .then(
+                                    if (isSelected) Modifier.background(Brush.horizontalGradient(NeonPurpleRedGradient))
+                                    else Modifier.background(DarkGrayTransparent)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSelected) Color.Transparent else GlassCardBorder,
+                                    RoundedCornerShape(20.dp)
+                                )
+                                .bouncyClick {
+                                    viewModel.updateSelectedFilter(filterKey)
+                                }
+                                .padding(horizontal = 16.dp, vertical = 7.dp)
+                        ) {
+                            Text(
+                                text = filterDisplay,
+                                color = if (isSelected) Color.White else TextSecondary,
+                                fontSize = 13.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Chat List
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = 100.dp, start = 12.dp, end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (showLockedHeader) {
+                        item {
+                            com.linker.app.presentation.components.GlassBox(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_smart_lock_ai_outline),
+                                        contentDescription = stringResource(R.string.chat_list_locked_chats),
+                                        tint = GradientBlue,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(14.dp))
+                                    Text(
+                                        text = stringResource(R.string.chat_list_locked_chats),
+                                        color = TextPrimary,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
-                    )
-                }
-                items(uiState.otherNotes.size) { index ->
-                    val note = uiState.otherNotes[index]
-                    val noteContent = when (note) {
-                        is com.linker.app.domain.model.Note.Text -> note.content
-                        is com.linker.app.domain.model.Note.Music -> if (note.content.isNotBlank()) note.content else "🎵 ${note.musicTrackName}"
-                        is com.linker.app.domain.model.Note.Countdown -> note.content
-                        is com.linker.app.domain.model.Note.Location -> if (note.placeName.isNotBlank()) "📍 ${note.placeName}" else "📍 Location"
-                        is com.linker.app.domain.model.Note.Gif -> "GIF"
                     }
-                    NoteItem(
-                        name = note.author.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
-                        question = noteContent,
-                        note = note,
-                        onClick = { selectedNoteForDetailState.value = note }
-                    )
-                }
-                items(uiState.onlineUsers.size) { index ->
-                    val user = uiState.onlineUsers[index]
-                    NoteItem(
-                        name = user.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
-                        question = "", // No note bubble
-                        note = null,
-                        isOnline = true,
-                        avatarUrl = user.profileImageUrl,
-                        onClick = { onNavigateToChatDetail(user.userId) } // Click navigates to chat
-                    )
-                }
-            }
 
-            // Filters
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                items(filters.size) { index ->
-                    val filterDisplay = filters[index]
-                    val filterKey = filterKeys[index]
-                    val isSelected = filterKey == uiState.selectedFilter
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { viewModel.updateSelectedFilter(filterKey) }
-                    ) {
-                        Text(
-                            text = filterDisplay,
-                            color = if (isSelected) TextPrimary else TextSecondary,
-                            fontSize = 17.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium
-                        )
-                        if (isSelected) {
-                            Spacer(modifier = Modifier.height(4.dp))
+                    if (uiState.chats.isEmpty() && !uiState.isLoading) {
+                        item {
                             Box(
-                                modifier = Modifier
-                                    .width(24.dp)
-                                    .height(2.dp)
-                                    .background(TextPrimary)
+                                modifier = Modifier.fillMaxWidth().height(200.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.chat_list_empty_state),
+                                    color = TextSecondary,
+                                    fontSize = 15.sp
+                                )
+                            }
+                        }
+                    } else {
+                        items(uiState.chats.size) { index ->
+                            val chat = uiState.chats[index]
+                            ChatItem(
+                                name = chat.displayName,
+                                message = chat.lastMessage?.ifBlank { null } ?: stringResource(R.string.chat_list_tap_to_chat),
+                                time = chat.formattedTime,
+                                unreadCount = chat.unreadCount,
+                                isTyping = chat.isTyping,
+                                onClick = { onNavigateToChatDetail(chat.chatId) }
                             )
                         }
-                    }
-                }
-            }
-
-            HorizontalDivider(color = LightGray)
-
-            // Chat List
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 100.dp)
-            ) {
-                if (showLockedHeader) {
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Black)
-                                .padding(horizontal = 20.dp)
-                                .padding(top = 15.dp, bottom = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_smart_lock_ai_outline),
-                                contentDescription = stringResource(R.string.chat_list_locked_chats),
-                                tint = TextPrimary,
-                                modifier = Modifier.size(40.dp)
-                            )
-                            Spacer(modifier = Modifier.width(20.dp))
-                            Text(
-                                text = stringResource(R.string.chat_list_locked_chats),
-                                color = TextPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-
-                if (uiState.chats.isEmpty() && !uiState.isLoading) {
-                    item {
-                        Box(
-                            modifier = Modifier.fillMaxWidth().height(200.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = stringResource(R.string.chat_list_empty_state),
-                                color = TextSecondary,
-                                fontSize = 16.sp
-                            )
-                        }
-                    }
-                } else {
-                    items(uiState.chats.size) { index ->
-                        val chat = uiState.chats[index]
-                        ChatItem(
-                            name = chat.displayName,
-                            message = chat.lastMessage?.ifBlank { null } ?: stringResource(R.string.chat_list_tap_to_chat),
-                            time = chat.formattedTime,
-                            unreadCount = chat.unreadCount,
-                            isTyping = chat.isTyping,
-                            onClick = { onNavigateToChatDetail(chat.chatId) }
-                        )
                     }
                 }
             }
@@ -451,51 +474,49 @@ fun ChatItem(
 ) {
     val context = LocalContext.current
     val hasUnread = unreadCount > 0
-    Row(
+    GlassBox(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .bouncyClick(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        LinkerAvatar(
-            imageUrl = null,
-            size = 60.dp,
-            storyState = StoryState.UNSEEN,
-            onClick = { android.widget.Toast.makeText(context, "$name profile", android.widget.Toast.LENGTH_SHORT).show() }
-        )
-        Spacer(modifier = Modifier.width(20.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(text = name, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = message,
-                color = if (isTyping) AccentGreen else if (hasUnread) AccentGreen else TextSecondary,
-                fontSize = 14.sp,
-                maxLines = 1,
-                fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LinkerAvatar(
+                imageUrl = null,
+                size = 54.dp,
+                storyState = if (hasUnread) StoryState.UNSEEN else StoryState.NONE,
+                onClick = { onClick() }
             )
-        }
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = time,
-                color = if (hasUnread) AccentGreen else TextSecondary,
-                fontSize = 12.sp,
-                fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
-            )
-            if (hasUnread) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val unreadText = if (unreadCount == 1) {
-                    stringResource(R.string.chat_list_new_messages_single)
-                } else {
-                    stringResource(R.string.chat_list_new_messages_plural, unreadCount)
-                }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = name, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = unreadText,
-                    color = AccentGreen,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    text = message,
+                    color = if (isTyping) GradientBlue else if (hasUnread) Color.White else TextSecondary,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    fontWeight = if (hasUnread) FontWeight.SemiBold else FontWeight.Normal
                 )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = time,
+                    color = if (hasUnread) GradientBlue else TextHint,
+                    fontSize = 12.sp,
+                    fontWeight = if (hasUnread) FontWeight.SemiBold else FontWeight.Normal
+                )
+                if (hasUnread) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val unreadText = if (unreadCount > 99) "99+" else unreadCount.toString()
+                    com.linker.app.presentation.components.PillBadge(
+                        text = unreadText,
+                        accentColor = AccentGreen,
+                        fontSize = 10
+                    )
+                }
             }
         }
     }

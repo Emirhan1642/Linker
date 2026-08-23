@@ -1,20 +1,12 @@
 package com.linker.app.presentation.screens.chat.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,9 +20,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linker.app.R
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.components.AmbientGlow
+import com.linker.app.presentation.components.GlassBox
+import com.linker.app.presentation.components.GlassIconButton
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.components.StoryState
-import com.linker.app.presentation.theme.TextPrimary
+import com.linker.app.presentation.theme.*
 
 /**
  * Chat header with back button, avatar, and recipient info
@@ -47,40 +43,49 @@ fun ChatHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 8.dp, top = 12.dp, bottom = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onNavigateBack) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_arrow_left_01_outline),
-                contentDescription = stringResource(id = R.string.action_back),
-                tint = TextPrimary,
-                modifier = Modifier.size(30.dp)
-            )
-        }
+        GlassIconButton(
+            iconRes = R.drawable.ic_arrow_left_01_outline,
+            onClick = onNavigateBack,
+            size = 44.dp
+        )
 
-        Row(
+        Spacer(modifier = Modifier.width(10.dp))
+
+        GlassBox(
+            shape = RoundedCornerShape(24.dp),
             modifier = Modifier
-                .weight(0.9f)
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant)
-                .clickable { onNavigateToInfo() }
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f)
+                .bouncyClick { onNavigateToInfo() }
+                .padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            LinkerAvatar(
-                imageUrl = recipientImageUrl,
-                size = 36.dp,
-                storyState = StoryState.NONE,
-                onClick = {}
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = recipientName,
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LinkerAvatar(
+                    imageUrl = recipientImageUrl,
+                    size = 38.dp,
+                    storyState = StoryState.NONE
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = recipientName,
+                        color = TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    recipientUsername?.takeIf { it.isNotBlank() }?.let {
+                        Text(
+                            text = "@$it",
+                            color = TextSecondary,
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -95,31 +100,40 @@ fun ChatProfileHeader(
     recipientImageUrl: String?,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(vertical = 24.dp),
+        contentAlignment = Alignment.Center
     ) {
-        LinkerAvatar(
-            imageUrl = recipientImageUrl,
-            size = 120.dp,
-            storyState = StoryState.NONE
+        AmbientGlow(
+            glowColor = GradientPurple,
+            size = 180.dp,
+            alpha = 0.2f
         )
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = recipientName,
-            color = TextPrimary,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Bold
-        )
-        recipientUsername?.takeIf { it.isNotBlank() }?.let { username ->
-            Text(
-                text = "@$username",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 14.sp
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            LinkerAvatar(
+                imageUrl = recipientImageUrl,
+                size = 100.dp,
+                storyState = StoryState.NONE
             )
+            Spacer(modifier = Modifier.height(14.dp))
+            Text(
+                text = recipientName,
+                color = TextPrimary,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            recipientUsername?.takeIf { it.isNotBlank() }?.let { username ->
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "@$username",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(16.dp))
     }
 }

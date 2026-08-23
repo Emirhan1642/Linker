@@ -39,6 +39,23 @@
     <string name="nav_chat">Chat</string>
     <string name="nav_profile">Profile</string>
 
+    <!-- Onboarding -->
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_get_started">Get Started</string>
+    <string name="onboarding_card1_title">Discover with Links</string>
+    <string name="onboarding_card1_desc">Explore curated video feeds and rich interactive links tailored to your personal vibe.</string>
+    <string name="onboarding_card1_badge">Dynamic Feed</string>
+    <string name="onboarding_card2_title">Express with Notes</string>
+    <string name="onboarding_card2_desc">Share your current Spotify track, live location, or countdown timers that last 24 hours.</string>
+    <string name="onboarding_card2_badge">Ephemeral Notes</string>
+    <string name="onboarding_card3_title">Capture the Moment</string>
+    <string name="onboarding_card3_desc">Post photos and videos with hold-to-pause controls, live viewer stats, and stylish rings.</string>
+    <string name="onboarding_card3_badge">Visual Stories</string>
+    <string name="onboarding_card4_title">Offline &amp; Encrypted</string>
+    <string name="onboarding_card4_desc">Chat securely with E2EE quantum resistance and connect peer-to-peer over BLE Mesh without internet.</string>
+    <string name="onboarding_card4_badge">BLE Mesh &amp; E2EE</string>
+
     <!-- Home Feed -->
     <string name="feed_tab_all">Feed</string>
     <string name="feed_tab_followed">Followed</string>

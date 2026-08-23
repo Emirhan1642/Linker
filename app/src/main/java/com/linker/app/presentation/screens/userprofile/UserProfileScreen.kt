@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -35,8 +36,10 @@ import com.linker.app.domain.model.FollowState
 import com.linker.app.domain.model.Link
 import com.linker.app.domain.model.User
 import com.linker.app.domain.model.followState
-import com.linker.app.presentation.components.LinkerAvatar
-import com.linker.app.presentation.components.StoryState
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.components.*
+import com.linker.app.presentation.screens.profile.ProfilePostItem
+import com.linker.app.presentation.screens.profile.StatGlassCard
 import com.linker.app.presentation.theme.*
 
 @Composable
@@ -61,18 +64,32 @@ fun UserProfileScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(ObsidianBackgroundGradient)
+    ) {
         Scaffold(
             modifier = if (showFullScreenAvatar) Modifier.blur(16.dp) else Modifier,
-            containerColor = MaterialTheme.colorScheme.background,
+            containerColor = Color.Transparent,
             snackbarHost = { SnackbarHost(snackbarHostState) }
         ) { padding ->
             Box(
-                modifier = Modifier.fillMaxSize().padding(padding)
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
             ) {
+                // Top Ambient Light Orbs
+                AmbientGlow(
+                    glowColor = GradientBlue,
+                    size = 260.dp,
+                    alpha = 0.18f,
+                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-40).dp)
+                )
+
                 when {
                     uiState.isLoading -> CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = GradientBlue,
                         modifier = Modifier.align(Alignment.Center)
                     )
                     uiState.error != null -> {
@@ -112,10 +129,10 @@ fun UserProfileScreen(
                                 Box(
                                     modifier = Modifier.fillMaxWidth().height(200.dp),
                                     contentAlignment = Alignment.Center
-                                ) { Text(stringResource(R.string.user_profile_no_posts), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                ) { Text(stringResource(R.string.user_profile_no_posts), color = TextSecondary) }
                             }
                         } else {
-                            items(uiState.posts) { link -> UserPostItem(post = link) }
+                            items(uiState.posts, key = { it.linkId }) { link -> ProfilePostItem(post = link) }
                         }
 
                         item(span = StaggeredGridItemSpan.FullLine) {
@@ -135,33 +152,30 @@ fun UserProfileScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(Color.Black.copy(alpha = 0.75f))
                     .clickable { showFullScreenAvatar = false },
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     LinkerAvatar(
                         imageUrl = uiState.user?.profileImageUrl,
-                        size = 300.dp,
+                        size = 200.dp,
                         storyState = StoryState.NONE,
                         onClick = {}
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
                         uiState.user?.displayName ?: "User",
-                        color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.SemiBold
+                        color = TextPrimary,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        "@${uiState.user?.username ?: ""}",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 18.sp
-                    )
+                    Text("@${uiState.user?.username ?: "username"}", color = GradientBlue, fontSize = 16.sp)
                 }
             }
         }
     }
 }
-
-// ── Header ────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun UserProfileHeader(
@@ -180,238 +194,256 @@ private fun UserProfileHeader(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        UserProfileHeaderTopBar(user, onNavigateBack, onAvatarClick)
-        Spacer(modifier = Modifier.height(8.dp))
-        UserProfileInfo(user)
-        Spacer(modifier = Modifier.height(14.dp))
-        UserProfileStats(user, onFollowersClick, onFollowingClick)
-        Spacer(modifier = Modifier.height(14.dp))
-        UserProfileActions(user, isActionLoading, onFollowAction, onMessage)
-        Spacer(modifier = Modifier.height(10.dp))
-        UserProfileTabs(user, selectedTab, onTabSelected)
-    }
-}
-
-@Composable
-private fun UserProfileHeaderTopBar(
-    user: User?,
-    onNavigateBack: () -> Unit,
-    onAvatarClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onNavigateBack) {
-            Icon(painterResource(R.drawable.ic_arrow_left_01_outline), stringResource(R.string.action_back),
-                tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(30.dp))
+        // Navigation Bar
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            GlassIconButton(
+                iconRes = R.drawable.ic_arrow_left_01_outline,
+                onClick = onNavigateBack,
+                size = 44.dp
+            )
+            GlassIconButton(
+                iconRes = R.drawable.ic_more_square_outline,
+                onClick = { /* more */ },
+                size = 44.dp
+            )
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Avatar
         LinkerAvatar(
             imageUrl = user?.profileImageUrl,
-            size = 240.dp,
+            size = 96.dp,
             storyState = StoryState.NONE,
             onClick = onAvatarClick
         )
-        IconButton(onClick = { /* more */ }) {
-            Icon(painterResource(R.drawable.ic_more_square_outline), "More",
-                tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(30.dp))
-        }
-    }
-}
 
-@Composable
-private fun UserProfileInfo(user: User?) {
-    Text(user?.displayName ?: "User", color = MaterialTheme.colorScheme.onBackground, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-    Text("@${user?.username ?: ""}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
-    if (!user?.bio.isNullOrBlank()) {
-        Text(user?.bio ?: "", color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp,
-            modifier = Modifier.padding(horizontal = 24.dp, vertical = 2.dp),
-            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
-private fun UserProfileStats(
-    user: User?,
-    onFollowersClick: () -> Unit,
-    onFollowingClick: () -> Unit
-) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(onClick = onFollowersClick)
-        ) {
-            Text(formatStat(user?.metrics?.followersCount ?: 0), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(stringResource(R.string.followers), color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
-        }
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(onClick = onFollowingClick)
-        ) {
-            Text(formatStat(user?.metrics?.followingCount ?: 0), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(stringResource(R.string.following), color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(formatStat(user?.metrics?.likesCount ?: 0), color = MaterialTheme.colorScheme.onBackground, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(stringResource(R.string.profile_likes), color = MaterialTheme.colorScheme.onBackground, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
-private fun UserProfileActions(
-    user: User?,
-    isActionLoading: Boolean,
-    onFollowAction: () -> Unit,
-    onMessage: () -> Unit
-) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        val followState = user?.followState() ?: FollowState.NOT_FOLLOWING
-        val btnColor: Color
-        val btnTextColor: Color
-        val btnLabelId: Int
-
-        when (followState) {
-            FollowState.FOLLOWING -> {
-                btnColor = MaterialTheme.colorScheme.surfaceVariant
-                btnTextColor = MaterialTheme.colorScheme.onSurfaceVariant
-                btnLabelId = R.string.follow_status_following
-            }
-            FollowState.REQUEST_SENT -> {
-                btnColor = Color(0xFF4A5568)
-                btnTextColor = MaterialTheme.colorScheme.onBackground
-                btnLabelId = R.string.user_profile_requested
-            }
-            FollowState.NOT_FOLLOWING -> {
-                btnColor = MaterialTheme.colorScheme.primary
-                btnTextColor = MaterialTheme.colorScheme.background
-                btnLabelId = R.string.follow_status_follow
-            }
-            FollowState.NOT_FOLLOWING_PRIVATE -> {
-                btnColor = MaterialTheme.colorScheme.primary
-                btnTextColor = MaterialTheme.colorScheme.background
-                btnLabelId = R.string.follow_status_follow
-            }
-        }
-
-        Button(
-            onClick = onFollowAction,
-            enabled = !isActionLoading,
-            colors = ButtonDefaults.buttonColors(containerColor = btnColor),
-            shape = RoundedCornerShape(25.dp),
-            modifier = Modifier.weight(1f).height(50.dp).padding(end = 5.dp, start = 40.dp)
-        ) {
-            if (isActionLoading) {
-                CircularProgressIndicator(color = btnTextColor, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-            } else {
-                Text(stringResource(btnLabelId), fontSize = 16.sp, color = btnTextColor, fontWeight = FontWeight.SemiBold)
-            }
-        }
-
-        Button(
-            onClick = onMessage,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A5568)),
-            shape = RoundedCornerShape(25.dp),
-            modifier = Modifier.weight(1f).height(50.dp).padding(start = 5.dp, end = 40.dp)
-        ) {
-            Text(stringResource(R.string.user_profile_message), fontSize = 16.sp, color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.SemiBold)
-        }
-    }
-}
-
-@Composable
-private fun UserProfileTabs(
-    user: User?,
-    selectedTab: Int,
-    onTabSelected: (Int) -> Unit
-) {
-    if (user?.privacy?.isPrivate == false || user?.relationship?.isFollowing == true) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-            val isFeed = selectedTab == 0
-            IconButton(onClick = { onTabSelected(0) }, modifier = Modifier.weight(1f)) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(painterResource(R.drawable.ic_gallery_outline), stringResource(R.string.user_profile_posts),
-                        tint = if (isFeed) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(30.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(modifier = Modifier.height(2.dp).width(48.dp)
-                        .background(if (isFeed) MaterialTheme.colorScheme.onBackground else Color.Transparent))
-                }
-            }
-            val isRelinks = selectedTab == 1
-            IconButton(onClick = { onTabSelected(1) }, modifier = Modifier.weight(1f)) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(painterResource(R.drawable.ic_play_add_outline), stringResource(R.string.user_profile_relinks),
-                        tint = if (isRelinks) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(30.dp))
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(modifier = Modifier.height(2.dp).width(48.dp)
-                        .background(if (isRelinks) MaterialTheme.colorScheme.onBackground else Color.Transparent))
-                }
-            }
-        }
         Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            user?.displayName ?: "User",
+            color = TextPrimary,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            "@${user?.username ?: ""}",
+            color = GradientBlue,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        if (!user?.bio.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            GlassBox(
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.padding(horizontal = 24.dp)
+            ) {
+                Text(
+                    user?.bio ?: "",
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Stats Cards
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            StatGlassCard(
+                value = formatStat(user?.metrics?.followersCount ?: 0),
+                label = stringResource(R.string.followers),
+                modifier = Modifier.weight(1f),
+                onClick = onFollowersClick
+            )
+            StatGlassCard(
+                value = formatStat(user?.metrics?.followingCount ?: 0),
+                label = stringResource(R.string.following),
+                modifier = Modifier.weight(1f),
+                onClick = onFollowingClick
+            )
+            StatGlassCard(
+                value = formatStat(user?.metrics?.likesCount ?: 0),
+                label = stringResource(R.string.profile_likes),
+                modifier = Modifier.weight(1f),
+                onClick = {}
+            )
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Action Buttons (Follow / Message)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            val followState = user?.followState() ?: FollowState.NOT_FOLLOWING
+            val isFollowing = followState == FollowState.FOLLOWING || followState == FollowState.REQUEST_SENT
+            val btnLabel = when (followState) {
+                FollowState.FOLLOWING -> stringResource(R.string.follow_status_following)
+                FollowState.REQUEST_SENT -> stringResource(R.string.user_profile_requested)
+                else -> stringResource(R.string.follow_status_follow)
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(23.dp))
+                    .then(
+                        if (isFollowing) Modifier.background(DarkGrayTransparent)
+                        else Modifier.background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                    )
+                    .border(
+                        1.dp,
+                        if (isFollowing) GlassCardBorder else Color.Transparent,
+                        RoundedCornerShape(23.dp)
+                    )
+                    .bouncyClick(enabled = !isActionLoading, onClick = onFollowAction),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isActionLoading) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                } else {
+                    Text(btnLabel, fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(46.dp)
+                    .clip(RoundedCornerShape(23.dp))
+                    .background(DarkGrayTransparent)
+                    .border(1.dp, GlassCardBorder, RoundedCornerShape(23.dp))
+                    .bouncyClick(onClick = onMessage),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.ic_ai_send_message_outline),
+                        null,
+                        tint = GradientBlue,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.user_profile_message),
+                        fontSize = 14.sp,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Tabs
+        if (user?.privacy?.isPrivate == false || user?.relationship?.isFollowing == true) {
+            GlassBox(
+                shape = RoundedCornerShape(24.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+            ) {
+                Row(modifier = Modifier.padding(4.dp)) {
+                    val isFeed = selectedTab == 0
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .then(
+                                if (isFeed) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                                else Modifier.background(Color.Transparent)
+                            )
+                            .bouncyClick { onTabSelected(0) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            stringResource(R.string.user_profile_posts),
+                            color = if (isFeed) Color.White else TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = if (isFeed) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+
+                    val isRelinks = selectedTab == 1
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .then(
+                                if (isRelinks) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                                else Modifier.background(Color.Transparent)
+                            )
+                            .bouncyClick { onTabSelected(1) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            stringResource(R.string.user_profile_relinks),
+                            color = if (isRelinks) Color.White else TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = if (isRelinks) FontWeight.Bold else FontWeight.Medium
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+        }
     }
 }
-
-// ── Private lock ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun PrivateAccountLock(user: User?) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    GlassBox(
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 24.dp)
     ) {
-        Box(
-            modifier = Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(painterResource(R.drawable.ic_smart_lock_ai_outline), null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(36.dp))
-        }
-        Text(stringResource(R.string.user_profile_account_private), color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            stringResource(R.string.user_profile_follow_private_desc, user?.username ?: ""),
-            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
-            textAlign = TextAlign.Center, lineHeight = 20.sp
-        )
-    }
-}
-
-// ── Post item ─────────────────────────────────────────────────────────────────
-
-@Composable
-private fun UserPostItem(post: Link) {
-    val aspectRatio = post.primaryMedia.aspectRatio ?: 1f
-    Box(
-        modifier = Modifier.fillMaxWidth().aspectRatio(aspectRatio)
-            .clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Box(modifier = Modifier.fillMaxSize().background(
-            Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)), startY = 100f)
-        ))
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top
-        ) {
-            Box(modifier = Modifier.size(30.dp).clip(CircleShape).background(Color.Gray),
-                contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_profile_outline), null, modifier = Modifier.size(24.dp))
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .background(GradientPurple.copy(alpha = 0.2f))
+                    .border(1.dp, GradientPurple.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_smart_lock_ai_outline),
+                    null,
+                    tint = GradientPurple,
+                    modifier = Modifier.size(32.dp)
+                )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_heart_bold), null, tint = Color.White, modifier = Modifier.size(12.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(formatStat(post.engagement.likesCount), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
-        }
-        Column(modifier = Modifier.align(Alignment.BottomStart).padding(12.dp)) {
-            Text(post.description ?: "", color = Color.White, fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(
+                stringResource(R.string.user_profile_account_private),
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                stringResource(R.string.user_profile_follow_private_desc, user?.username ?: ""),
+                color = TextSecondary,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 19.sp
+            )
         }
     }
 }
-
-// ── Error ─────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun ErrorState(error: String, onBack: () -> Unit) {
@@ -420,8 +452,8 @@ private fun ErrorState(error: String, onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(error, color = MaterialTheme.colorScheme.error)
+        Text(error, color = ErrorRed)
         Spacer(modifier = Modifier.height(12.dp))
-        TextButton(onClick = onBack) { Text(stringResource(R.string.action_back), color = MaterialTheme.colorScheme.primary) }
+        TextButton(onClick = onBack) { Text(stringResource(R.string.action_back), color = GradientBlue) }
     }
 }

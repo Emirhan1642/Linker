@@ -5,20 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -39,6 +26,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,21 +35,17 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil3.compose.AsyncImage
 import com.linker.app.R
 import com.linker.app.domain.model.UserStories
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.components.AmbientGlow
+import com.linker.app.presentation.components.GlassBox
+import com.linker.app.presentation.components.GlassIconButton
 import com.linker.app.presentation.components.LinkerAvatar
+import com.linker.app.presentation.components.PillBadge
 import com.linker.app.presentation.components.StoryState
-import com.linker.app.presentation.theme.Black
-import com.linker.app.presentation.theme.DarkGray
-import com.linker.app.presentation.theme.LinkerAngularGradient
-import com.linker.app.presentation.theme.TextHint
-import com.linker.app.presentation.theme.TextPrimary
-import com.linker.app.presentation.theme.TextSecondary
+import com.linker.app.presentation.theme.*
 
 /**
  * Story Grid Screen — TikTok LIVE style 2-column grid layout.
- *
- * Shows all active stories grouped by user as large cards.
- * Tapping a card opens the StoryViewer for that user.
- * When no stories remain, navigates back automatically.
  */
 @Composable
 fun StoryGridScreen(
@@ -74,8 +58,16 @@ fun StoryGridScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Black)
+            .background(ObsidianBackgroundGradient)
     ) {
+        // Ambient glow
+        AmbientGlow(
+            glowColor = GradientPurple,
+            size = 280.dp,
+            alpha = 0.18f,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
+        )
+
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar
             StoryGridTopBar(onNavigateBack = onNavigateBack)
@@ -86,7 +78,7 @@ fun StoryGridScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator(color = Color.White)
+                        CircularProgressIndicator(color = GradientBlue)
                     }
                 }
 
@@ -106,9 +98,9 @@ fun StoryGridScreen(
                 else -> {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(2),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(
@@ -133,31 +125,24 @@ private fun StoryGridTopBar(onNavigateBack: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onNavigateBack) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_arrow_left_01_outline),
-                contentDescription = "Geri",
-                tint = Color.White,
-                modifier = Modifier.size(28.dp)
-            )
-        }
+        GlassIconButton(
+            iconRes = R.drawable.ic_arrow_left_01_outline,
+            onClick = onNavigateBack,
+            size = 44.dp
+        )
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
-            text = "Storyler",
+            text = "Stories",
             color = TextPrimary,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(start = 4.dp)
+            fontSize = 22.sp,
+            fontWeight = FontWeight.Bold
         )
     }
 }
 
-/**
- * TikTok LIVE-style story card with large thumbnail, user avatar and username.
- * Viewed stories appear slightly dimmed.
- */
 @Composable
 private fun StoryGridCard(
     userStories: UserStories,
@@ -165,7 +150,7 @@ private fun StoryGridCard(
 ) {
     val allViewed = !userStories.hasUnviewed
     val alpha by animateFloatAsState(
-        targetValue = if (allViewed) 0.5f else 1f,
+        targetValue = if (allViewed) 0.6f else 1f,
         animationSpec = tween(durationMillis = 300),
         label = "storyCardAlpha"
     )
@@ -173,13 +158,13 @@ private fun StoryGridCard(
     val mostRecentStory = userStories.getMostRecentStory()
     val viewsCount = userStories.stories.sumOf { it.viewsCount }
 
-    Box(
+    GlassBox(
+        shape = RoundedCornerShape(20.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .aspectRatio(9f / 16f) // Vertical card (portrait)
-            .clip(RoundedCornerShape(16.dp))
+            .aspectRatio(9f / 16f)
             .alpha(alpha)
-            .clickable { onClick() }
+            .bouncyClick(onClick = onClick)
     ) {
         // Thumbnail background
         if (mostRecentStory?.thumbnailUrl != null || mostRecentStory?.mediaUrl != null) {
@@ -190,7 +175,6 @@ private fun StoryGridCard(
                 modifier = Modifier.fillMaxSize()
             )
         } else {
-            // Placeholder gradient
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -213,9 +197,9 @@ private fun StoryGridCard(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.7f)
+                            Color.Black.copy(alpha = 0.8f)
                         ),
-                        startY = 200f
+                        startY = 180f
                     )
                 )
         )
@@ -228,16 +212,16 @@ private fun StoryGridCard(
                     .border(
                         width = 2.dp,
                         brush = LinkerAngularGradient,
-                        shape = RoundedCornerShape(16.dp)
+                        shape = RoundedCornerShape(20.dp)
                     )
             )
         }
 
-        // Bottom info overlay
+        // Bottom info overlay in glass capsule
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .padding(12.dp),
+                .padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // User avatar + name row
@@ -254,41 +238,45 @@ private fun StoryGridCard(
                     text = userStories.author.username,
                     color = Color.White,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            // View count
-            if (viewsCount > 0) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_ai_users_outline),
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Text(
-                        text = formatCount(viewsCount),
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
+            // View count & story count
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (viewsCount > 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(id = R.drawable.ic_ai_users_outline),
+                            contentDescription = null,
+                            tint = GradientBlue,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = formatCount(viewsCount),
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                val storyCount = userStories.stories.size
+                if (storyCount > 1) {
+                    PillBadge(
+                        text = "$storyCount",
+                        accentColor = GradientPurple,
+                        fontSize = 9
                     )
                 }
-            }
-
-            // Story count badge
-            val storyCount = userStories.stories.size
-            if (storyCount > 1) {
-                Text(
-                    text = "$storyCount story",
-                    color = Color.White.copy(alpha = 0.6f),
-                    fontSize = 10.sp
-                )
             }
         }
     }

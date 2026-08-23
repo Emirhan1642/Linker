@@ -4,6 +4,9 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.stringResource
 import com.linker.app.R
+import com.linker.app.presentation.theme.*
+import com.linker.app.presentation.animation.*
+import com.linker.app.presentation.components.*
 
 import android.Manifest
 import androidx.compose.animation.core.animateFloatAsState
@@ -134,20 +137,29 @@ fun NoteEditorScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF121212))
+            .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
     ) {
+        // Ambient glow
+        com.linker.app.presentation.components.AmbientGlow(
+            glowColor = com.linker.app.presentation.theme.GradientPurple,
+            size = 280.dp,
+            alpha = 0.2f,
+            modifier = Modifier.align(Alignment.TopCenter).offset(y = (-40).dp)
+        )
+
         // Top Close Button
         IconButton(
             onClick = onNavigateBack,
             modifier = Modifier
                 .padding(16.dp)
                 .align(Alignment.TopStart)
+                .bouncyClick(onClick = onNavigateBack)
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
                 contentDescription = "Close",
                 tint = Color.White,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(30.dp)
             )
         }
 
@@ -157,12 +169,13 @@ fun NoteEditorScreen(
             modifier = Modifier
                 .padding(16.dp)
                 .align(Alignment.TopEnd)
+                .bouncyClick { viewModel.toggleColorPicker() }
         ) {
             Icon(
                 imageVector = Icons.Default.Edit,
                 contentDescription = "Edit Color",
-                tint = if (uiState.isColorPickerVisible) Color(0xFF3F51B5) else Color.White,
-                modifier = Modifier.size(32.dp)
+                tint = if (uiState.isColorPickerVisible) GradientBlue else Color.White,
+                modifier = Modifier.size(30.dp)
             )
         }
 
@@ -687,10 +700,11 @@ fun CircularIconButton(
 ) {
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .border(1.dp, Color.DarkGray, CircleShape)
+            .size(50.dp)
             .clip(CircleShape)
-            .clickable { onClick() },
+            .background(DarkGrayTransparent)
+            .border(1.dp, GlassCardBorder, CircleShape)
+            .bouncyClick { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(

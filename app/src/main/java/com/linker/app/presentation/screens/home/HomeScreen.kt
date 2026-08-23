@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.linker.app.R
+import com.linker.app.presentation.theme.*
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -68,11 +69,18 @@ import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.foundation.clickable
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.animation.shimmerEffect
+import com.linker.app.presentation.animation.DoubleTapHeartOverlay
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateBottomNav: (BottomNavItem) -> Unit,
     onNavigateToStoryGrid: () -> Unit = {},
+    showBottomBar: Boolean = true,
     viewModel: HomeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
     var topTab by remember { mutableStateOf(0) }
@@ -102,17 +110,19 @@ fun HomeScreen(
     Scaffold(
         containerColor = Black, // Full black for edge to edge videos
         bottomBar = {
-            LinkerBottomNavigationBar(
-                currentRoute = "Explore",
-                onNavigate = onNavigateBottomNav,
-                modifier = Modifier.background(Color.Transparent)
-            )
+            if (showBottomBar) {
+                LinkerBottomNavigationBar(
+                    currentRoute = "Explore",
+                    onNavigate = onNavigateBottomNav,
+                    modifier = Modifier.background(Color.Transparent)
+                )
+            }
         }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = paddingValues.calculateTopPadding(), bottom = 0.dp) // paddingValues from Scaffold
+                .padding(top = paddingValues.calculateTopPadding(), bottom = if (showBottomBar) 0.dp else 0.dp)
         ) {
             // Background / Video Player
             if (uiState.links.isNotEmpty()) {
@@ -130,13 +140,20 @@ fun HomeScreen(
                         )
                     }
                 }
+            } else if (uiState.isRefreshing) {
+                // Shimmer Loading Skeleton
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .shimmerEffect()
+                )
             } else {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (uiState.isRefreshing) stringResource(R.string.feed_loading) else stringResource(R.string.feed_empty),
+                        text = stringResource(R.string.feed_empty),
                         color = TextSecondary,
                         fontSize = 16.sp
                     )
@@ -167,10 +184,22 @@ fun FeedItemView(
     onSaveClick: () -> Unit = {},
     onRelinkClick: () -> Unit = {}
 ) {
+    var showHeartOverlay by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Black)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (!link.engagement.isLiked) {
+                            onLikeClick()
+                        }
+                        showHeartOverlay = true
+                    }
+                )
+            }
     ) {
         val primaryMediaUrl = link.primaryMedia.url
         if (primaryMediaUrl.isNotBlank() && !primaryMediaUrl.startsWith("placeholder://")) {
@@ -216,20 +245,31 @@ fun FeedItemView(
                 .align(Alignment.BottomStart)
                 .padding(start = 16.dp, end = 80.dp, bottom = 100.dp)
         ) {
-            Text(
-                text = "@${link.author.username}",
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-            if (!link.description.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = link.description,
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 14.sp,
-                    maxLines = 3
-                )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(DarkGrayTransparent)
+                    .border(1.dp, GlassCardBorder, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "@${link.author.username}",
+                        color = GradientBlue,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp
+                    )
+                    if (!link.description.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = link.description,
+                            color = Color.White.copy(alpha = 0.95f),
+                            fontSize = 14.sp,
+                            maxLines = 3,
+                            lineHeight = 19.sp
+                        )
+                    }
+                }
             }
         }
 
@@ -237,14 +277,14 @@ fun FeedItemView(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 120.dp), // Clear bottom nav
+                .padding(end = 16.dp, bottom = 110.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             ActionButton(
                 icon = if (link.engagement.isLiked) R.drawable.ic_heart_bold else R.drawable.ic_heart_outline,
                 count = link.engagement.likesCount.toString(),
-                tint = if (link.engagement.isLiked) Color.Red else Color.White,
+                tint = if (link.engagement.isLiked) ErrorRed else Color.White,
                 onClick = onLikeClick
             )
             ActionButton(
@@ -260,10 +300,16 @@ fun FeedItemView(
             ActionButton(
                 icon = if (link.engagement.isSaved) R.drawable.ic_bookmark_2_bold else R.drawable.ic_bookmark_2_outline,
                 count = link.engagement.savesCount.toString(),
-                tint = if (link.engagement.isSaved) Color(0xFFFFD700) else Color.White,
+                tint = if (link.engagement.isSaved) GradientYellow else Color.White,
                 onClick = onSaveClick
             )
         }
+
+        // Floating Double Tap Heart Pop
+        DoubleTapHeartOverlay(
+            isShowing = showHeartOverlay,
+            onDismiss = { showHeartOverlay = false }
+        )
     }
 }
 
@@ -276,9 +322,11 @@ fun TopPillTabs(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(32.dp))
-            .background(Color(0xFF1E1E2C).copy(alpha = 0.8f))
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+            .background(DarkGrayTransparent)
+            .border(1.2.dp, GlassCardBorder, RoundedCornerShape(32.dp))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         PillTab(stringResource(R.string.feed_tab_all), R.drawable.ic_hashtag_down_outline, R.drawable.ic_hashtag_down_bold, isSelected = selectedTab == 0) { onTabSelected(0) }
         PillTab(stringResource(R.string.feed_tab_followed), R.drawable.ic_ai_users_outline, R.drawable.ic_ai_users_bold, isSelected = selectedTab == 1) { onTabSelected(1) }
@@ -294,19 +342,31 @@ fun PillTab(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    IconButton(onClick = onClick, Modifier.padding(horizontal = 10.dp)) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(24.dp))
+            .then(
+                if (isSelected) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                else Modifier.background(Color.Transparent)
+            )
+            .bouncyClick { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
             Icon(
                 painter = painterResource(id = if (isSelected) selectedIcon else icon),
                 contentDescription = title,
-                tint = if (isSelected) LightPurple else TextHint,
-                modifier = Modifier.size(24.dp)
+                tint = if (isSelected) Color.White else TextSecondary,
+                modifier = Modifier.size(18.dp)
             )
             Text(
                 text = title,
-                color = if (isSelected) LightPurple else TextHint,
-                fontSize = 10.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                color = if (isSelected) Color.White else TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
             )
         }
     }
@@ -321,20 +381,29 @@ fun ActionButton(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.clickable { onClick() }
+        modifier = Modifier.bouncyClick { onClick() }
     ) {
-        Icon(
-            painter = painterResource(id = icon),
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(38.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(DarkGrayTransparent)
+                .border(1.2.dp, GlassCardBorder, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(id = icon),
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(24.dp)
+            )
+        }
         if (count != null) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = count,
                 color = Color.White,
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold
             )
         }

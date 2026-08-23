@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.res.painterResource
 import com.linker.app.R
 import androidx.compose.ui.Alignment
@@ -36,6 +37,11 @@ import com.linker.app.presentation.theme.TextHint
 import com.linker.app.presentation.theme.TextPrimary
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
+import com.linker.app.presentation.animation.bouncyClick
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.draw.scale
 
 enum class BottomNavItem(@StringRes val titleRes: Int, val selectedIcon: Int, val unselectedIcon: Int) {
     Explore(R.string.nav_home, R.drawable.ic_ai_homepage_bold, R.drawable.ic_ai_homepage_outline),
@@ -71,13 +77,21 @@ fun LinkerBottomNavigationBar(
         ) {
             BottomNavItem.entries.forEach { item ->
                 val title = stringResource(id = item.titleRes)
+                val isSelected = currentRoute.equals(item.name, ignoreCase = true)
+                val itemScale by animateFloatAsState(
+                    targetValue = if (isSelected) 1.08f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                    label = "bottomNavItemScale_${item.name}"
+                )
+
                 if (item == BottomNavItem.Add) {
                     // Special Add Button
                     Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .clickable { onNavigate(item) },
+                            .scale(itemScale)
+                            .bouncyClick { onNavigate(item) },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -89,7 +103,6 @@ fun LinkerBottomNavigationBar(
                     }
                 } else {
                     // Normal Nav Items
-                    val isSelected = currentRoute.equals(item.name, ignoreCase = true)
                     val contentColor = if (isSelected) LightBlue else TextHint
                     
                     Column(
@@ -97,7 +110,8 @@ fun LinkerBottomNavigationBar(
                             .weight(1f)
                             .height(60.dp)
                             .clip(RoundedCornerShape(35.dp))
-                            .clickable { onNavigate(item) },
+                            .scale(itemScale)
+                            .bouncyClick { onNavigate(item) },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {

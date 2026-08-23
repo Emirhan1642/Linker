@@ -1,9 +1,12 @@
 package com.linker.app.presentation.components
 
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -11,27 +14,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
-import com.linker.app.R
-import com.linker.app.presentation.theme.LightGray
-import com.linker.app.presentation.theme.TextSecondary
-import com.linker.app.presentation.theme.AccentGreen
-import com.linker.app.presentation.theme.LinkerAngularGradient
-import com.linker.app.presentation.theme.TextHint
-import com.linker.app.presentation.theme.TextPrimary
-
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.linker.app.presentation.animation.bouncyClick
+import com.linker.app.presentation.theme.*
 
 enum class StoryState { NONE, UNSEEN, SEEN }
 
@@ -48,6 +44,17 @@ fun LinkerAvatar(
 ) {
     val effectiveStoryState = storyState
 
+    val infiniteTransition = rememberInfiniteTransition(label = "avatarRingRotate")
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "avatarRingRotation"
+    )
+
     val clickModifier = if (onClick != null || onLongClick != null) {
         Modifier.combinedClickable(
             onClick = { onClick?.invoke() },
@@ -56,28 +63,32 @@ fun LinkerAvatar(
     } else {
         Modifier
     }
-    
-    val unseenBorderWidth = (size.value / 20).dp
-    val seenBorderWidth = (size.value / 25).dp
-    val avatarPadding = if (effectiveStoryState == StoryState.NONE) 0.dp else (size.value / 15).dp
+
+    val unseenBorderWidth = (size.value / 22).coerceAtLeast(2f).dp
+    val seenBorderWidth = (size.value / 28).coerceAtLeast(1.5f).dp
+    val avatarPadding = if (effectiveStoryState == StoryState.NONE) 0.dp else (size.value / 16).coerceAtLeast(3f).dp
     val onlineIndicatorSize = size * 0.25f
 
     Box(
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
+            .bouncyClick(enabled = onClick != null || onLongClick != null) {
+                onClick?.invoke()
+            }
             .then(clickModifier),
         contentAlignment = Alignment.Center
     ) {
-        // Border ring (NONE: no border, UNSEEN: gradient, SEEN: white)
+        // Border ring (NONE: no border, UNSEEN: rotating sweep gradient, SEEN: subtle white/gray)
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .then(
                     when (effectiveStoryState) {
-                        StoryState.UNSEEN -> Modifier.border(width = unseenBorderWidth, LinkerAngularGradient, CircleShape)
-                        StoryState.SEEN -> Modifier.border(width = seenBorderWidth, SolidColor(Color.White), CircleShape)
-                        StoryState.NONE -> Modifier
+                        StoryState.UNSEEN -> Modifier
+                            .rotate(rotation)
+                            .border(width = unseenBorderWidth, LinkerAngularGradient, CircleShape)
+                        StoryState.SEEN -> Modifier.border(width = seenBorderWidth, SolidColor(Color.White.copy(alpha = 0.7f)), CircleShape)
+                        StoryState.NONE -> Modifier.border(1.dp, GlassCardBorder, CircleShape)
                     }
                 )
                 .padding(avatarPadding)
@@ -87,7 +98,7 @@ fun LinkerAvatar(
                 modifier = Modifier
                     .matchParentSize()
                     .clip(CircleShape)
-                    .background(TextSecondary),
+                    .background(DarkGrayTransparent),
                 contentAlignment = Alignment.Center
             ) {
                 if (imageUrl != null) {
@@ -104,7 +115,8 @@ fun LinkerAvatar(
                     Icon(
                         imageVector = Icons.Default.Person,
                         contentDescription = "Avatar",
-                        modifier = Modifier.matchParentSize()
+                        tint = TextSecondary,
+                        modifier = Modifier.matchParentSize().padding(size * 0.2f)
                     )
                 }
             }
@@ -115,12 +127,11 @@ fun LinkerAvatar(
             Box(
                 modifier = Modifier
                     .size(onlineIndicatorSize)
-                    .clip(CircleShape)
-                    .background(Color.Black) // Inner spacing
-                    .padding(2.dp)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = (-2).dp, y = (-2).dp)
                     .clip(CircleShape)
                     .background(AccentGreen)
-                    .align(Alignment.BottomEnd)
+                    .border(2.dp, Black, CircleShape)
             )
         }
     }

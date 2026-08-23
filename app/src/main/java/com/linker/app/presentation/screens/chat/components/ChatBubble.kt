@@ -157,9 +157,29 @@ fun MessageBubbleContent(
     onNoteReplyClick: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    val bubbleColor = if (message.isSelf) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val bubbleShape = RoundedCornerShape(
+        topStart = 20.dp,
+        topEnd = 20.dp,
+        bottomStart = if (message.isSelf) 20.dp else 4.dp,
+        bottomEnd = if (message.isSelf) 4.dp else 20.dp
+    )
+    val bubbleBrush = if (message.isSelf) {
+        androidx.compose.ui.graphics.Brush.horizontalGradient(
+            listOf(
+                com.linker.app.presentation.theme.GradientPurple,
+                com.linker.app.presentation.theme.GradientRed
+            )
+        )
+    } else {
+        androidx.compose.ui.graphics.SolidColor(com.linker.app.presentation.theme.DarkGrayTransparent)
+    }
+    val bubbleBorder = if (message.isSelf) {
+        androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.25f))
+    } else {
+        androidx.compose.ui.graphics.SolidColor(com.linker.app.presentation.theme.GlassCardBorder)
+    }
     val alignment = if (message.isSelf) Alignment.CenterEnd else Alignment.CenterStart
-    
+
     // Highlight efekti için alpha değerini hesapla (0.5 ile 1.0 arası)
     val finalAlpha = if (highlightAlpha > 0f) {
         0.5f + (highlightAlpha * 0.5f)
@@ -189,22 +209,17 @@ fun MessageBubbleContent(
             }
             Box(
                 modifier = Modifier
-                    .clip(
-                        RoundedCornerShape(
-                            topStart = 18.dp,
-                            topEnd = 18.dp,
-                            bottomStart = if (message.isSelf) 18.dp else 4.dp,
-                            bottomEnd = if (message.isSelf) 4.dp else 18.dp
-                        )
-                    )
-                    .background(bubbleColor.copy(alpha = finalAlpha))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .clip(bubbleShape)
+                    .background(bubbleBrush, alpha = finalAlpha)
+                    .border(1.dp, bubbleBorder, bubbleShape)
+                    .padding(horizontal = 16.dp, vertical = 11.dp)
             ) {
                 Column {
                     Text(
                         text = message.text,
-                        color = if (message.isDeleted) TextSecondary else TextPrimary,
+                        color = if (message.isDeleted) TextSecondary else Color.White,
                         fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
                         lineHeight = 20.sp,
                         fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal
                     )

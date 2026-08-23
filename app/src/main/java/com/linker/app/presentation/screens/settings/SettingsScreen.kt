@@ -15,12 +15,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.border
 import com.linker.app.R
+import com.linker.app.presentation.theme.*
+import com.linker.app.presentation.animation.*
+import com.linker.app.presentation.components.*
 
 sealed interface SettingsItem {
     data class Navigation(
@@ -205,61 +209,88 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = Black,
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Top bar
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onNavigateBack) {
-                    Icon(painterResource(R.drawable.ic_arrow_left_01_outline), stringResource(R.string.action_back),
-                        tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(28.dp))
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.settings_title), color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
+                .padding(padding)
+        ) {
+            // Ambient Glow
+            com.linker.app.presentation.components.AmbientGlow(
+                glowColor = GradientPurple,
+                size = 260.dp,
+                alpha = 0.18f,
+                modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
+            )
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp)
-            ) {
-                sections.forEachIndexed { i, section ->
-                    Spacer(modifier = Modifier.height(if (i == 0) 4.dp else 24.dp))
-                    Text(
-                        stringResource(section.titleRes).uppercase(),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Top bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    com.linker.app.presentation.components.GlassIconButton(
+                        iconRes = R.drawable.ic_arrow_left_01_outline,
+                        onClick = onNavigateBack,
+                        size = 44.dp
                     )
-                    Column(
-                        modifier = Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        section.items.forEachIndexed { idx, item ->
-                            when (item) {
-                                is SettingsItem.Navigation -> NavigationRow(item)
-                                is SettingsItem.Toggle     -> ToggleRow(
-                                    item = item,
-                                    isSaving = uiState.savingField == item.fieldKey
-                                )
-                                is SettingsItem.Danger -> DangerRow(item)
-                            }
-                            if (idx < section.items.lastIndex) {
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 56.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-                                    thickness = 0.5.dp
-                                )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        stringResource(R.string.settings_title),
+                        color = TextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                ) {
+                    sections.forEachIndexed { i, section ->
+                        Spacer(modifier = Modifier.height(if (i == 0) 4.dp else 20.dp))
+                        Text(
+                            stringResource(section.titleRes).uppercase(),
+                            color = GradientBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                        )
+                        com.linker.app.presentation.components.GlassBox(
+                            shape = RoundedCornerShape(20.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                section.items.forEachIndexed { idx, item ->
+                                    when (item) {
+                                        is SettingsItem.Navigation -> NavigationRow(item)
+                                        is SettingsItem.Toggle     -> ToggleRow(
+                                            item = item,
+                                            isSaving = uiState.savingField == item.fieldKey
+                                        )
+                                        is SettingsItem.Danger -> DangerRow(item)
+                                    }
+                                    if (idx < section.items.lastIndex) {
+                                        HorizontalDivider(
+                                            modifier = Modifier.padding(start = 56.dp),
+                                            color = GlassCardBorder,
+                                            thickness = 0.6.dp
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+                    Spacer(modifier = Modifier.height(48.dp))
                 }
-                Spacer(modifier = Modifier.height(48.dp))
             }
         }
     }
@@ -268,7 +299,9 @@ fun SettingsScreen(
 @Composable
 private fun NavigationRow(item: SettingsItem.Navigation) {
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { item.onClick() }
+        modifier = Modifier
+            .fillMaxWidth()
+            .bouncyClick { item.onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -276,7 +309,7 @@ private fun NavigationRow(item: SettingsItem.Navigation) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             IconBox(item.iconRes, stringResource(item.labelRes))
             Spacer(modifier = Modifier.width(14.dp))
-            Text(stringResource(item.labelRes), color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp)
+            Text(stringResource(item.labelRes), color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             val value = when {
@@ -285,10 +318,15 @@ private fun NavigationRow(item: SettingsItem.Navigation) {
                 else -> null
             }
             if (value != null) {
-                Text(value, color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+                Text(value, color = TextSecondary, fontSize = 13.sp)
                 Spacer(modifier = Modifier.width(6.dp))
             }
-            Icon(painterResource(R.drawable.ic_arrow_left_01_outline), null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(18.dp))
+            Icon(
+                painterResource(R.drawable.ic_arrow_left_01_outline),
+                null,
+                tint = TextHint,
+                modifier = Modifier.size(16.dp)
+            )
         }
     }
 }
@@ -303,19 +341,23 @@ private fun ToggleRow(item: SettingsItem.Toggle, isSaving: Boolean = false) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
             IconBox(item.iconRes, stringResource(item.labelRes))
             Spacer(modifier = Modifier.width(14.dp))
-            Text(stringResource(item.labelRes), color = MaterialTheme.colorScheme.onBackground, fontSize = 15.sp)
+            Text(stringResource(item.labelRes), color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
         if (isSaving) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = AccentGreen,
+                strokeWidth = 2.dp
+            )
         } else {
             Switch(
                 checked = item.checked,
                 onCheckedChange = item.onToggle,
                 colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.background,
-                    checkedTrackColor = MaterialTheme.colorScheme.primary,
-                    uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    uncheckedTrackColor = MaterialTheme.colorScheme.surface
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = AccentGreen,
+                    uncheckedThumbColor = TextHint,
+                    uncheckedTrackColor = DarkGray
                 )
             )
         }
@@ -324,31 +366,37 @@ private fun ToggleRow(item: SettingsItem.Toggle, isSaving: Boolean = false) {
 
 @Composable
 private fun DangerRow(item: SettingsItem.Danger) {
-    val color = if (item.isWarning) Color(0xFFFFAA00) else MaterialTheme.colorScheme.error
+    val color = if (item.isWarning) Color(0xFFFF9800) else ErrorRed
     Row(
-        modifier = Modifier.fillMaxWidth().clickable { item.onClick() }
+        modifier = Modifier
+            .fillMaxWidth()
+            .bouncyClick { item.onClick() }
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
-                .background(color.copy(alpha = 0.15f)),
+                .background(color.copy(alpha = 0.15f))
+                .border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
             Icon(painterResource(item.iconRes), stringResource(item.labelRes), tint = color, modifier = Modifier.size(20.dp))
         }
         Spacer(modifier = Modifier.width(14.dp))
-        Text(stringResource(item.labelRes), color = color, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text(stringResource(item.labelRes), color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun IconBox(iconRes: Int, label: String) {
     Box(
-        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .size(36.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(DarkGrayTransparent)
+            .border(1.dp, GlassCardBorder, RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Icon(painterResource(iconRes), label, tint = MaterialTheme.colorScheme.onBackground, modifier = Modifier.size(20.dp))
+        Icon(painterResource(iconRes), label, tint = GradientBlue, modifier = Modifier.size(20.dp))
     }
 }

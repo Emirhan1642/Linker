@@ -74,8 +74,23 @@ fun AuthScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(ObsidianBackgroundGradient)
                 .padding(paddingValues)
         ) {
+            // Ambient Neon Glow orbs
+            com.linker.app.presentation.components.AmbientGlow(
+                glowColor = GradientPurple,
+                size = 280.dp,
+                alpha = 0.22f,
+                modifier = Modifier.align(Alignment.TopStart).offset(x = (-60).dp, y = (-40).dp)
+            )
+            com.linker.app.presentation.components.AmbientGlow(
+                glowColor = GradientBlue,
+                size = 260.dp,
+                alpha = 0.18f,
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 60.dp, y = 60.dp)
+            )
+
             AnimatedContent(
                 targetState = uiState.authStep,
                 transitionSpec = {
