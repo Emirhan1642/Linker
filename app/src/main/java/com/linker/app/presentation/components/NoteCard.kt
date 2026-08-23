@@ -91,14 +91,14 @@ fun NoteCard(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(GradientBlue.copy(alpha = 0.2f))
-                                    .border(1.dp, GradientBlue.copy(alpha = 0.4f), CircleShape),
+                                    .background(LinkerPrimary.copy(alpha = 0.15f))
+                                    .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.LocationOn,
                                     contentDescription = "Location",
-                                    tint = GradientBlue,
+                                    tint = LinkerPrimary,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -125,7 +125,7 @@ fun NoteCard(
                             }
                             PillBadge(
                                 text = "⏳ $remainingStr",
-                                accentColor = GradientPurple,
+                                accentColor = LinkerPrimary,
                                 fontSize = 10
                             )
                             Spacer(modifier = Modifier.height(6.dp))
@@ -158,7 +158,7 @@ fun NoteCard(
                             )
                             Text(
                                 text = note.musicArtistName,
-                                color = GradientBlue,
+                                color = TextSecondary,
                                 fontSize = 11.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis

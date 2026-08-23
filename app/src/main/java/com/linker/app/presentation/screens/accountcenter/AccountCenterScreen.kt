@@ -59,14 +59,6 @@ fun AccountCenterScreen(
             .background(ObsidianBackgroundGradient)
             .systemBarsPadding()
     ) {
-        // Ambient glow
-        AmbientGlow(
-            glowColor = GradientBlue,
-            size = 260.dp,
-            alpha = 0.16f,
-            modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
-        )
-
         Column(modifier = Modifier.fillMaxSize()) {
 
             // ── Top Bar ──────────────────────────────────────────────────────
@@ -92,7 +84,7 @@ fun AccountCenterScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                        .background(Brush.horizontalGradient(LinkerBrandGradient))
                         .bouncyClick(onClick = onNavigateToAuth),
                     contentAlignment = Alignment.Center
                 ) {
@@ -303,13 +295,13 @@ private fun AccountCard(
                             PillBadge(text = "Active", accentColor = AccentGreen, fontSize = 10)
                         }
                     }
-                    Text("@${session.username}", color = GradientBlue, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("@${session.username}", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (isSwitching) {
-                    CircularProgressIndicator(color = GradientBlue, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                    CircularProgressIndicator(color = LinkerPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
                 } else if (!isActive) {
                     Icon(painterResource(R.drawable.ic_arrow_left_01_outline), "Switch", tint = TextHint, modifier = Modifier.size(18.dp))
                 }
@@ -344,11 +336,11 @@ private fun AddAccountRow(onClick: () -> Unit) {
             Box(
                 modifier = Modifier
                     .size(52.dp).clip(CircleShape)
-                    .background(GradientBlue.copy(alpha = 0.15f))
-                    .border(1.dp, GradientBlue.copy(alpha = 0.5f), CircleShape),
+                    .background(LinkerPrimary.copy(alpha = 0.15f))
+                    .border(1.dp, LinkerPrimary.copy(alpha = 0.5f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(painterResource(R.drawable.ic_ai_add_outline), null, tint = GradientBlue, modifier = Modifier.size(26.dp))
+                Icon(painterResource(R.drawable.ic_ai_add_outline), null, tint = LinkerPrimary, modifier = Modifier.size(26.dp))
             }
             Column {
                 Text("Add another account", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
@@ -376,7 +368,7 @@ private fun EmptyState(onAddAccount: () -> Unit) {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(24.dp))
-                .background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                .background(Brush.horizontalGradient(LinkerBrandGradient))
                 .bouncyClick(onClick = onAddAccount)
                 .padding(horizontal = 24.dp, vertical = 12.dp)
         ) {

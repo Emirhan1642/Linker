@@ -64,9 +64,9 @@ fun LinkerAvatar(
         Modifier
     }
 
-    val unseenBorderWidth = (size.value / 22).coerceAtLeast(2f).dp
-    val seenBorderWidth = (size.value / 28).coerceAtLeast(1.5f).dp
-    val avatarPadding = if (effectiveStoryState == StoryState.NONE) 0.dp else (size.value / 16).coerceAtLeast(3f).dp
+    val unseenBorderWidth = (size.value / 24).coerceIn(2f, 3.5f).dp
+    val seenBorderWidth = (size.value / 28).coerceIn(1.5f, 2.5f).dp
+    val avatarPadding = if (effectiveStoryState == StoryState.NONE) 0.dp else (size.value / 16).coerceIn(2.5f, 4.5f).dp
     val onlineIndicatorSize = size * 0.25f
 
     Box(
@@ -78,57 +78,68 @@ fun LinkerAvatar(
             .then(clickModifier),
         contentAlignment = Alignment.Center
     ) {
-        // Border ring (NONE: no border, UNSEEN: rotating sweep gradient, SEEN: subtle white/gray)
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .then(
-                    when (effectiveStoryState) {
-                        StoryState.UNSEEN -> Modifier
-                            .rotate(rotation)
-                            .border(width = unseenBorderWidth, LinkerAngularGradient, CircleShape)
-                        StoryState.SEEN -> Modifier.border(width = seenBorderWidth, SolidColor(Color.White.copy(alpha = 0.7f)), CircleShape)
-                        StoryState.NONE -> Modifier.border(1.dp, GlassCardBorder, CircleShape)
-                    }
+        // 1. Independent Border Ring (Only the ring rotates, NOT the avatar!)
+        when (effectiveStoryState) {
+            StoryState.UNSEEN -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .rotate(rotation)
+                        .border(width = unseenBorderWidth, LinkerAngularGradient, CircleShape)
                 )
-                .padding(avatarPadding)
-        ) {
-            // Actual Avatar
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(CircleShape)
-                    .background(DarkGrayTransparent),
-                contentAlignment = Alignment.Center
-            ) {
-                if (imageUrl != null) {
-                    val placeholderPainter = rememberVectorPainter(Icons.Default.Person)
-                    AsyncImage(
-                        model = imageUrl,
-                        contentDescription = "Avatar",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.matchParentSize(),
-                        placeholder = placeholderPainter,
-                        error = placeholderPainter
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Avatar",
-                        tint = TextSecondary,
-                        modifier = Modifier.matchParentSize().padding(size * 0.2f)
-                    )
-                }
+            }
+            StoryState.SEEN -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .border(width = seenBorderWidth, SolidColor(Color.White.copy(alpha = 0.4f)), CircleShape)
+                )
+            }
+            StoryState.NONE -> {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .border(1.dp, GlassCardBorder, CircleShape)
+                )
             }
         }
 
-        // Online indicator (bottom right overlay)
+        // 2. Upright, Non-Rotating User Avatar Box
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(avatarPadding)
+                .clip(CircleShape)
+                .background(DarkGrayTransparent),
+            contentAlignment = Alignment.Center
+        ) {
+            if (imageUrl != null) {
+                val placeholderPainter = rememberVectorPainter(Icons.Default.Person)
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = "Avatar",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.matchParentSize(),
+                    placeholder = placeholderPainter,
+                    error = placeholderPainter
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = "Avatar",
+                    tint = TextSecondary,
+                    modifier = Modifier.matchParentSize().padding(size * 0.2f)
+                )
+            }
+        }
+
+        // 3. Online indicator (bottom right overlay)
         if (isOnline) {
             Box(
                 modifier = Modifier
                     .size(onlineIndicatorSize)
                     .align(Alignment.BottomEnd)
-                    .offset(x = (-2).dp, y = (-2).dp)
+                    .offset(x = (-1).dp, y = (-1).dp)
                     .clip(CircleShape)
                     .background(AccentGreen)
                     .border(2.dp, Black, CircleShape)

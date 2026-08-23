@@ -137,16 +137,8 @@ fun NoteEditorScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
+            .background(ObsidianBackgroundGradient)
     ) {
-        // Ambient glow
-        com.linker.app.presentation.components.AmbientGlow(
-            glowColor = com.linker.app.presentation.theme.GradientPurple,
-            size = 280.dp,
-            alpha = 0.2f,
-            modifier = Modifier.align(Alignment.TopCenter).offset(y = (-40).dp)
-        )
-
         // Top Close Button
         IconButton(
             onClick = onNavigateBack,

@@ -45,7 +45,7 @@ fun LinkerLogo() {
         letterSpacing = 1.sp,
         style = TextStyle(
             brush = Brush.linearGradient(
-                colors = listOf(GradientRed, GradientYellow, GradientGreen, GradientBlue, GradientPurple)
+                colors = LinkerBrandGradient
             )
         )
     )
@@ -66,7 +66,7 @@ fun LinkerTextField(
 
     val borderColor = when {
         errorMessage != null -> ErrorRed
-        isFocused -> GradientBlue
+        isFocused -> LinkerPrimary
         else -> GlassCardBorder
     }
 
@@ -77,7 +77,7 @@ fun LinkerTextField(
                 .height(56.dp)
                 .clip(RoundedCornerShape(20.dp))
                 .background(DarkGrayTransparent)
-                .border(1.2.dp, borderColor, RoundedCornerShape(20.dp))
+                .border(1.dp, borderColor, RoundedCornerShape(20.dp))
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -85,7 +85,7 @@ fun LinkerTextField(
                 Icon(
                     painter = painterResource(id = leadingIcon),
                     contentDescription = null,
-                    tint = if (isFocused) GradientBlue else TextHint,
+                    tint = if (isFocused) LinkerPrimary else TextHint,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
@@ -98,7 +98,7 @@ fun LinkerTextField(
                     .onFocusChanged { isFocused = it.isFocused },
                 textStyle = TextStyle(color = TextPrimary, fontSize = 16.sp),
                 singleLine = true,
-                cursorBrush = SolidColor(GradientBlue),
+                cursorBrush = SolidColor(LinkerPrimary),
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
                 visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
                 decorationBox = { inner ->

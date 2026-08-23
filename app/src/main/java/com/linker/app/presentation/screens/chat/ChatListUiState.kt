@@ -12,6 +12,7 @@ data class ChatListUiState(
     val userNote: Note? = null,
     val otherNotes: List<Note> = emptyList(),
     val onlineUsers: List<com.linker.app.domain.model.User> = emptyList(),
+    val suggestedUsers: List<com.linker.app.domain.model.User> = emptyList(),
     val error: String? = null
 )
 

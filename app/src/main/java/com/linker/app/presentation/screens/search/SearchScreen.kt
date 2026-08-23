@@ -59,14 +59,6 @@ fun SearchScreen(
                 .background(ObsidianBackgroundGradient)
                 .padding(paddingValues)
         ) {
-            // Ambient Top Glow
-            AmbientGlow(
-                glowColor = GradientBlue,
-                size = 240.dp,
-                alpha = 0.15f,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
-            )
-
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -133,21 +125,17 @@ fun SearchScreen(
                                 uiState.isSearching -> Box(
                                     modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
                                     contentAlignment = Alignment.Center
-                                ) { CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp) }
+                                ) { CircularProgressIndicator(color = LinkerPrimary, strokeWidth = 2.dp) }
 
-                                uiState.searchResults.isEmpty() -> Box(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        stringResource(R.string.search_no_users_found, uiState.query),
-                                        color = TextSecondary,
-                                        fontSize = 14.sp
+                                uiState.searchResults.isEmpty() -> {
+                                    SearchEmptyState(
+                                        query = uiState.query,
+                                        onSuggestionClick = { viewModel.onSearchSubmit(it) }
                                     )
                                 }
 
                                 else -> LazyColumn(
-                                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 16.dp, end = 16.dp),
+                                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 12.dp, end = 12.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     items(uiState.searchResults, key = { it.userId }) { user ->
@@ -164,43 +152,44 @@ fun SearchScreen(
                                 uiState.isSearching -> Box(
                                     modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
                                     contentAlignment = Alignment.Center
-                                ) { CircularProgressIndicator(color = AccentGreen, strokeWidth = 2.dp) }
+                                ) { CircularProgressIndicator(color = LinkerPrimary, strokeWidth = 2.dp) }
 
-                                uiState.linkResults.isEmpty() -> Box(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        stringResource(R.string.search_no_links_found),
-                                        color = TextSecondary,
-                                        fontSize = 14.sp
+                                uiState.linkResults.isEmpty() -> {
+                                    SearchEmptyState(
+                                        query = uiState.query,
+                                        onSuggestionClick = { viewModel.onSearchSubmit(it) }
                                     )
                                 }
 
                                 else -> LazyColumn(
-                                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 16.dp, end = 16.dp),
+                                    contentPadding = PaddingValues(bottom = 100.dp, top = 8.dp, start = 12.dp, end = 12.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
                                     items(uiState.linkResults, key = { it.linkId }) { link ->
                                         GlassBox(
+                                            shape = RoundedCornerShape(16.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .bouncyClick { onNavigateToLinkDetail(link.linkId) }
-                                                .padding(horizontal = 14.dp, vertical = 12.dp)
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                            ) {
                                                 Box(
                                                     modifier = Modifier
                                                         .size(42.dp)
                                                         .clip(CircleShape)
-                                                        .background(GradientPurple.copy(alpha = 0.2f))
-                                                        .border(1.dp, GradientPurple.copy(alpha = 0.5f), CircleShape),
+                                                        .background(LinkerPrimary.copy(alpha = 0.15f))
+                                                        .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
                                                     contentAlignment = Alignment.Center
                                                 ) {
                                                     Icon(
                                                         painter = painterResource(R.drawable.ic_link_3_outline),
                                                         contentDescription = null,
-                                                        tint = LightPurple,
+                                                        tint = LinkerPrimary,
                                                         modifier = Modifier.size(22.dp)
                                                     )
                                                 }
@@ -234,8 +223,77 @@ fun SearchScreen(
     }
 }
 
+// ── Search Empty State with Suggestions ───────────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SearchEmptyState(
+    query: String,
+    onSuggestionClick: (String) -> Unit
+) {
+    val suggestions = listOf("Yazılım", "Tasarım", "Müzik", "Yapay Zeka", "Seyahat", "Sanat", "Fotoğraf", "Teknoloji")
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 48.dp, start = 16.dp, end = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(54.dp)
+                .clip(CircleShape)
+                .background(LinkerPrimary.copy(alpha = 0.15f))
+                .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_search_status_1_outline),
+                contentDescription = null,
+                tint = LinkerPrimary,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+        Text(
+            text = if (query.isNotBlank()) "\"$query\" ile eşleşen sonuç bulunamadı" else "Arama sonucu bulunamadı",
+            color = TextPrimary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Text(
+            text = "Bunu mu demek istedin? Popüler konuları keşfet:",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            suggestions.forEach { suggestion ->
+                GlassBox(
+                    shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.bouncyClick { onSuggestionClick(suggestion) }
+                ) {
+                    Text(
+                        text = "#$suggestion",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 // ── Recent Searches ───────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecentSearchesSection(
     recents: List<String>,
@@ -243,25 +301,26 @@ private fun RecentSearchesSection(
     onRemove: (String) -> Unit,
     onClearAll: () -> Unit
 ) {
-    LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, start = 16.dp, end = 16.dp)) {
+    val popularTopics = listOf("Yazılım", "Tasarım", "Müzik", "Yapay Zeka", "Seyahat", "Sanat", "Fotoğraf", "Teknoloji", "Sinema", "Oyun")
+    LazyColumn(contentPadding = PaddingValues(bottom = 100.dp, start = 12.dp, end = 12.dp)) {
         if (recents.isNotEmpty()) {
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp),
+                        .padding(horizontal = 4.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         stringResource(R.string.search_recent_searches),
                         color = TextPrimary,
-                        fontSize = 17.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         stringResource(R.string.search_clear_all),
-                        color = GradientBlue,
+                        color = LinkerPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.clickable { onClearAll() }
@@ -270,24 +329,29 @@ private fun RecentSearchesSection(
             }
             items(recents, key = { it }) { recent ->
                 GlassBox(
+                    shape = RoundedCornerShape(14.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp)
+                        .padding(vertical = 3.dp)
                         .bouncyClick { onRecentClick(recent) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
                         Icon(
                             painterResource(R.drawable.ic_clock_outline),
                             null,
-                            tint = GradientBlue,
-                            modifier = Modifier.size(20.dp)
+                            tint = LinkerPrimary,
+                            modifier = Modifier.size(18.dp)
                         )
-                        Spacer(modifier = Modifier.width(14.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             recent,
                             color = TextPrimary,
-                            fontSize = 15.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f)
                         )
@@ -305,13 +369,103 @@ private fun RecentSearchesSection(
                     }
                 }
             }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Popüler Konular",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                ) {
+                    popularTopics.forEach { topic ->
+                        GlassBox(
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.bouncyClick { onRecentClick(topic) }
+                        ) {
+                            Text(
+                                text = "#$topic",
+                                color = TextPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                            )
+                        }
+                    }
+                }
+            }
         } else {
             item {
-                Box(
-                    modifier = Modifier.fillMaxWidth().padding(top = 80.dp),
-                    contentAlignment = Alignment.Center
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 32.dp, start = 4.dp, end = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(stringResource(R.string.search_no_recent), color = TextHint, fontSize = 14.sp)
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(CircleShape)
+                            .background(LinkerPrimary.copy(alpha = 0.15f))
+                            .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_search_status_1_outline),
+                            null,
+                            tint = LinkerPrimary,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Keşfetmeye Başla",
+                        color = TextPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Kullanıcıları veya paylaşılan linkleri arayabilirsin.",
+                        color = TextSecondary,
+                        fontSize = 13.sp,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "Popüler Konular",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        popularTopics.forEach { topic ->
+                            GlassBox(
+                                shape = RoundedCornerShape(18.dp),
+                                modifier = Modifier.bouncyClick { onRecentClick(topic) }
+                            ) {
+                                Text(
+                                    text = "#$topic",
+                                    color = TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -327,17 +481,27 @@ fun UserSearchResultItem(
     onFollowClick: () -> Unit
 ) {
     GlassBox(
+        shape = RoundedCornerShape(16.dp),
         modifier = Modifier
             .fillMaxWidth()
             .bouncyClick(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            LinkerAvatar(imageUrl = user.profileImageUrl, size = 52.dp, storyState = StoryState.NONE)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            LinkerAvatar(imageUrl = user.profileImageUrl, size = 48.dp, storyState = StoryState.NONE)
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(user.displayName, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = user.displayName,
+                        color = TextPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                     if (user.isVerified) {
                         Spacer(modifier = Modifier.width(4.dp))
                         Icon(
@@ -348,14 +512,14 @@ fun UserSearchResultItem(
                         )
                     }
                 }
-                Text("@${user.username}", color = TextSecondary, fontSize = 13.sp)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    "${formatStat(user.metrics.followersCount)} followers · ${formatStat(user.metrics.likesCount)} likes",
-                    color = TextHint,
-                    fontSize = 11.sp
+                    text = "@${user.username}",
+                    color = TextSecondary,
+                    fontSize = 13.sp
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
             val isFollowing = user.relationship.isFollowing
             val isRequested = user.relationship.followRequestSent
             val buttonText = when {
@@ -369,7 +533,7 @@ fun UserSearchResultItem(
                     .clip(RoundedCornerShape(20.dp))
                     .then(
                         if (isFollowing || isRequested) Modifier.background(DarkGrayTransparent)
-                        else Modifier.background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                        else Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                     )
                     .border(
                         1.dp,
@@ -377,14 +541,14 @@ fun UserSearchResultItem(
                         RoundedCornerShape(20.dp)
                     )
                     .bouncyClick(onClick = onFollowClick)
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = buttonText,
                     color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -403,7 +567,7 @@ fun SearchPillTab(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
             .then(
-                if (isSelected) Modifier.background(Brush.horizontalGradient(NeonPurpleRedGradient))
+                if (isSelected) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                 else Modifier.background(Color.Transparent)
             )
             .bouncyClick(onClick = onClick)

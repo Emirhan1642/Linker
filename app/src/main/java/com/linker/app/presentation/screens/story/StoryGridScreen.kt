@@ -60,14 +60,6 @@ fun StoryGridScreen(
             .fillMaxSize()
             .background(ObsidianBackgroundGradient)
     ) {
-        // Ambient glow
-        AmbientGlow(
-            glowColor = GradientPurple,
-            size = 280.dp,
-            alpha = 0.18f,
-            modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
-        )
-
         Column(modifier = Modifier.fillMaxSize()) {
             // Top bar
             StoryGridTopBar(onNavigateBack = onNavigateBack)

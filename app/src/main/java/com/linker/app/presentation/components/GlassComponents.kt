@@ -85,7 +85,7 @@ fun NeonGradientButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    gradientColors: List<Color> = NeonBlueGreenGradient,
+    gradientColors: List<Color> = LinkerBrandGradient,
     enabled: Boolean = true
 ) {
     Box(

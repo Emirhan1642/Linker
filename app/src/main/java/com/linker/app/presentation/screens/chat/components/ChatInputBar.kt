@@ -85,7 +85,7 @@ fun ChatInputBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester),
-                    cursorBrush = SolidColor(GradientBlue),
+                    cursorBrush = SolidColor(LinkerPrimary),
                     textStyle = TextStyle(
                         color = TextPrimary,
                         fontSize = 15.sp
@@ -112,7 +112,7 @@ fun ChatInputBar(
                     .size(46.dp)
                     .clip(CircleShape)
                     .background(
-                        if (hasText && !isSending) Brush.horizontalGradient(NeonBlueGreenGradient)
+                        if (hasText && !isSending) Brush.horizontalGradient(LinkerBrandGradient)
                         else Brush.horizontalGradient(listOf(DarkGray, LightGray))
                     )
                     .bouncyClick(enabled = hasText && !isSending, onClick = onSend),

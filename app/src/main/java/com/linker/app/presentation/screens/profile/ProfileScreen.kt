@@ -45,6 +45,7 @@ fun ProfileScreen(
     onNavigateToStory: () -> Unit = {},
     onNavigateToFollowers: (String) -> Unit = {},
     onNavigateToFollowing: (String) -> Unit = {},
+    onNavigateToCreateLink: () -> Unit = { onNavigateBottomNav(BottomNavItem.Add) },
     showBottomBar: Boolean = true,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
@@ -89,14 +90,6 @@ fun ProfileScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // Top Ambient Light Orbs
-                AmbientGlow(
-                    glowColor = GradientPurple,
-                    size = 260.dp,
-                    alpha = 0.18f,
-                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-40).dp)
-                )
-
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2),
                     modifier = Modifier.fillMaxSize(),
@@ -136,15 +129,73 @@ fun ProfileScreen(
 
                     if (displayedLinks.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().height(200.dp),
-                                contentAlignment = Alignment.Center
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 36.dp, horizontal = 20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(CircleShape)
+                                        .background(LinkerPrimary.copy(alpha = 0.15f))
+                                        .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(if (selectedTab == 0) R.drawable.ic_link_3_outline else R.drawable.ic_play_add_outline),
+                                        contentDescription = null,
+                                        tint = LinkerPrimary,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                }
                                 Text(
-                                    text = if (selectedTab == 0) stringResource(R.string.profile_no_links) else stringResource(R.string.profile_no_relink),
-                                    color = TextSecondary,
-                                    fontSize = 15.sp
+                                    text = if (selectedTab == 0) "Henüz hiçbir link paylaşmadın" else "Henüz bir link yeniden paylaşmadın",
+                                    color = TextPrimary,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
+                                Text(
+                                    text = if (selectedTab == 0)
+                                        "İlk linkini paylaşarak takipçilerinle anılarını ve ilginç içerikleri buluşturmaya başla!"
+                                    else
+                                        "Beğendiğin gönderileri yeniden paylaşarak profilinde topla.",
+                                    color = TextSecondary,
+                                    fontSize = 13.sp,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
+                                if (selectedTab == 0) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(22.dp))
+                                            .background(Brush.horizontalGradient(LinkerBrandGradient))
+                                            .bouncyClick { onNavigateToCreateLink() }
+                                            .padding(horizontal = 24.dp, vertical = 10.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_ai_add_outline),
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = "İlk Linkini Paylaş",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -341,7 +392,7 @@ fun ProfileHeader(
                     .weight(1f)
                     .height(46.dp)
                     .clip(RoundedCornerShape(23.dp))
-                    .background(Brush.horizontalGradient(NeonPurpleRedGradient))
+                    .background(Brush.horizontalGradient(LinkerBrandGradient))
                     .bouncyClick(onClick = onEditProfileClick),
                 contentAlignment = Alignment.Center
             ) {
@@ -376,7 +427,7 @@ fun ProfileHeader(
                     Icon(
                         painterResource(R.drawable.ic_export_circle_01_outline),
                         null,
-                        tint = GradientBlue,
+                        tint = LinkerPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -404,7 +455,7 @@ fun ProfileHeader(
                         .weight(1f)
                         .clip(RoundedCornerShape(20.dp))
                         .then(
-                            if (isFeed) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                            if (isFeed) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                             else Modifier.background(Color.Transparent)
                         )
                         .bouncyClick { onTabSelected(0) }
@@ -434,7 +485,7 @@ fun ProfileHeader(
                         .weight(1f)
                         .clip(RoundedCornerShape(20.dp))
                         .then(
-                            if (isShorts) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                            if (isShorts) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                             else Modifier.background(Color.Transparent)
                         )
                         .bouncyClick { onTabSelected(1) }
@@ -470,20 +521,15 @@ fun StatGlassCard(
     modifier: Modifier = Modifier,
     onClick: () -> Unit = {}
 ) {
-    GlassBox(
-        shape = RoundedCornerShape(16.dp),
+    Column(
         modifier = modifier
             .bouncyClick(onClick = onClick)
-            .padding(vertical = 10.dp)
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(value, color = TextPrimary, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(label, color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-        }
+        Text(value, color = TextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(label, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 

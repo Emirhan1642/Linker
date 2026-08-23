@@ -165,10 +165,7 @@ fun MessageBubbleContent(
     )
     val bubbleBrush = if (message.isSelf) {
         androidx.compose.ui.graphics.Brush.horizontalGradient(
-            listOf(
-                com.linker.app.presentation.theme.GradientPurple,
-                com.linker.app.presentation.theme.GradientRed
-            )
+            com.linker.app.presentation.theme.LinkerBrandGradient
         )
     } else {
         androidx.compose.ui.graphics.SolidColor(com.linker.app.presentation.theme.DarkGrayTransparent)

@@ -83,9 +83,9 @@ fun HomeScreen(
     showBottomBar: Boolean = true,
     viewModel: HomeViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
-    var topTab by remember { mutableStateOf(0) }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState(pageCount = { if (uiState.links.isNotEmpty()) uiState.links.size else 1 })
+    val currentLinks = if (uiState.selectedTab == 1 && uiState.hasFollowingPosts) uiState.followingLinks else uiState.links
+    val pagerState = rememberPagerState(pageCount = { if (currentLinks.isNotEmpty()) currentLinks.size else 1 })
     
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -125,12 +125,12 @@ fun HomeScreen(
                 .padding(top = paddingValues.calculateTopPadding(), bottom = if (showBottomBar) 0.dp else 0.dp)
         ) {
             // Background / Video Player
-            if (uiState.links.isNotEmpty()) {
+            if (currentLinks.isNotEmpty()) {
                 VerticalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize()
                 ) { page ->
-                    val link = uiState.links.getOrNull(page)
+                    val link = currentLinks.getOrNull(page)
                     if (link != null) {
                         FeedItemView(
                             link = link,
@@ -162,11 +162,14 @@ fun HomeScreen(
 
             // Top Pill Bar
             TopPillTabs(
-                selectedTab = topTab,
+                selectedTab = uiState.selectedTab,
+                hasFollowingPosts = uiState.hasFollowingPosts,
+                hasActiveStories = uiState.hasActiveStories,
                 onTabSelected = { tabIndex ->
-                    topTab = tabIndex
                     if (tabIndex == 2) {
                         onNavigateToStoryGrid()
+                    } else {
+                        viewModel.onTabSelected(tabIndex)
                     }
                 },
                 modifier = Modifier
@@ -316,9 +319,13 @@ fun FeedItemView(
 @Composable
 fun TopPillTabs(
     selectedTab: Int,
+    hasFollowingPosts: Boolean,
+    hasActiveStories: Boolean,
     onTabSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (!hasFollowingPosts && !hasActiveStories) return
+
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(32.dp))
@@ -329,8 +336,12 @@ fun TopPillTabs(
         verticalAlignment = Alignment.CenterVertically
     ) {
         PillTab(stringResource(R.string.feed_tab_all), R.drawable.ic_hashtag_down_outline, R.drawable.ic_hashtag_down_bold, isSelected = selectedTab == 0) { onTabSelected(0) }
-        PillTab(stringResource(R.string.feed_tab_followed), R.drawable.ic_ai_users_outline, R.drawable.ic_ai_users_bold, isSelected = selectedTab == 1) { onTabSelected(1) }
-        PillTab(stringResource(R.string.feed_tab_stories), R.drawable.ic_story_outline, R.drawable.ic_story_bold, isSelected = selectedTab == 2) { onTabSelected(2) }
+        if (hasFollowingPosts) {
+            PillTab(stringResource(R.string.feed_tab_followed), R.drawable.ic_ai_users_outline, R.drawable.ic_ai_users_bold, isSelected = selectedTab == 1) { onTabSelected(1) }
+        }
+        if (hasActiveStories) {
+            PillTab(stringResource(R.string.feed_tab_stories), R.drawable.ic_story_outline, R.drawable.ic_story_bold, isSelected = selectedTab == 2) { onTabSelected(2) }
+        }
     }
 }
 
@@ -346,7 +357,7 @@ fun PillTab(
         modifier = Modifier
             .clip(RoundedCornerShape(24.dp))
             .then(
-                if (isSelected) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                if (isSelected) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                 else Modifier.background(Color.Transparent)
             )
             .bouncyClick { onClick() }

@@ -106,11 +106,6 @@ fun ChatProfileHeader(
             .padding(vertical = 24.dp),
         contentAlignment = Alignment.Center
     ) {
-        AmbientGlow(
-            glowColor = GradientPurple,
-            size = 180.dp,
-            alpha = 0.2f
-        )
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {

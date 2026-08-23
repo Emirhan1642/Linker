@@ -296,14 +296,16 @@ class ChatViewModel @Inject constructor(
                     !authorsWithNotes.contains(user.userId) &&
                     (now - user.lastSeen) < fiveMinsMs
                 }
+                val suggestedUsers = following.filter { it.userId != me }
                 
-                Triple(userNote, otherNotes, onlineUsers)
-            }.collect { (userNote, otherNotes, onlineUsers) ->
+                NotesAndUsersData(userNote, otherNotes, onlineUsers, suggestedUsers)
+            }.collect { data ->
                 _chatListState.update { 
                     it.copy(
-                        userNote = userNote,
-                        otherNotes = otherNotes,
-                        onlineUsers = onlineUsers
+                        userNote = data.userNote,
+                        otherNotes = data.otherNotes,
+                        onlineUsers = data.onlineUsers,
+                        suggestedUsers = data.suggestedUsers
                     )
                 }
             }
@@ -758,3 +760,10 @@ class ChatViewModel @Inject constructor(
         private val dateFormatter = java.text.SimpleDateFormat("dd/MM/yy", java.util.Locale.getDefault())
     }
 }
+
+private data class NotesAndUsersData(
+    val userNote: Note?,
+    val otherNotes: List<Note>,
+    val onlineUsers: List<User>,
+    val suggestedUsers: List<User>
+)

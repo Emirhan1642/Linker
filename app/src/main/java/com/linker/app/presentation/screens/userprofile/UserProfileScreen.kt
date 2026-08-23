@@ -79,14 +79,6 @@ fun UserProfileScreen(
                     .fillMaxSize()
                     .padding(padding)
             ) {
-                // Top Ambient Light Orbs
-                AmbientGlow(
-                    glowColor = GradientBlue,
-                    size = 260.dp,
-                    alpha = 0.18f,
-                    modifier = Modifier.align(Alignment.TopCenter).offset(y = (-40).dp)
-                )
-
                 when {
                     uiState.isLoading -> CircularProgressIndicator(
                         color = GradientBlue,
@@ -300,7 +292,7 @@ private fun UserProfileHeader(
                     .clip(RoundedCornerShape(23.dp))
                     .then(
                         if (isFollowing) Modifier.background(DarkGrayTransparent)
-                        else Modifier.background(Brush.horizontalGradient(NeonBlueGreenGradient))
+                        else Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                     )
                     .border(
                         1.dp,
@@ -331,7 +323,7 @@ private fun UserProfileHeader(
                     Icon(
                         painterResource(R.drawable.ic_ai_send_message_outline),
                         null,
-                        tint = GradientBlue,
+                        tint = LinkerPrimary,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -360,7 +352,7 @@ private fun UserProfileHeader(
                             .weight(1f)
                             .clip(RoundedCornerShape(20.dp))
                             .then(
-                                if (isFeed) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                                if (isFeed) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                                 else Modifier.background(Color.Transparent)
                             )
                             .bouncyClick { onTabSelected(0) }
@@ -381,7 +373,7 @@ private fun UserProfileHeader(
                             .weight(1f)
                             .clip(RoundedCornerShape(20.dp))
                             .then(
-                                if (isRelinks) Modifier.background(Brush.horizontalGradient(listOf(GradientPurple, GradientBlue)))
+                                if (isRelinks) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                                 else Modifier.background(Color.Transparent)
                             )
                             .bouncyClick { onTabSelected(1) }

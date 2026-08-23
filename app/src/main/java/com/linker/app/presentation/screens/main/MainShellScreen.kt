@@ -122,6 +122,7 @@ fun MainShellScreen(
                         onNavigateToStory = onNavigateToStory,
                         onNavigateToFollowers = onNavigateToFollowers,
                         onNavigateToFollowing = onNavigateToFollowing,
+                        onNavigateToCreateLink = onNavigateToLinkEditor,
                         showBottomBar = false
                     )
                 }

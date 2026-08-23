@@ -218,14 +218,6 @@ fun SettingsScreen(
                 .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
                 .padding(padding)
         ) {
-            // Ambient Glow
-            com.linker.app.presentation.components.AmbientGlow(
-                glowColor = GradientPurple,
-                size = 260.dp,
-                alpha = 0.18f,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 60.dp, y = (-40).dp)
-            )
-
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top bar
                 Row(
@@ -258,7 +250,7 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(if (i == 0) 4.dp else 20.dp))
                         Text(
                             stringResource(section.titleRes).uppercase(),
-                            color = GradientBlue,
+                            color = LinkerPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp,
@@ -397,6 +389,6 @@ private fun IconBox(iconRes: Int, label: String) {
             .border(1.dp, GlassCardBorder, RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center
     ) {
-        Icon(painterResource(iconRes), label, tint = GradientBlue, modifier = Modifier.size(20.dp))
+        Icon(painterResource(iconRes), label, tint = LinkerPrimary, modifier = Modifier.size(20.dp))
     }
 }

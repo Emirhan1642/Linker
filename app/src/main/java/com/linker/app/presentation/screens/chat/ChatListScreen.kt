@@ -59,6 +59,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -128,6 +130,7 @@ fun ChatListScreen(
 
     val selectedNoteForDetailState = remember { androidx.compose.runtime.mutableStateOf<com.linker.app.domain.model.Note?>(null) }
     val selectedNoteForDetail = selectedNoteForDetailState.value
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = Black,
@@ -147,14 +150,6 @@ fun ChatListScreen(
                 .background(com.linker.app.presentation.theme.ObsidianBackgroundGradient)
                 .padding(paddingValues)
         ) {
-            // Ambient Neon Glow
-            com.linker.app.presentation.components.AmbientGlow(
-                glowColor = GradientPurple,
-                size = 260.dp,
-                alpha = 0.16f,
-                modifier = Modifier.align(Alignment.TopStart).offset(x = (-40).dp, y = (-20).dp)
-            )
-
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -181,7 +176,7 @@ fun ChatListScreen(
                         iconRes = R.drawable.ic_play_add_outline,
                         onClick = onNavigateToNewChat,
                         size = 44.dp,
-                        tint = AccentGreen
+                        tint = LinkerPrimary
                     )
                 }
 
@@ -256,7 +251,7 @@ fun ChatListScreen(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
                                 .then(
-                                    if (isSelected) Modifier.background(Brush.horizontalGradient(NeonPurpleRedGradient))
+                                    if (isSelected) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                                     else Modifier.background(DarkGrayTransparent)
                                 )
                                 .border(
@@ -285,8 +280,8 @@ fun ChatListScreen(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 100.dp, start = 12.dp, end = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(bottom = 100.dp, start = 8.dp, end = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     if (showLockedHeader) {
                         item {
@@ -317,16 +312,18 @@ fun ChatListScreen(
 
                     if (uiState.chats.isEmpty() && !uiState.isLoading) {
                         item {
-                            Box(
-                                modifier = Modifier.fillMaxWidth().height(200.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.chat_list_empty_state),
-                                    color = TextSecondary,
-                                    fontSize = 15.sp
-                                )
-                            }
+                            ChatEmptySuggestionsSection(
+                                suggestedUsers = uiState.suggestedUsers.ifEmpty { uiState.onlineUsers },
+                                onUserClick = { user ->
+                                    scope.launch {
+                                        val result = viewModel.createPrivateChat(user.userId)
+                                        if (result is com.linker.app.core.util.Result.Success) {
+                                            onNavigateToChatDetail(result.data.chatId)
+                                        }
+                                    }
+                                },
+                                onNewChatClick = onNavigateToNewChat
+                            )
                         }
                     } else {
                         items(uiState.chats.size) { index ->
@@ -475,36 +472,44 @@ fun ChatItem(
     val context = LocalContext.current
     val hasUnread = unreadCount > 0
     GlassBox(
+        shape = RoundedCornerShape(18.dp),
         modifier = Modifier
             .fillMaxWidth()
             .bouncyClick(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Row(
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
         ) {
             LinkerAvatar(
                 imageUrl = null,
-                size = 54.dp,
+                size = 52.dp,
                 storyState = if (hasUnread) StoryState.UNSEEN else StoryState.NONE,
                 onClick = { onClick() }
             )
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = name,
+                    color = TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
                     text = message,
-                    color = if (isTyping) GradientBlue else if (hasUnread) Color.White else TextSecondary,
-                    fontSize = 14.sp,
+                    color = if (isTyping) LinkerPrimary else if (hasUnread) Color.White else TextSecondary,
+                    fontSize = 13.sp,
                     maxLines = 1,
-                    fontWeight = if (hasUnread) FontWeight.SemiBold else FontWeight.Normal
+                    fontWeight = if (hasUnread) FontWeight.Medium else FontWeight.Normal
                 )
             }
+            Spacer(modifier = Modifier.width(10.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = time,
-                    color = if (hasUnread) GradientBlue else TextHint,
+                    color = if (hasUnread) LinkerPrimary else TextHint,
                     fontSize = 12.sp,
                     fontWeight = if (hasUnread) FontWeight.SemiBold else FontWeight.Normal
                 )
@@ -513,7 +518,7 @@ fun ChatItem(
                     val unreadText = if (unreadCount > 99) "99+" else unreadCount.toString()
                     com.linker.app.presentation.components.PillBadge(
                         text = unreadText,
-                        accentColor = AccentGreen,
+                        accentColor = LinkerPrimary,
                         fontSize = 10
                     )
                 }
@@ -989,6 +994,150 @@ fun NoteDetailBottomSheet(
                         containerColor = com.linker.app.presentation.theme.DarkGray,
                         titleContentColor = Color.White,
                         textContentColor = Color.LightGray
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Empty State with Suggested Users ──────────────────────────────────────────
+
+@Composable
+private fun ChatEmptySuggestionsSection(
+    suggestedUsers: List<com.linker.app.domain.model.User>,
+    onUserClick: (com.linker.app.domain.model.User) -> Unit,
+    onNewChatClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(LinkerPrimary.copy(alpha = 0.15f))
+                .border(1.dp, LinkerPrimary.copy(alpha = 0.4f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_ai_send_message_outline),
+                contentDescription = null,
+                tint = LinkerPrimary,
+                modifier = Modifier.size(28.dp)
+            )
+        }
+
+        Text(
+            text = "Henüz Bir Sohbetin Yok",
+            color = TextPrimary,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold
+        )
+
+        Text(
+            text = if (suggestedUsers.isNotEmpty())
+                "Takip ettiğin kullanıcılarla hemen sohbet başlatabilirsin:"
+            else
+                "Arkadaşlarını arayarak ilk mesajını gönder!",
+            color = TextSecondary,
+            fontSize = 13.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+
+        if (suggestedUsers.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Önerilen Kişiler",
+                color = TextSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+            )
+
+            suggestedUsers.take(5).forEach { user ->
+                com.linker.app.presentation.components.GlassBox(
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .bouncyClick { onUserClick(user) }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        LinkerAvatar(
+                            imageUrl = user.profileImageUrl,
+                            size = 46.dp,
+                            storyState = StoryState.NONE
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = user.displayName,
+                                color = TextPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "@${user.username}",
+                                color = TextSecondary,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Brush.horizontalGradient(LinkerBrandGradient))
+                                .bouncyClick { onUserClick(user) }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Mesaj",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(Brush.horizontalGradient(LinkerBrandGradient))
+                    .bouncyClick(onClick = onNewChatClick)
+                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_ai_add_outline),
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Yeni Sohbet Başlat",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
