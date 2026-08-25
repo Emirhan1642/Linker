@@ -76,7 +76,7 @@ class OfflineMessagingService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private val processingMessages = ConcurrentHashMap<String, Boolean>()
     
-    private var bleRetryCount = 0
+    private val bleRetryCount = java.util.concurrent.atomic.AtomicInteger(0)
     private val maxBleRetries = 5
     
     companion object {
@@ -117,7 +117,7 @@ class OfflineMessagingService : Service() {
                 }
                 BluetoothAdapter.STATE_ON -> {
                     Log.d(TAG, "Bluetooth turned on, restarting service")
-                    bleRetryCount = 0
+                    bleRetryCount.set(0)
                     startOfflineMessaging()
                 }
             }
@@ -276,10 +276,11 @@ class OfflineMessagingService : Service() {
     private fun startOfflineMessaging() {
         serviceScope.launch {
             var retryDelay = 2000L
-            while (bleRetryCount < maxBleRetries && isActive) {
+            while (bleRetryCount.get() < maxBleRetries && isActive) {
                 try {
                     acquireWakeLock()
-                    Log.d(TAG, "Starting offline messaging (attempt ${bleRetryCount + 1}/$maxBleRetries)...")
+                    val currentAttempt = bleRetryCount.get() + 1
+                    Log.d(TAG, "Starting offline messaging (attempt $currentAttempt/$maxBleRetries)...")
                     
                     if (!permissionManager.hasBluetoothPermissions()) {
                         Log.e(TAG, "Bluetooth permissions not granted")
@@ -293,7 +294,7 @@ class OfflineMessagingService : Service() {
                         Log.e(TAG, "Bluetooth adapter not available or disabled")
                         updateNotification("Please enable Bluetooth")
                         delay(retryDelay)
-                        bleRetryCount++
+                        bleRetryCount.incrementAndGet()
                         retryDelay = (retryDelay * 1.5).toLong().coerceAtMost(30_000)
                         continue
                     }
@@ -335,7 +336,7 @@ class OfflineMessagingService : Service() {
                     saveServiceState(true)
                     broadcastServiceState(true)
                     
-                    bleRetryCount = 0
+                    bleRetryCount.set(0)
                     updateNotification("Offline messaging active")
                     Log.d(TAG, "Offline messaging started successfully")
                     break
@@ -346,18 +347,17 @@ class OfflineMessagingService : Service() {
                     stopSelf()
                     break
                 } catch (e: Exception) {
-                    bleRetryCount++
-                    Log.e(TAG, "Error starting offline messaging (attempt $bleRetryCount/$maxBleRetries): ${e.message}", e)
+                    val count = bleRetryCount.incrementAndGet()
+                    Log.e(TAG, "Error starting offline messaging (attempt $count/$maxBleRetries): ${e.message}", e)
                     
-                    if (bleRetryCount >= maxBleRetries) {
+                    if (count >= maxBleRetries) {
                         updateNotification("Failed to start after $maxBleRetries attempts")
                         stopSelf()
                         break
-                    } else {
-                        updateNotification("Retrying... ($bleRetryCount/$maxBleRetries)")
-                        delay(retryDelay)
-                        retryDelay = (retryDelay * 1.5).toLong().coerceAtMost(30_000)
                     }
+                    
+                    delay(retryDelay)
+                    retryDelay = (retryDelay * 1.5).toLong().coerceAtMost(30_000)
                 } finally {
                     releaseWakeLock()
                 }
@@ -537,26 +537,23 @@ class OfflineMessagingService : Service() {
     
     private suspend fun findOrCreatePrivateChat(otherUserId: String, currentUserId: String): String? {
         return try {
-            // First check if any existing private chat has these participants
-            val allChats = chatDao.getAllChats()
-            val existing = allChats.firstOrNull { 
-                it.chatType == ChatType.PRIVATE && 
-                it.participantIds.contains(currentUserId) && 
-                it.participantIds.contains(otherUserId) 
+            val userIds = listOf(currentUserId, otherUserId).sorted()
+            val deterministicChatId = "private_${userIds[0]}_${userIds[1]}"
+            
+            val existingById = chatDao.getChatById(deterministicChatId)
+            if (existingById != null) {
+                Log.d(TAG, "Found existing chat by deterministic ID: $deterministicChatId")
+                return deterministicChatId
             }
+
+            // Check if any existing private chat has these participants via indexed query
+            val existing = chatDao.findPrivateChat(currentUserId, otherUserId)
             if (existing != null) {
                 Log.d(TAG, "Found existing private chat: ${existing.chatId}")
                 return existing.chatId
             }
 
-            val userIds = listOf(currentUserId, otherUserId).sorted()
-            val chatId = "private_${userIds[0]}_${userIds[1]}"
-            
-            val existingById = chatDao.getChatById(chatId)
-            if (existingById != null) {
-                Log.d(TAG, "Found existing chat by deterministic ID: $chatId")
-                return chatId
-            }
+            val chatId = deterministicChatId
             
             val now = System.currentTimeMillis()
             val newChat = ChatEntity(

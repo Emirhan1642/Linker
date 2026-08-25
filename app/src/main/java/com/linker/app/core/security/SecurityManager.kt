@@ -120,23 +120,38 @@ class SecurityManager @Inject constructor(
         return mac.doFinal(data.toByteArray()).joinToString("") { "%02x".format(it) }
     }
 
-    fun verifyIntegrity(): Boolean {
-        if (isIntegrityVerified) return true
+    private var lastIntegrityCheckTimestamp = 0L
+    private val INTEGRITY_RECHECK_INTERVAL_MS = 15 * 60 * 1000L // Re-verify every 15 minutes
+
+    fun verifyIntegrity(forceCheck: Boolean = false): Boolean {
+        val now = System.currentTimeMillis()
+        if (!forceCheck && isIntegrityVerified && (now - lastIntegrityCheckTimestamp < INTEGRITY_RECHECK_INTERVAL_MS)) {
+            return true
+        }
         return try {
             val storedHash = encryptedPrefs.getString(KEY_INTEGRITY_HASH, null)
             val calculatedHash = calculateIntegrityHash()
-            val isValid = storedHash == calculatedHash
-            if (!isValid && storedHash != null) {
-                SecurityLogger.logEvent(
-                    SecurityLogger.EventType.SECURITY_CHECK_FAILED,
-                    "Config integrity check failed - possible tampering detected"
-                )
-            }
-            if (isValid) {
+            val isValid = storedHash != null && storedHash == calculatedHash
+            if (!isValid) {
+                isIntegrityVerified = false
+                cachedSupabaseUrl = null
+                cachedSupabaseAnonKey = null
+                cachedCloudinaryCloudName = null
+                cachedCloudinaryApiKey = null
+                cachedCloudinaryApiSecret = null
+                if (storedHash != null) {
+                    SecurityLogger.logEvent(
+                        SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                        "Config integrity check failed - possible tampering detected"
+                    )
+                }
+            } else {
                 isIntegrityVerified = true
+                lastIntegrityCheckTimestamp = now
             }
             isValid
         } catch (e: Exception) {
+            isIntegrityVerified = false
             SecurityLogger.logEvent(
                 SecurityLogger.EventType.SECURITY_CHECK_FAILED,
                 "Integrity verification failed: ${e.message}"
@@ -156,6 +171,7 @@ class SecurityManager @Inject constructor(
         if (supabaseAnonKey.isNotEmpty() && !validateSupabaseKey(supabaseAnonKey)) throw IllegalArgumentException("Invalid Supabase Key")
         if (cloudinaryCloudName.isNotEmpty() && !validateCloudinaryCloudName(cloudinaryCloudName)) throw IllegalArgumentException("Invalid Cloudinary Name")
 
+        // Step 1: Write configuration values synchronously
         encryptedPrefs.edit().apply {
             putString(KEY_SUPABASE_URL, supabaseUrl)
             putString(KEY_SUPABASE_ANON_KEY, supabaseAnonKey)
@@ -164,11 +180,12 @@ class SecurityManager @Inject constructor(
             putString(KEY_CLOUDINARY_API_SECRET, cloudinaryApiSecret)
             putInt(KEY_CONFIG_VERSION, CURRENT_CONFIG_VERSION)
             putLong(KEY_LAST_ROTATION, System.currentTimeMillis())
-            apply()
-            
-            putString(KEY_INTEGRITY_HASH, calculateIntegrityHash())
-            apply()
-        }
+        }.commit()
+        
+        // Step 2: Calculate integrity hash over committed preferences and write it
+        val hash = calculateIntegrityHash()
+        encryptedPrefs.edit().putString(KEY_INTEGRITY_HASH, hash).commit()
+
         cachedSupabaseUrl = supabaseUrl
         cachedSupabaseAnonKey = supabaseAnonKey
         cachedCloudinaryCloudName = cloudinaryCloudName
@@ -234,9 +251,9 @@ class SecurityManager @Inject constructor(
 
     fun getSupabaseUrl(): ConfigResult<String> {
         return try {
+            checkAccessPatterns()
             val cached = cachedSupabaseUrl
             if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
-            checkAccessPatterns()
             checkExpiration()
             val url = encryptedPrefs.getString(KEY_SUPABASE_URL, null)
             if (url.isNullOrEmpty()) {
@@ -251,9 +268,9 @@ class SecurityManager @Inject constructor(
     }
 
     fun getSupabaseAnonKeySecure(): CharArray {
+        checkAccessPatterns()
         val cached = cachedSupabaseAnonKey
         if (!cached.isNullOrEmpty()) return cached.toCharArray()
-        checkAccessPatterns()
         val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
             ?: throw IllegalStateException("Supabase Anon Key not initialized")
         cachedSupabaseAnonKey = key
@@ -262,9 +279,9 @@ class SecurityManager @Inject constructor(
     
     fun getSupabaseAnonKey(): ConfigResult<String> {
         return try {
+            checkAccessPatterns()
             val cached = cachedSupabaseAnonKey
             if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
-            checkAccessPatterns()
             checkExpiration()
             val key = encryptedPrefs.getString(KEY_SUPABASE_ANON_KEY, null)
             if (key.isNullOrEmpty()) {
@@ -280,9 +297,10 @@ class SecurityManager @Inject constructor(
 
     fun getCloudinaryCloudName(): ConfigResult<String> {
         return try {
+            checkAccessPatterns()
             val cached = cachedCloudinaryCloudName
             if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
-            checkAccessPatterns()
+            checkExpiration()
             val name = encryptedPrefs.getString(KEY_CLOUDINARY_CLOUD_NAME, null)
             if (name.isNullOrEmpty()) {
                 ConfigResult.Error("Cloudinary Cloud Name not initialized")
@@ -297,9 +315,10 @@ class SecurityManager @Inject constructor(
 
     fun getCloudinaryApiKey(): ConfigResult<String> {
         return try {
+            checkAccessPatterns()
             val cached = cachedCloudinaryApiKey
             if (!cached.isNullOrEmpty()) return ConfigResult.Success(cached)
-            checkAccessPatterns()
+            checkExpiration()
             val key = encryptedPrefs.getString(KEY_CLOUDINARY_API_KEY, null)
             if (key.isNullOrEmpty()) {
                 ConfigResult.Error("Cloudinary API Key not initialized")

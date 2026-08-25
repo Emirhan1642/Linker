@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,6 +72,17 @@ fun StoryScreen(
         pageCount = { displayStories.size }
     )
 
+    var hasScrolledToInitialUser by remember { mutableStateOf(false) }
+    LaunchedEffect(displayStories, userId) {
+        if (!hasScrolledToInitialUser && displayStories.isNotEmpty()) {
+            val targetIdx = displayStories.indexOfFirst { it.author.userId == userId }
+            if (targetIdx >= 0) {
+                groupPagerState.scrollToPage(targetIdx)
+                hasScrolledToInitialUser = true
+            }
+        }
+    }
+
     var isStoryZooming by remember { mutableStateOf(false) }
 
     // When last group ends, go back
@@ -96,6 +109,9 @@ fun StoryScreen(
         var isHolding by remember { mutableStateOf(false) }
         var showMenu by remember { mutableStateOf(false) }
         var showDeleteDialog by remember { mutableStateOf(false) }
+        var showViewersSheet by remember { mutableStateOf(false) }
+        var showReportSheet by remember { mutableStateOf(false) }
+        val replyFocusRequester = remember { FocusRequester() }
 
         val currentStory = stories.getOrNull(currentStoryIndex)
         val isOwnStory = currentStory != null && currentStory.author.userId == viewModel.currentUserId
@@ -108,10 +124,11 @@ fun StoryScreen(
             }
         }
 
-        val isEffectivelyPaused = isHolding || showReplyInput || showMenu || showDeleteDialog || isStoryZooming
+        val isCurrentPageActive = groupPagerState.currentPage == groupIndex
+        val isEffectivelyPaused = isHolding || showReplyInput || showMenu || showDeleteDialog || showViewersSheet || showReportSheet || isStoryZooming || !isCurrentPageActive
 
-        // Auto-advance timer per story
-        LaunchedEffect(currentStoryIndex, isEffectivelyPaused, stories) {
+        // Auto-advance timer per story (strictly active page only)
+        LaunchedEffect(currentStoryIndex, isEffectivelyPaused, isCurrentPageActive, stories) {
             val story = stories.getOrNull(currentStoryIndex) ?: return@LaunchedEffect
             val durationMs = (story.duration?.toLong()?.times(1000L)) ?: 5000L
 
@@ -126,15 +143,17 @@ fun StoryScreen(
                 }
             }
 
-            // Advance to next story or next user group
-            if (currentStoryIndex < stories.lastIndex) {
-                currentProgress = 0f
-                currentStoryIndex++
-            } else if (groupIndex < displayStories.lastIndex) {
-                currentProgress = 0f
-                groupPagerState.animateScrollToPage(groupIndex + 1)
-            } else {
-                onNavigateBack()
+            if (isCurrentPageActive) {
+                // Advance to next story or next user group
+                if (currentStoryIndex < stories.lastIndex) {
+                    currentProgress = 0f
+                    currentStoryIndex++
+                } else if (groupIndex < displayStories.lastIndex) {
+                    currentProgress = 0f
+                    groupPagerState.animateScrollToPage(groupIndex + 1)
+                } else {
+                    onNavigateBack()
+                }
             }
         }
 
@@ -251,7 +270,7 @@ fun StoryScreen(
                 }
             }
 
-            // 2. Gesture Tap & Hold Detection Layer (Does NOT flash UI on quick taps)
+            // 2. Gesture Tap & Hold Detection Layer (Passes multi-touch pinch to ZoomableMediaBox)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -260,15 +279,19 @@ fun StoryScreen(
                             val down = awaitFirstDown(requireUnconsumed = false)
                             val downTime = System.currentTimeMillis()
                             var isLongHold = false
+                            var isMultiTouch = false
 
                             // Wait in gesture loop; only activate hold pause after 200ms
                             while (true) {
                                 val event = awaitPointerEvent()
+                                if (event.changes.size > 1) {
+                                    isMultiTouch = true
+                                }
                                 if (!event.changes.any { it.pressed }) {
                                     break
                                 }
                                 val elapsed = System.currentTimeMillis() - downTime
-                                if (elapsed > 200 && !isLongHold) {
+                                if (elapsed > 200 && !isLongHold && !isMultiTouch && !isStoryZooming) {
                                     isLongHold = true
                                     isHolding = true
                                 }
@@ -277,8 +300,8 @@ fun StoryScreen(
                             val holdDuration = System.currentTimeMillis() - downTime
                             isHolding = false
 
-                            // Quick tap (< 200ms) navigates; Long press hold released
-                            if (holdDuration <= 200 && !isLongHold && !isStoryZooming && !showReplyInput && !showMenu) {
+                            // Quick tap (< 200ms) navigates; Multi-touch zoom ignored for navigation
+                            if (holdDuration <= 200 && !isLongHold && !isMultiTouch && !isStoryZooming && !showReplyInput && !showMenu && !showReportSheet && !showViewersSheet) {
                                 val isLeft = down.position.x < screenWidth.toPx() * 0.35f
                                 scope.launch {
                                     currentProgress = 0f
@@ -344,11 +367,11 @@ fun StoryScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Author row
+                    Spacer(modifier = Modifier.height(12.dp))                    // Author row
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onUserTap(userStories.author.userId) },
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = onNavigateBack) {
@@ -366,9 +389,7 @@ fun StoryScreen(
                             storyState = StoryState.NONE
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Column(modifier = Modifier
-                            .weight(1f)
-                            .clickable { onUserTap(userStories.author.userId) }) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = userStories.author.username,
                                 color = Color.White,
@@ -386,7 +407,7 @@ fun StoryScreen(
                             }
                         }
 
-                        // 3-dot menu with owner delete / report
+                        // 3-dot menu with owner delete / report / viewers
                         Box {
                             IconButton(onClick = { 
                                 showMenu = true 
@@ -413,6 +434,10 @@ fun StoryScreen(
                                         },
                                         onClick = {
                                             showMenu = false
+                                            currentStory?.let {
+                                                viewModel.loadStoryViewers(it.storyId)
+                                                showViewersSheet = true
+                                            }
                                         }
                                     )
                                     DropdownMenuItem(
@@ -427,9 +452,7 @@ fun StoryScreen(
                                         text = { Text("Şikayet Et", color = com.linker.app.presentation.theme.ErrorRed) },
                                         onClick = {
                                             showMenu = false
-                                            currentStory?.let {
-                                                viewModel.reportStory(it.storyId, com.linker.app.domain.model.ReportReason.INAPPROPRIATE)
-                                            }
+                                            showReportSheet = true
                                         }
                                     )
                                 }
@@ -439,9 +462,9 @@ fun StoryScreen(
                 }
             }
 
-            // 4. Bottom: emoji reactions + reply input (Clean view when held)
+            // 4. Bottom: caption + emoji reactions + reply input (Clean view when held or zooming)
             AnimatedVisibility(
-                visible = !isHolding,
+                visible = !isHolding && !isStoryZooming,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -451,7 +474,7 @@ fun StoryScreen(
                         .fillMaxWidth()
                         .background(
                             Brush.verticalGradient(
-                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f))
+                                listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f))
                             )
                         )
                         .navigationBarsPadding()
@@ -459,129 +482,248 @@ fun StoryScreen(
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Emoji reaction quick panel
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(StoryReaction.values().toList()) { reaction ->
-                            val isSelected = currentStory?.reactionEmoji == reaction.emoji
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(22.dp))
-                                    .background(
-                                        if (isSelected) Color.White.copy(alpha = 0.25f)
-                                        else Color.Black.copy(alpha = 0.4f)
-                                    )
-                                    .border(
-                                        width = if (isSelected) 1.5.dp else 0.dp,
-                                        color = Color.White.copy(alpha = 0.6f),
-                                        shape = RoundedCornerShape(22.dp)
-                                    )
-                                    .clickable {
-                                        currentStory?.let { story ->
-                                            val newEmoji = if (isSelected) null else reaction.emoji
-                                            viewModel.reactToStory(story.storyId, newEmoji)
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(text = reaction.emoji, fontSize = 22.sp)
+                    // Story Caption display
+                    if (!currentStory?.caption.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(Color.Black.copy(alpha = 0.6f))
+                                .border(0.8.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = currentStory?.caption ?: "",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Emoji reaction quick panel (only on other's stories)
+                    if (!isOwnStory) {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(StoryReaction.values().toList()) { reaction ->
+                                val isSelected = currentStory?.reactionEmoji == reaction.emoji
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(22.dp))
+                                        .background(
+                                            if (isSelected) Color.White.copy(alpha = 0.25f)
+                                            else Color.Black.copy(alpha = 0.4f)
+                                        )
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 0.dp,
+                                            color = Color.White.copy(alpha = 0.6f),
+                                            shape = RoundedCornerShape(22.dp)
+                                        )
+                                        .clickable {
+                                            currentStory?.let { story ->
+                                                val newEmoji = if (isSelected) null else reaction.emoji
+                                                viewModel.reactToStory(story.storyId, newEmoji)
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(text = reaction.emoji, fontSize = 22.sp)
+                                }
                             }
                         }
                     }
 
-                    // Reply input + like button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Text input field
-                        Box(
+                    // Reply input + like button / or Viewers Bar on own story
+                    if (isOwnStory) {
+                        // Own Story Viewers Peek Bar
+                        val storyViewersList by viewModel.storyViewers.collectAsState()
+                        Row(
                             modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(28.dp))
-                                .border(1.5.dp, LinkerAngularGradient, RoundedCornerShape(28.dp))
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(24.dp))
                                 .background(Color.Black.copy(alpha = 0.5f))
+                                .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                                .clickable {
+                                    currentStory?.let {
+                                        viewModel.loadStoryViewers(it.storyId)
+                                        showViewersSheet = true
+                                    }
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            if (showReplyInput) {
-                                TextField(
-                                    value = replyText,
-                                    onValueChange = { replyText = it },
-                                    placeholder = {
-                                        Text("Yanıtla...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
-                                    },
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        focusedTextColor = Color.White,
-                                        unfocusedTextColor = Color.White,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent
-                                    ),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                                    keyboardActions = KeyboardActions(
-                                        onSend = {
-                                            if (replyText.isNotBlank()) {
-                                                currentStory?.let {
-                                                    viewModel.replyToStory(it.storyId, replyText.trim())
-                                                }
-                                            }
-                                            replyText = ""
-                                            showReplyInput = false
-                                        }
-                                    ),
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp)
-                                )
-                            } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("👁️", fontSize = 16.sp)
                                 Text(
-                                    text = "Yanıtla...",
-                                    color = Color.White.copy(alpha = 0.6f),
+                                    text = "Görüntüleyenler (${currentStory?.viewsCount ?: 0})",
+                                    color = Color.White,
                                     fontSize = 14.sp,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { showReplyInput = true }
-                                        .padding(horizontal = 20.dp, vertical = 16.dp)
+                                    fontWeight = FontWeight.SemiBold
                                 )
+                            }
+                            if ((currentStory?.likesCount ?: 0) > 0) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Favorite,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF4B4B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "${currentStory?.likesCount}",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
-
-                        // Like button
-                        val isLiked = currentStory?.isLiked ?: false
-                        val likesCount = currentStory?.likesCount ?: 0
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
+                    } else {
+                        // Reply input + like button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            IconButton(
-                                onClick = {
-                                    currentStory?.let { story ->
-                                        viewModel.likeStory(story.storyId)
-                                    }
-                                },
-                                modifier = Modifier.size(48.dp)
+                            // Text input field
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(28.dp))
+                                    .border(1.5.dp, LinkerAngularGradient, RoundedCornerShape(28.dp))
+                                    .background(Color.Black.copy(alpha = 0.5f))
                             ) {
-                                Icon(
-                                    imageVector = if (isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                                    contentDescription = "Beğen",
-                                    tint = if (isLiked) Color(0xFFFF4B4B) else Color.White,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                                if (showReplyInput) {
+                                    LaunchedEffect(Unit) {
+                                        replyFocusRequester.requestFocus()
+                                    }
+                                    TextField(
+                                        value = replyText,
+                                        onValueChange = { replyText = it },
+                                        placeholder = {
+                                            Text("Yanıtla...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
+                                        },
+                                        colors = TextFieldDefaults.colors(
+                                            focusedContainerColor = Color.Transparent,
+                                            unfocusedContainerColor = Color.Transparent,
+                                            focusedTextColor = Color.White,
+                                            unfocusedTextColor = Color.White,
+                                            focusedIndicatorColor = Color.Transparent,
+                                            unfocusedIndicatorColor = Color.Transparent
+                                        ),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                        keyboardActions = KeyboardActions(
+                                            onSend = {
+                                                if (replyText.isNotBlank()) {
+                                                    currentStory?.let {
+                                                        viewModel.replyToStory(it.storyId, replyText.trim())
+                                                    }
+                                                }
+                                                replyText = ""
+                                                showReplyInput = false
+                                            }
+                                        ),
+                                        singleLine = true,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(replyFocusRequester)
+                                            .padding(horizontal = 4.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Yanıtla...",
+                                        color = Color.White.copy(alpha = 0.6f),
+                                        fontSize = 14.sp,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showReplyInput = true }
+                                            .padding(horizontal = 20.dp, vertical = 16.dp)
+                                    )
+                                }
                             }
-                            if (likesCount > 0) {
-                                Text(
-                                    text = formatLikes(likesCount),
-                                    color = Color.White.copy(alpha = 0.8f),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+
+                            // Like button
+                            val isLiked = currentStory?.isLiked ?: false
+                            val likesCount = currentStory?.likesCount ?: 0
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        currentStory?.let { story ->
+                                            viewModel.likeStory(story.storyId)
+                                        }
+                                    },
+                                    modifier = Modifier.size(48.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                                        contentDescription = "Beğen",
+                                        tint = if (isLiked) Color(0xFFFF4B4B) else Color.White,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                if (likesCount > 0) {
+                                    Text(
+                                        text = formatLikes(likesCount),
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+
+            // Reply overlay scrim to dismiss reply on outside click
+            if (showReplyInput) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showReplyInput = false
+                        }
+                )
+            }
+
+            // Viewers Bottom Sheet
+            if (showViewersSheet && currentStory != null) {
+                val storyViewersList by viewModel.storyViewers.collectAsState()
+                val isLoadingViewers by viewModel.isLoadingViewers.collectAsState()
+                StoryViewersBottomSheet(
+                    viewers = storyViewersList,
+                    isLoading = isLoadingViewers,
+                    onDismiss = { showViewersSheet = false },
+                    onUserClick = { uId ->
+                        showViewersSheet = false
+                        onUserTap(uId)
+                    }
+                )
+            }
+
+            // Report Bottom Sheet
+            if (showReportSheet && currentStory != null) {
+                StoryReportBottomSheet(
+                    onDismiss = { showReportSheet = false },
+                    onReportSubmit = { reason ->
+                        viewModel.reportStory(currentStory.storyId, reason)
+                        android.widget.Toast.makeText(context, "Şikayetiniz incelenmek üzere iletildi", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                )
             }
         }
     }

@@ -19,16 +19,17 @@ class ReactionTracker @Inject constructor(
     fun addReactor(messageId: String, senderId: String): Int {
         synchronized(lock) {
             val key = "reactors_$messageId"
-            val reactors = prefs.getStringSet(key, mutableSetOf())
+            val reactors = prefs.getStringSet(key, emptySet())
                 ?.toMutableSet() ?: mutableSetOf()
             
             val wasEmpty = reactors.isEmpty()
             reactors.add(senderId)
-            prefs.edit().putStringSet(key, reactors).apply()
             
-            // Store timestamp for cleanup
             val timestampKey = "timestamp_$messageId"
-            prefs.edit().putLong(timestampKey, System.currentTimeMillis()).apply()
+            prefs.edit()
+                .putStringSet(key, reactors)
+                .putLong(timestampKey, System.currentTimeMillis())
+                .apply()
             
             NotificationLogger.d("ReactionTracker: Reactor count ${reactors.size} (was empty: $wasEmpty) for $messageId")
             return reactors.size

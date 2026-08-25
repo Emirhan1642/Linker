@@ -130,18 +130,78 @@ class HomeViewModel @Inject constructor(
     }
 
     fun toggleLike(linkId: String) {
+        _uiState.update { state ->
+            val updateList = { list: List<com.linker.app.domain.model.Link> ->
+                list.map { link ->
+                    if (link.linkId == linkId) {
+                        val newLiked = !link.engagement.isLiked
+                        val delta = if (newLiked) 1 else -1
+                        link.copy(
+                            engagement = link.engagement.copy(
+                                isLiked = newLiked,
+                                likesCount = (link.engagement.likesCount + delta).coerceAtLeast(0)
+                            )
+                        )
+                    } else link
+                }
+            }
+            state.copy(
+                links = updateList(state.links),
+                followingLinks = updateList(state.followingLinks)
+            )
+        }
         viewModelScope.launch {
             linkRepository.toggleLike(linkId)
         }
     }
 
     fun toggleSave(linkId: String) {
+        _uiState.update { state ->
+            val updateList = { list: List<com.linker.app.domain.model.Link> ->
+                list.map { link ->
+                    if (link.linkId == linkId) {
+                        val newSaved = !link.engagement.isSaved
+                        val delta = if (newSaved) 1 else -1
+                        link.copy(
+                            engagement = link.engagement.copy(
+                                isSaved = newSaved,
+                                savesCount = (link.engagement.savesCount + delta).coerceAtLeast(0)
+                            )
+                        )
+                    } else link
+                }
+            }
+            state.copy(
+                links = updateList(state.links),
+                followingLinks = updateList(state.followingLinks)
+            )
+        }
         viewModelScope.launch {
             linkRepository.toggleSave(linkId)
         }
     }
 
     fun toggleRelink(linkId: String) {
+        _uiState.update { state ->
+            val updateList = { list: List<com.linker.app.domain.model.Link> ->
+                list.map { link ->
+                    if (link.linkId == linkId) {
+                        val newRelinked = !link.engagement.isRelinked
+                        val delta = if (newRelinked) 1 else -1
+                        link.copy(
+                            engagement = link.engagement.copy(
+                                isRelinked = newRelinked,
+                                relinksCount = (link.engagement.relinksCount + delta).coerceAtLeast(0)
+                            )
+                        )
+                    } else link
+                }
+            }
+            state.copy(
+                links = updateList(state.links),
+                followingLinks = updateList(state.followingLinks)
+            )
+        }
         viewModelScope.launch {
             linkRepository.toggleRelink(linkId)
         }
@@ -163,5 +223,9 @@ class HomeViewModel @Inject constructor(
                 followingLinks = state.followingLinks.filter { it.author.userId != userId }
             )
         }
+    }
+
+    suspend fun getUserByUsername(username: String): Result<com.linker.app.domain.model.User> {
+        return userRepository.getUserByUsername(username)
     }
 }

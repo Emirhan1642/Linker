@@ -36,6 +36,7 @@ import com.linker.app.presentation.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private val commentTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val commentHistoryDateFormat = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault())
@@ -61,7 +62,8 @@ fun CommentSheet(
         }
     }
 
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val coroutineScope = rememberCoroutineScope()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -72,13 +74,14 @@ fun CommentSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+                .navigationBarsPadding()
+                .imePadding()
         ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -100,13 +103,13 @@ fun CommentSheet(
 
             HorizontalDivider(
                 color = Color.White.copy(alpha = 0.08f),
-                modifier = Modifier.padding(bottom = 8.dp)
+                modifier = Modifier.padding(bottom = 4.dp)
             )
 
             // Comments List
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(1f, fill = false)
                     .fillMaxWidth()
             ) {
                 if (uiState.isLoading && uiState.comments.isEmpty()) {
@@ -114,7 +117,12 @@ fun CommentSheet(
                         CircularProgressIndicator(color = LinkerPrimary, modifier = Modifier.size(32.dp))
                     }
                 } else if (uiState.comments.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("💬", fontSize = 36.sp)
                             Spacer(modifier = Modifier.height(8.dp))
@@ -134,7 +142,7 @@ fun CommentSheet(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxWidth(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -146,24 +154,37 @@ fun CommentSheet(
                                 CommentItem(
                                     comment = comment,
                                     isReply = false,
-                                    onReplyClick = { viewModel.setReplyTo(comment) },
+                                    onReplyClick = {
+                                        viewModel.setReplyTo(comment)
+                                        coroutineScope.launch { sheetState.expand() }
+                                    },
                                     onLikeClick = { viewModel.toggleLike(comment.commentId) },
-                                    onEditClick = { viewModel.setEditComment(comment) },
+                                    onEditClick = {
+                                        viewModel.setEditComment(comment)
+                                        coroutineScope.launch { sheetState.expand() }
+                                    },
                                     onDeleteClick = { viewModel.deleteComment(comment.commentId) },
                                     onHistoryClick = { viewModel.loadCommentHistory(comment.commentId) }
                                 )
 
-                                // Nested replies toggle button
                                 if (comment.repliesCount > 0) {
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
-                                            .padding(start = 48.dp, top = 6.dp)
-                                            .clickable { viewModel.toggleReplies(comment.commentId) }
+                                            .padding(start = 48.dp)
+                                            .clickable {
+                                                if (isExpanded) {
+                                                    viewModel.toggleReplies(comment.commentId)
+                                                } else {
+                                                    viewModel.loadReplies(comment.commentId)
+                                                }
+                                            }
+                                            .padding(vertical = 4.dp)
                                     ) {
                                         Box(
                                             modifier = Modifier
-                                                .width(20.dp)
+                                                .width(24.dp)
                                                 .height(1.dp)
                                                 .background(TextSecondary.copy(alpha = 0.5f))
                                         )
@@ -221,15 +242,13 @@ fun CommentSheet(
                 }
             }
 
-            // Modern Input Bar with imePadding
+            // Modern Input Bar pinned at bottom
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(DarkGrayTransparent)
+                    .background(DarkGray)
                     .border(1.dp, GlassCardBorder)
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 // Reply / Edit Banner
                 if (uiState.replyToComment != null || uiState.editComment != null) {

@@ -65,7 +65,7 @@ class LocationService @Inject constructor(
         try {
             val encodedQuery = URLEncoder.encode(query.trim(), "UTF-8")
             val urlString = buildString {
-                append("https://photon.komoot.io/api/?q=").append(encodedQuery).append("&limit=15")
+                append("https://photon.komoot.io/api/?q=").append(encodedQuery).append("&limit=30")
                 if (userLat != null && userLon != null) {
                     append("&lat=").append(userLat).append("&lon=").append(userLon)
                 }
@@ -98,13 +98,15 @@ class LocationService @Inject constructor(
                     val addressParts = listOf(street, district, city, country).filter { it.isNotBlank() }
                     val address = addressParts.joinToString(", ")
                     val osmKey = properties.optString("osm_key", "place")
+                    val osmValue = properties.optString("osm_value", "")
+                    val categoryLabel = formatCategoryLabel(osmKey, osmValue)
 
                     results.add(
                         LocationVenue(
                             id = properties.optString("osm_id", "osm_$i"),
                             name = name,
                             address = address,
-                            category = osmKey
+                            category = categoryLabel
                         )
                     )
                 }
@@ -119,7 +121,7 @@ class LocationService @Inject constructor(
                 if (Geocoder.isPresent()) {
                     val geocoder = Geocoder(context, Locale.getDefault())
                     @Suppress("DEPRECATION")
-                    val addresses = geocoder.getFromLocationName(query, 10) ?: emptyList()
+                    val addresses = geocoder.getFromLocationName(query, 15) ?: emptyList()
                     addresses.forEachIndexed { idx, addr ->
                         val featureName = addr.featureName ?: addr.thoroughfare ?: addr.subLocality ?: addr.locality ?: query
                         val addressLine = addr.getAddressLine(0) ?: listOfNotNull(addr.subLocality, addr.locality, addr.adminArea, addr.countryName).joinToString(", ")
@@ -128,7 +130,7 @@ class LocationService @Inject constructor(
                                 id = "geo_$idx",
                                 name = featureName,
                                 address = addressLine,
-                                category = "place"
+                                category = "Mekan"
                             )
                         )
                     }
@@ -142,7 +144,7 @@ class LocationService @Inject constructor(
     }
 
     /**
-     * Gets nearby venues, points of interest, and districts using coordinates.
+     * Gets nearby venues, points of interest, and districts using coordinates via Overpass API & Nominatim.
      */
     suspend fun getNearbyPlaces(
         latitude: Double,
@@ -150,7 +152,49 @@ class LocationService @Inject constructor(
     ): List<LocationVenue> = withContext(Dispatchers.IO) {
         val venues = mutableListOf<LocationVenue>()
 
-        // 1. Fetch reverse geocoded details from Nominatim (OpenStreetMap)
+        // 1. Fetch real nearby POIs (cafes, restaurants, shops, parks) from OpenStreetMap Overpass API
+        try {
+            val overpassQuery = """[out:json][timeout:5];(node(around:2500,$latitude,$longitude)["name"]["amenity"];node(around:2500,$latitude,$longitude)["name"]["shop"];node(around:2500,$latitude,$longitude)["name"]["tourism"];node(around:2500,$latitude,$longitude)["name"]["leisure"];);out body 40;"""
+            val url = URL("https://overpass-api.de/api/interpreter?data=" + URLEncoder.encode(overpassQuery, "UTF-8"))
+            val connection = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 4000
+                readTimeout = 4000
+                setRequestProperty("User-Agent", "LinkerApp/1.0")
+            }
+
+            if (connection.responseCode == 200) {
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(response)
+                val elements = json.optJSONArray("elements") ?: JSONArray()
+
+                for (i in 0 until elements.length()) {
+                    val elem = elements.getJSONObject(i)
+                    val tags = elem.optJSONObject("tags") ?: continue
+                    val name = tags.optString("name", "").trim()
+                    if (name.isBlank()) continue
+
+                    val street = tags.optString("addr:street", "")
+                    val district = tags.optString("addr:district", tags.optString("addr:suburb", tags.optString("addr:city", "")))
+                    val address = listOf(street, district).filter { it.isNotBlank() }.joinToString(", ")
+                    val amenity = tags.optString("amenity", tags.optString("shop", tags.optString("tourism", tags.optString("leisure", ""))))
+                    val categoryLabel = formatCategoryLabel("amenity", amenity)
+
+                    venues.add(
+                        LocationVenue(
+                            id = "op_${elem.optLong("id", i.toLong())}",
+                            name = name,
+                            address = address,
+                            category = categoryLabel
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("LocationService", "Overpass POI query failed: ${e.message}")
+        }
+
+        // 2. Fetch reverse geocoded details from Nominatim (OpenStreetMap)
         try {
             val urlString = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=18&addressdetails=1"
             val url = URL(urlString)
@@ -174,16 +218,16 @@ class LocationService @Inject constructor(
                     val amenity = addressObj.optString("amenity", addressObj.optString("shop", addressObj.optString("tourism", "")))
 
                     if (amenity.isNotBlank()) {
-                        venues.add(LocationVenue("nom_amenity", amenity, listOf(road, neighbourhood, district, city).filter { it.isNotBlank() }.joinToString(", "), "Mekan"))
+                        venues.add(0, LocationVenue("nom_amenity", amenity, listOf(road, neighbourhood, district, city).filter { it.isNotBlank() }.joinToString(", "), "Mekan"))
                     }
                     if (neighbourhood.isNotBlank()) {
-                        venues.add(LocationVenue("nom_neigh", neighbourhood, listOf(district, city).filter { it.isNotBlank() }.joinToString(", "), "Semt / Mahalle"))
+                        venues.add(0, LocationVenue("nom_neigh", neighbourhood, listOf(district, city).filter { it.isNotBlank() }.joinToString(", "), "Semt / Mahalle"))
                     }
                     if (district.isNotBlank()) {
-                        venues.add(LocationVenue("nom_dist", district, city, "İlçe"))
+                        venues.add(0, LocationVenue("nom_dist", district, city, "İlçe"))
                     }
                     if (city.isNotBlank()) {
-                        venues.add(LocationVenue("nom_city", city, addressObj.optString("country", "Türkiye"), "Şehir"))
+                        venues.add(0, LocationVenue("nom_city", city, addressObj.optString("country", "Türkiye"), "Şehir"))
                     }
                 }
             }
@@ -191,13 +235,13 @@ class LocationService @Inject constructor(
             android.util.Log.w("LocationService", "Nominatim reverse failed: ${e.message}")
         }
 
-        // 2. Fallback to Android native Geocoder
+        // 3. Fallback to Android native Geocoder
         if (venues.isEmpty()) {
             try {
                 if (Geocoder.isPresent()) {
                     val geocoder = Geocoder(context, Locale.getDefault())
                     @Suppress("DEPRECATION")
-                    val addresses = geocoder.getFromLocation(latitude, longitude, 5) ?: emptyList()
+                    val addresses = geocoder.getFromLocation(latitude, longitude, 8) ?: emptyList()
                     addresses.forEachIndexed { idx, addr ->
                         val subLoc = addr.subLocality ?: addr.thoroughfare
                         val loc = addr.locality ?: addr.adminArea
@@ -214,7 +258,7 @@ class LocationService @Inject constructor(
             }
         }
 
-        // Add standard fallback popular Turkish landmark places if completely offline
+        // Add standard fallback popular landmark places if completely offline
         if (venues.isEmpty()) {
             venues.addAll(
                 listOf(
@@ -228,5 +272,23 @@ class LocationService @Inject constructor(
         }
 
         venues.distinctBy { it.name }
+    }
+
+    private fun formatCategoryLabel(key: String, value: String): String {
+        val v = value.lowercase()
+        return when {
+            v.contains("cafe") || v.contains("coffee") -> "☕ Kafe"
+            v.contains("restaurant") || v.contains("fast_food") || v.contains("food") -> "🍽️ Restoran"
+            v.contains("bar") || v.contains("pub") -> "🍸 Bar / Pub"
+            v.contains("park") || v.contains("garden") -> "🌳 Park"
+            v.contains("mall") || v.contains("supermarket") || v.contains("shop") -> "🛍️ Mağaza / AVM"
+            v.contains("museum") || v.contains("gallery") || v.contains("theatre") || v.contains("cinema") -> "🎭 Sanat & Kültür"
+            v.contains("hotel") || v.contains("hostel") -> "🏨 Otel"
+            v.contains("gym") || v.contains("fitness") || v.contains("sports") -> "💪 Spor"
+            v.contains("hospital") || v.contains("pharmacy") -> "🏥 Sağlık"
+            v.contains("university") || v.contains("school") || v.contains("college") -> "🎓 Eğitim"
+            key == "place" -> "📍 Konum"
+            else -> "📍 Mekan"
+        }
     }
 }

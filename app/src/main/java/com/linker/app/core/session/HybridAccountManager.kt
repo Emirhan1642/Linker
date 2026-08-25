@@ -126,43 +126,39 @@ class HybridAccountManager @Inject constructor(
         val mutex = sessionMutexes.getOrPut(userId) { Mutex() }
 
         return mutex.withLock {
-            try {
-                // Double-check after acquiring lock
-                passiveSessions[userId]?.let { session ->
-                    if (session.isValid()) {
-                        Log.d(TAG, "Session created by another coroutine, reusing for ${sanitizeUserId(userId)}")
-                        sessionMetrics.totalReused.incrementAndGet()
-                        return@withLock session
-                    } else {
-                        Log.d(TAG, "Session expired, removing for ${sanitizeUserId(userId)}")
-                        sessionMetrics.totalExpired.incrementAndGet()
-                        removePassiveSessionInternal(userId)
-                    }
+            // Double-check after acquiring lock
+            passiveSessions[userId]?.let { session ->
+                if (session.isValid()) {
+                    Log.d(TAG, "Session created by another coroutine, reusing for ${sanitizeUserId(userId)}")
+                    sessionMetrics.totalReused.incrementAndGet()
+                    return@withLock session
+                } else {
+                    Log.d(TAG, "Session expired, removing for ${sanitizeUserId(userId)}")
+                    sessionMetrics.totalExpired.incrementAndGet()
+                    removePassiveSessionInternal(userId)
                 }
-
-                // Check total session limit
-                if (passiveSessions.size >= maxPassiveSessions) {
-                    Log.w(TAG, "Max passive sessions ($maxPassiveSessions) reached, cleaning up oldest")
-                    cleanupOldestSession()
-                }
-
-                // Create new session
-                Log.d(TAG, "Creating new passive session for ${sanitizeUserId(userId)}")
-                val session = try {
-                    createPassiveSession(userId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to create passive session for ${sanitizeUserId(userId)}: ${e.message}", e)
-                    sessionMetrics.totalFailed.incrementAndGet()
-                    return@withLock null
-                }
-
-                passiveSessions[userId] = session
-                sessionMetrics.totalCreated.incrementAndGet()
-                Log.d(TAG, "Successfully created passive session for ${sanitizeUserId(userId)} (total: ${passiveSessions.size})")
-                session
-            } finally {
-                sessionMutexes.remove(userId)
             }
+
+            // Check total session limit
+            if (passiveSessions.size >= maxPassiveSessions) {
+                Log.w(TAG, "Max passive sessions ($maxPassiveSessions) reached, cleaning up oldest")
+                cleanupOldestSession()
+            }
+
+            // Create new session
+            Log.d(TAG, "Creating new passive session for ${sanitizeUserId(userId)}")
+            val session = try {
+                createPassiveSession(userId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create passive session for ${sanitizeUserId(userId)}: ${e.message}", e)
+                sessionMetrics.totalFailed.incrementAndGet()
+                return@withLock null
+            }
+
+            passiveSessions[userId] = session
+            sessionMetrics.totalCreated.incrementAndGet()
+            Log.d(TAG, "Successfully created passive session for ${sanitizeUserId(userId)} (total: ${passiveSessions.size})")
+            session
         }
     }
 
@@ -176,6 +172,7 @@ class HybridAccountManager @Inject constructor(
 
     private suspend fun removePassiveSessionInternal(userId: String) {
         val session = passiveSessions.remove(userId)
+        sessionMutexes.remove(userId)
 
         // [2.1] Close session resources
         if (session != null) {

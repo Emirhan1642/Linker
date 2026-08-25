@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import com.linker.app.core.util.SecureLogger
@@ -108,6 +109,7 @@ class BLERoutingTable @Inject constructor(
             val nodes = bleNodeDao.getNodesByIds(missingIds)
             val now = System.currentTimeMillis()
             
+            var shouldWarm = false
             mutex.withLock {
                 nodes.forEach { node ->
                     if (!isStale(node.lastSeen)) {
@@ -123,14 +125,13 @@ class BLERoutingTable @Inject constructor(
                         result[node.nodeId] = routeInfo
                     }
                 }
+                shouldWarm = routeCache.size < CACHE_WARM_THRESHOLD
             }
-        }
-        
-        // Warm cache if it's getting small
-        if (routeCache.size < CACHE_WARM_THRESHOLD) {
-            // Launch cache warming in background (don't block)
-            cacheScope.launch {
-                warmCache()
+            
+            if (shouldWarm) {
+                cacheScope.launch {
+                    warmCache()
+                }
             }
         }
         
@@ -278,11 +279,11 @@ class BLERoutingTable @Inject constructor(
      * 
      * @return List of all non-stale routes
      */
-    suspend fun getAllRoutes(): List<RouteInfo> = mutex.withLock {
+    suspend fun getAllRoutes(): List<RouteInfo> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val nodes = bleNodeDao.getRecentNodes(now - STALE_NODE_THRESHOLD)
         
-        return nodes.map { node ->
+        nodes.map { node ->
             RouteInfo(
                 nodeId = node.nodeId,
                 deviceAddress = node.deviceAddress,
@@ -299,20 +300,24 @@ class BLERoutingTable @Inject constructor(
      * 
      * @return Number of routes removed
      */
-    suspend fun removeStaleRoutes(): Int = mutex.withLock {
+    suspend fun removeStaleRoutes(): Int {
         val now = System.currentTimeMillis()
         val staleThreshold = now - STALE_NODE_THRESHOLD
         
-        // Remove from database
-        val removedCount = bleNodeDao.deleteStaleNodes(staleThreshold)
+        // Remove from database on IO dispatcher without holding the mutex
+        val removedCount = withContext(Dispatchers.IO) {
+            bleNodeDao.deleteStaleNodes(staleThreshold)
+        }
         
-        // Remove from cache
-        val staleNodeIds = routeCache.filter { (_, route) ->
-            isStale(route.lastSeen)
-        }.keys
-        
-        staleNodeIds.forEach { nodeId ->
-            routeCache.remove(nodeId)
+        // Remove from memory cache with lock
+        mutex.withLock {
+            val staleNodeIds = routeCache.filter { (_, route) ->
+                isStale(route.lastSeen)
+            }.keys
+            
+            staleNodeIds.forEach { nodeId ->
+                routeCache.remove(nodeId)
+            }
         }
         
         return removedCount

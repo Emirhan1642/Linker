@@ -59,6 +59,7 @@ class BLEMeshManagerImpl @Inject constructor(
     
     // Track connection attempts to avoid duplicate retries
     private val connectionAttempts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val pendingConnectingDevices = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     
     // Map sender user ID to MAC address for routing (thread-safe)
     private val userIdToMacAddress = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -581,38 +582,43 @@ class BLEMeshManagerImpl @Inject constructor(
             
             // Attempt connection if not already connected and under connection limit
             if (!gattClientManager.isConnected(deviceAddress) && 
-                gattClientManager.getConnectionCount() < 7) {
+                gattClientManager.getConnectionCount() < 7 &&
+                pendingConnectingDevices.putIfAbsent(deviceAddress, true) == null) {
                 
-                // Check if we've already attempted this connection
-                val attemptCount = connectionAttempts.getOrDefault(deviceAddress, 0)
-                
-                if (attemptCount < CONNECTION_MAX_RETRIES) {
-                    // Calculate delay with exponential backoff
-                    val delayMs = CONNECTION_RETRY_DELAY_MS * (1 shl attemptCount) // 2s, 4s, 8s
+                try {
+                    // Check if we've already attempted this connection
+                    val attemptCount = connectionAttempts.getOrDefault(deviceAddress, 0)
                     
-                    Log.d(TAG, "Scheduling connection attempt ${attemptCount + 1}/$CONNECTION_MAX_RETRIES to $deviceAddress after ${delayMs}ms")
-                    
-                    delay(delayMs)
-                    
-                    val result = connectToPeer(deviceAddress)
-                    if (result.isSuccess) {
-                        Log.d(TAG, "Successfully connected to $deviceAddress")
-                        connectionAttempts.remove(deviceAddress)
-                        // Update node as connected
-                        bleNodeDao.updateConnectionStatusByAddress(deviceAddress, true, System.currentTimeMillis())
-                    } else {
-                        Log.w(TAG, "Failed to connect to $deviceAddress (attempt ${attemptCount + 1}): ${result.exceptionOrNull()?.message}")
-                        connectionAttempts[deviceAddress] = attemptCount + 1
+                    if (attemptCount < CONNECTION_MAX_RETRIES) {
+                        // Calculate delay with exponential backoff
+                        val delayMs = CONNECTION_RETRY_DELAY_MS * (1 shl attemptCount) // 2s, 4s, 8s
                         
-                        // Schedule retry if we haven't exceeded max retries
-                        if (attemptCount + 1 < CONNECTION_MAX_RETRIES) {
-                            Log.d(TAG, "Will retry connection to $deviceAddress on next scan")
+                        Log.d(TAG, "Scheduling connection attempt ${attemptCount + 1}/$CONNECTION_MAX_RETRIES to $deviceAddress after ${delayMs}ms")
+                        
+                        delay(delayMs)
+                        
+                        val result = connectToPeer(deviceAddress)
+                        if (result.isSuccess) {
+                            Log.d(TAG, "Successfully connected to $deviceAddress")
+                            connectionAttempts.remove(deviceAddress)
+                            // Update node as connected
+                            bleNodeDao.updateConnectionStatusByAddress(deviceAddress, true, System.currentTimeMillis())
                         } else {
-                            Log.e(TAG, "Max connection attempts reached for $deviceAddress, giving up")
+                            Log.w(TAG, "Failed to connect to $deviceAddress (attempt ${attemptCount + 1}): ${result.exceptionOrNull()?.message}")
+                            connectionAttempts[deviceAddress] = attemptCount + 1
+                            
+                            // Schedule retry if we haven't exceeded max retries
+                            if (attemptCount + 1 < CONNECTION_MAX_RETRIES) {
+                                Log.d(TAG, "Will retry connection to $deviceAddress on next scan")
+                            } else {
+                                Log.e(TAG, "Max connection attempts reached for $deviceAddress, giving up")
+                            }
                         }
+                    } else {
+                        Log.w(TAG, "Already attempted max retries for $deviceAddress, skipping")
                     }
-                } else {
-                    Log.w(TAG, "Already attempted max retries for $deviceAddress, skipping")
+                } finally {
+                    pendingConnectingDevices.remove(deviceAddress)
                 }
             }
         }

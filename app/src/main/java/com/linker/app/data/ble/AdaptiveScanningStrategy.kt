@@ -188,11 +188,16 @@ class AdaptiveScanningStrategy @Inject constructor(
      */
     private fun getCurrentBatteryLevel(): Int {
         return try {
-            val batteryIntent = ContextCompat.registerReceiver(
-                context,
+            val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val capacity = batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
+            if (capacity in 0..100) {
+                return capacity
+            }
+            
+            // Fallback to sticky broadcast intent without receiver
+            val batteryIntent = context.registerReceiver(
                 null,
-                IntentFilter(Intent.ACTION_BATTERY_CHANGED),
-                ContextCompat.RECEIVER_NOT_EXPORTED
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
             )
             
             val level = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1

@@ -34,8 +34,7 @@ class MessageIdCache @Inject constructor(
     private val memoryCache = ConcurrentHashMap<String, Long>(CACHE_SIZE)
     
     // Track last trim time to avoid excessive database operations
-    @Volatile
-    private var lastTrimTime = 0L
+    private val lastTrimTime = java.util.concurrent.atomic.AtomicLong(0L)
     
     /**
      * Check if message ID exists in cache
@@ -63,10 +62,12 @@ class MessageIdCache @Inject constructor(
     /**
      * Add message ID to cache
      * 
-     * @param messageId BLE packet message ID to add
-     * @param sourceNodeId Node that sent the packet
+     * Adds to both memory cache and database.
+     * 
+     * @param messageId BLE packet message ID
+     * @param sourceNodeId Node that forwarded this packet
      */
-    suspend fun add(messageId: String, sourceNodeId: String) {
+    suspend fun add(messageId: String, sourceNodeId: String = "") {
         val now = System.currentTimeMillis()
         
         // Add to memory cache
@@ -82,8 +83,8 @@ class MessageIdCache @Inject constructor(
         logger.d("Added message $messageId to cache")
         
         // Trim database and memory cache if needed (but not too frequently)
-        if (now - lastTrimTime > TRIM_INTERVAL) {
-            lastTrimTime = now
+        val prevTrim = lastTrimTime.get()
+        if (now - prevTrim > TRIM_INTERVAL && lastTrimTime.compareAndSet(prevTrim, now)) {
             val cacheSize = messageIdCacheDao.getCacheSize()
             if (cacheSize > CACHE_SIZE) {
                 messageIdCacheDao.trimToSize(CACHE_SIZE)

@@ -44,12 +44,23 @@ class CommentRepositoryImpl @Inject constructor(
     private fun extractCommentDocument(doc: com.google.firebase.firestore.DocumentSnapshot): CommentDocument {
         @Suppress("UNCHECKED_CAST")
         val likedBy = (doc.get("likedBy") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+        val parentCommentId = doc.getString("parentCommentId")
+        val rawNesting = doc.getLong("nestingLevel")
+        val nestingLevel = if (rawNesting != null) {
+            rawNesting.toInt()
+        } else if (parentCommentId != null) {
+            1
+        } else {
+            0
+        }
         return CommentDocument(
             commentId = doc.getString("commentId") ?: doc.id,
+            linkId = doc.getString("linkId") ?: doc.getString("targetId") ?: "",
             authorId = doc.getString("authorId") ?: "",
             content = doc.getString("content") ?: "",
             gifUrl = doc.getString("gifUrl"),
-            parentCommentId = doc.getString("parentCommentId"),
+            parentCommentId = parentCommentId,
+            nestingLevel = nestingLevel,
             likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
             repliesCount = (doc.getLong("repliesCount") ?: 0L).toInt(),
             isPinned = doc.getBoolean("isPinned") ?: false,
@@ -358,6 +369,7 @@ class CommentRepositoryImpl @Inject constructor(
         val content: String = "",
         val gifUrl: String? = null,
         val parentCommentId: String? = null,
+        val nestingLevel: Int = 0,
         val likesCount: Int = 0,
         val repliesCount: Int = 0,
         val isPinned: Boolean = false,
@@ -424,6 +436,12 @@ class CommentRepositoryImpl @Inject constructor(
                         false
                     }
 
+                    val effectiveNesting = if (data.parentCommentId != null) {
+                        data.nestingLevel.coerceAtLeast(1)
+                    } else {
+                        0
+                    }
+
                     Comment(
                         commentId = docId,
                         linkId = data.linkId,
@@ -431,6 +449,7 @@ class CommentRepositoryImpl @Inject constructor(
                         content = data.content,
                         gifUrl = data.gifUrl,
                         parentCommentId = data.parentCommentId,
+                        nestingLevel = effectiveNesting,
                         likesCount = data.likesCount,
                         repliesCount = data.repliesCount,
                         isLiked = isLiked,

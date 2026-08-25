@@ -74,6 +74,8 @@ fun MainShellScreen(
         }
     }
 
+    val searchViewModel: com.linker.app.presentation.screens.search.SearchViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+
     Scaffold(
         containerColor = Black,
         bottomBar = {
@@ -100,6 +102,11 @@ fun MainShellScreen(
                         onNavigateBottomNav = onNavigateBottomNav,
                         onNavigateToStoryGrid = onNavigateToStoryGrid,
                         onNavigateToLinkDetail = onNavigateToLinkDetail,
+                        onNavigateToProfile = onNavigateToUserProfile,
+                        onNavigateToSearch = { query, tab ->
+                            searchViewModel.searchWithQueryAndTab(query, tab)
+                            scope.launch { pagerState.animateScrollToPage(1) }
+                        },
                         showBottomBar = false
                     )
                     1 -> SearchScreen(
@@ -107,7 +114,8 @@ fun MainShellScreen(
                         onNavigateBottomNav = onNavigateBottomNav,
                         onNavigateToUserProfile = onNavigateToUserProfile,
                         onNavigateToLinkDetail = onNavigateToLinkDetail,
-                        showBottomBar = false
+                        showBottomBar = false,
+                        viewModel = searchViewModel
                     )
                     2 -> ChatListScreen(
                         onNavigateToChatDetail = onNavigateToChatDetail,

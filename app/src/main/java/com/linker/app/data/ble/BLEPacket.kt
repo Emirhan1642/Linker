@@ -47,6 +47,7 @@ data class BLEPacket(
         
         // ByteBuffer object pool for reducing allocation overhead
         private const val POOL_SIZE = 10
+        private const val MAX_POOLABLE_BUFFER_CAPACITY = 2048 // Do not pool buffers larger than 2KB
         private val bufferPool = ArrayBlockingQueue<ByteBuffer>(POOL_SIZE)
         
         /**
@@ -71,8 +72,10 @@ data class BLEPacket(
          * @param buffer ByteBuffer to return
          */
         private fun returnBuffer(buffer: ByteBuffer) {
-            buffer.clear()
-            bufferPool.offer(buffer)
+            if (buffer.capacity() <= MAX_POOLABLE_BUFFER_CAPACITY) {
+                buffer.clear()
+                bufferPool.offer(buffer)
+            }
         }
         
         /**
@@ -208,7 +211,7 @@ data class BLEPacket(
         fun calculateChecksum(data: ByteArray): Int {
             val crc = CRC32()
             crc.update(data)
-            return crc.value.toInt()
+            return (crc.value and 0xFFFFFFFFL).toInt()
         }
         
         /**

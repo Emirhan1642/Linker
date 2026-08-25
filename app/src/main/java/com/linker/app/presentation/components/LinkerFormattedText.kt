@@ -1,12 +1,18 @@
 package com.linker.app.presentation.components
 
-import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -28,13 +34,34 @@ fun LinkerFormattedText(
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
     onHashtagClick: ((String) -> Unit)? = null,
-    onMentionClick: ((String) -> Unit)? = null
+    onMentionClick: ((String) -> Unit)? = null,
+    onClick: (() -> Unit)? = null
 ) {
     val annotatedString = buildAnnotatedText(text)
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     Text(
         text = annotatedString,
-        modifier = modifier,
+        modifier = modifier.pointerInput(annotatedString, onHashtagClick, onMentionClick, onClick) {
+            detectTapGestures { pos ->
+                val layout = layoutResult
+                if (layout != null) {
+                    val offset = layout.getOffsetForPosition(pos)
+                    val hashtagAnnotation = annotatedString.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset).firstOrNull()
+                    if (hashtagAnnotation != null) {
+                        onHashtagClick?.invoke(hashtagAnnotation.item)
+                        return@detectTapGestures
+                    }
+
+                    val mentionAnnotation = annotatedString.getStringAnnotations(tag = "MENTION", start = offset, end = offset).firstOrNull()
+                    if (mentionAnnotation != null) {
+                        onMentionClick?.invoke(mentionAnnotation.item)
+                        return@detectTapGestures
+                    }
+                }
+                onClick?.invoke()
+            }
+        },
         style = TextStyle(
             color = color,
             fontSize = fontSize,
@@ -42,7 +69,8 @@ fun LinkerFormattedText(
             lineHeight = lineHeight
         ),
         maxLines = maxLines,
-        overflow = overflow
+        overflow = overflow,
+        onTextLayout = { layoutResult = it }
     )
 }
 

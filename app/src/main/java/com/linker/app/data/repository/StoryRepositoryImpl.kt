@@ -44,6 +44,7 @@ class StoryRepositoryImpl @Inject constructor(
 ) : StoryRepository {
 
     private val viewedStoriesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val likedStoriesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     private val storiesCollection = firestore.collection("stories")
     private val usersCollection = firestore.collection("users")
@@ -72,8 +73,32 @@ class StoryRepositoryImpl @Inject constructor(
                         return@launch
                     }
 
+                    val currentUserId = auth.currentUser?.uid ?: ""
+
+                    // Filter stories based on privacy settings
+                    val currentFollowingIds = if (currentUserId.isNotEmpty()) {
+                        try {
+                            usersCollection.document(currentUserId).collection("following").get().await().documents.map { it.id }.toSet()
+                        } catch (_: Exception) { emptySet() }
+                    } else emptySet()
+
+                    val visibleDataList = dataList.filter { (_, data) ->
+                        if (data.authorId == currentUserId) return@filter true
+                        when (data.privacy.uppercase()) {
+                            "PUBLIC" -> true
+                            "FOLLOWERS" -> currentFollowingIds.contains(data.authorId)
+                            "CLOSE_FRIENDS" -> data.closeFriends?.contains(currentUserId) == true
+                            else -> true
+                        }
+                    }
+
+                    if (visibleDataList.isEmpty()) {
+                        trySend(Result.Success(emptyList()))
+                        return@launch
+                    }
+
                     // Batch fetch users to prevent N+1 queries
-                    val authorIds = dataList.map { it.second.authorId }.distinct()
+                    val authorIds = visibleDataList.map { it.second.authorId }.distinct()
                     val usersMap = mutableMapOf<String, StoryAuthor>()
 
                     authorIds.chunked(10).forEach { chunk ->
@@ -89,11 +114,17 @@ class StoryRepositoryImpl @Inject constructor(
                         }
                     }
 
-                    val currentUserId = auth.currentUser?.uid ?: ""
-                    val unverifiedStories = dataList.filter { (id, _) -> !viewedStoriesCache.contains(id) }
+                    // Prepopulate liked cache from document likedBy field
+                    visibleDataList.forEach { (id, data) ->
+                        if (currentUserId.isNotEmpty() && data.likedBy.contains(currentUserId)) {
+                            likedStoriesCache.add(id)
+                        }
+                    }
+
+                    val unverifiedStories = visibleDataList.filter { (id, _) -> !viewedStoriesCache.contains(id) }
                     if (currentUserId.isNotEmpty() && unverifiedStories.isNotEmpty()) {
                         coroutineScope {
-                            val deferreds = unverifiedStories.take(20).map { pair ->
+                            val deferreds = unverifiedStories.take(25).map { pair ->
                                 async {
                                     try {
                                         val viewerDoc = storiesCollection.document(pair.first)
@@ -111,7 +142,7 @@ class StoryRepositoryImpl @Inject constructor(
                         }
                     }
 
-                    val stories = dataList.mapNotNull { (id, data) ->
+                    val stories = visibleDataList.mapNotNull { (id, data) ->
                         val author = usersMap[data.authorId] ?: return@mapNotNull null
                         val mappedType = try {
                             StoryMediaType.valueOf(data.mediaType)
@@ -121,6 +152,8 @@ class StoryRepositoryImpl @Inject constructor(
                         val storyDuration = if (mappedType == StoryMediaType.VIDEO) {
                             (data.duration ?: 15).coerceAtLeast(1)
                         } else null
+
+                        val isLiked = (currentUserId.isNotEmpty() && data.likedBy.contains(currentUserId)) || likedStoriesCache.contains(id)
 
                         Story(
                             storyId = id,
@@ -133,6 +166,7 @@ class StoryRepositoryImpl @Inject constructor(
                             viewsCount = data.viewsCount,
                             likesCount = data.likesCount,
                             isViewed = viewedStoriesCache.contains(id),
+                            isLiked = isLiked,
                             createdAt = data.createdAt,
                             expiresAt = data.expiresAt
                         )
@@ -229,7 +263,9 @@ class StoryRepositoryImpl @Inject constructor(
             "mediaType" to mediaType.name,
             "caption" to caption,
             "duration" to calculatedDuration,
+            "privacy" to privacy.name,
             "viewsCount" to 0,
+            "likesCount" to 0,
             "createdAt" to now,
             "expiresAt" to expiresAt,
             "uploadStatus" to "PENDING"
@@ -278,21 +314,27 @@ class StoryRepositoryImpl @Inject constructor(
     override suspend fun markStoryAsViewed(storyId: String): Result<Unit> = RetryUtil.retrySafeCall {
         val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
 
-        val batch = firestore.batch()
-        
-        // Add viewer to subcollection
+        if (viewedStoriesCache.contains(storyId)) {
+            return@retrySafeCall
+        }
+
         val viewerRef = storiesCollection
             .document(storyId)
             .collection("viewers")
             .document(currentUserId)
-            
-        batch.set(viewerRef, mapOf("viewedAt" to System.currentTimeMillis()))
 
-        // Increment view count
+        val viewerDoc = viewerRef.get().await()
+        if (viewerDoc.exists()) {
+            viewedStoriesCache.add(storyId)
+            return@retrySafeCall
+        }
+
+        val batch = firestore.batch()
+        batch.set(viewerRef, mapOf("viewedAt" to System.currentTimeMillis(), "userId" to currentUserId))
         val storyRef = storiesCollection.document(storyId)
         batch.update(storyRef, "viewsCount", com.google.firebase.firestore.FieldValue.increment(1))
-        
         batch.commit().await()
+        viewedStoriesCache.add(storyId)
     }
 
     override suspend fun deleteStory(storyId: String): Result<Unit> = RetryUtil.retrySafeCall {
@@ -325,8 +367,46 @@ class StoryRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getViewCount(storyId: String): Result<Int> = Result.Success(0)
-    override suspend fun getViewers(storyId: String): Result<List<com.linker.app.domain.repository.StoryViewer>> = Result.Success(emptyList())
+    override suspend fun getViewCount(storyId: String): Result<Int> = RetryUtil.retrySafeCall {
+        val snapshot = storiesCollection.document(storyId).collection("viewers").get().await()
+        snapshot.size()
+    }
+
+    override suspend fun getViewers(storyId: String): Result<List<com.linker.app.domain.repository.StoryViewer>> = RetryUtil.retrySafeCall {
+        val viewersSnap = storiesCollection.document(storyId).collection("viewers").get().await()
+        if (viewersSnap.isEmpty) return@retrySafeCall emptyList()
+
+        val viewerUserIds = viewersSnap.documents.mapNotNull { it.getString("userId") ?: it.id }
+        val usersMap = mutableMapOf<String, StoryAuthor>()
+
+        viewerUserIds.chunked(10).forEach { chunk ->
+            val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
+            userDocs.documents.forEach { doc ->
+                usersMap[doc.id] = StoryAuthor(
+                    userId = doc.id,
+                    username = doc.getString("username") ?: "",
+                    displayName = doc.getString("displayName") ?: "",
+                    profileImageUrl = doc.getString("profileImageUrl")
+                )
+            }
+        }
+
+        val likesSnap = storiesCollection.document(storyId).collection("likes").get().await()
+        val likedUserIds = likesSnap.documents.map { it.id }.toSet()
+
+        viewersSnap.documents.mapNotNull { vDoc ->
+            val uId = vDoc.getString("userId") ?: vDoc.id
+            val author = usersMap[uId] ?: return@mapNotNull null
+            val viewedAt = vDoc.getLong("viewedAt") ?: System.currentTimeMillis()
+            com.linker.app.domain.repository.StoryViewer(
+                userId = uId,
+                username = author.username.ifBlank { author.displayName },
+                avatarUrl = author.profileImageUrl,
+                viewedAt = viewedAt,
+                hasLiked = likedUserIds.contains(uId)
+            )
+        }.sortedByDescending { it.viewedAt }
+    }
 
     override suspend fun replyToStory(storyId: String, content: String): Result<Unit> = RetryUtil.retrySafeCall {
         val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
@@ -335,13 +415,14 @@ class StoryRepositoryImpl @Inject constructor(
         
         // 1. Save reply to story replies subcollection
         val replyId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
         storiesCollection.document(storyId).collection("replies").document(replyId).set(
             mapOf(
                 "replyId" to replyId,
                 "storyId" to storyId,
                 "senderId" to currentUserId,
                 "content" to content,
-                "createdAt" to System.currentTimeMillis()
+                "createdAt" to now
             )
         ).await()
 
@@ -349,7 +430,6 @@ class StoryRepositoryImpl @Inject constructor(
         try {
             val chatId = if (currentUserId < authorId) "${currentUserId}_${authorId}" else "${authorId}_${currentUserId}"
             val messageId = UUID.randomUUID().toString()
-            val now = System.currentTimeMillis()
             val messageText = "📷 Hikayeye yanıt verdi: $content"
             
             firestore.collection("chats").document(chatId).collection("messages").document(messageId).set(
@@ -357,19 +437,28 @@ class StoryRepositoryImpl @Inject constructor(
                     "messageId" to messageId,
                     "chatId" to chatId,
                     "senderId" to currentUserId,
+                    "recipientId" to authorId,
                     "content" to messageText,
-                    "timestamp" to now,
-                    "status" to "SENT"
+                    "text" to messageText,
+                    "messageType" to "TEXT",
+                    "messageStatus" to "SENT",
+                    "status" to "SENT",
+                    "createdAt" to now,
+                    "timestamp" to now
                 )
             ).await()
             
             firestore.collection("chats").document(chatId).set(
                 mapOf(
                     "chatId" to chatId,
+                    "participantIds" to listOf(currentUserId, authorId),
                     "participants" to listOf(currentUserId, authorId),
                     "lastMessage" to messageText,
+                    "lastMessageSenderId" to currentUserId,
                     "lastMessageTimestamp" to now,
-                    "updatedAt" to now
+                    "type" to "DIRECT",
+                    "updatedAt" to now,
+                    "createdAt" to now
                 ),
                 com.google.firebase.firestore.SetOptions.merge()
             ).await()
@@ -400,13 +489,21 @@ class StoryRepositoryImpl @Inject constructor(
 
         val batch = firestore.batch()
         if (isLiked) {
+            likedStoriesCache.remove(storyId)
             batch.delete(likesRef)
-            batch.update(storiesCollection.document(storyId), "likesCount",
-                com.google.firebase.firestore.FieldValue.increment(-1))
+            batch.update(
+                storiesCollection.document(storyId),
+                "likesCount", com.google.firebase.firestore.FieldValue.increment(-1),
+                "likedBy", com.google.firebase.firestore.FieldValue.arrayRemove(currentUserId)
+            )
         } else {
-            batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis()))
-            batch.update(storiesCollection.document(storyId), "likesCount",
-                com.google.firebase.firestore.FieldValue.increment(1))
+            likedStoriesCache.add(storyId)
+            batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis(), "userId" to currentUserId))
+            batch.update(
+                storiesCollection.document(storyId),
+                "likesCount", com.google.firebase.firestore.FieldValue.increment(1),
+                "likedBy", com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId)
+            )
         }
         batch.commit().await()
         !isLiked
@@ -458,8 +555,11 @@ class StoryRepositoryImpl @Inject constructor(
         val thumbnailUrl: String? = null,
         val duration: Int? = null,
         val caption: String? = null,
+        val privacy: String = "PUBLIC",
+        val closeFriends: List<String>? = null,
         val viewsCount: Int = 0,
         val likesCount: Int = 0,
+        val likedBy: List<String> = emptyList(),
         val createdAt: Long = 0,
         val expiresAt: Long = 0
     )

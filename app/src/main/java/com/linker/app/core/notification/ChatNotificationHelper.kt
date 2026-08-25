@@ -135,18 +135,18 @@ object ChatNotificationHelper {
 
         val lastMessageSender = if (isGroupChat && messages.isNotEmpty()) {
             val lastMsg = NotificationMessage.parse(messages.last(), isGroupChat, senderName)
-            if (lastMsg.isFromCurrentUser) "Siz" else lastMsg.senderName
+            if (lastMsg.isFromCurrentUser) context.getString(R.string.notification_sender_you) else lastMsg.senderName
         } else {
             senderName
         }
         
-        val notificationTitle = "Linker • $lastMessageSender size mesaj gönderdi"
+        val notificationTitle = "Linker • " + context.getString(R.string.notification_sent_message, lastMessageSender)
 
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setLargeIcon(largeIcon)
             .setContentTitle(notificationTitle)
-            .setContentText(messages.lastOrNull() ?: "Yeni mesaj")
+            .setContentText(messages.lastOrNull() ?: context.getString(R.string.notification_new_message))
             .setContentIntent(contentPendingIntent)
             .setStyle(messagingStyle)
             .setAutoCancel(true)

@@ -23,10 +23,14 @@ object RootDetector {
 
     private const val CACHE_DURATION_MS = 60_000L // 1 minute
     
+    @Volatile
     private var cachedIsRooted: Boolean? = null
+    @Volatile
     private var lastRootCheckTime = 0L
     
+    @Volatile
     private var cachedIsEmulator: Boolean? = null
+    @Volatile
     private var lastEmulatorCheckTime = 0L
 
     private val SU_PATHS = arrayOf(

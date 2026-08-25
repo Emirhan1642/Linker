@@ -151,6 +151,15 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    fun searchWithQueryAndTab(query: String, tab: SearchTab) {
+        val trimmed = query.trim()
+        _uiState.update { it.copy(query = trimmed, selectedTab = tab, error = null) }
+        if (trimmed.isNotBlank()) {
+            saveRecentSearch(trimmed)
+            executeSearch(trimmed)
+        }
+    }
+
     fun onFollowClick(user: User) {
         viewModelScope.launch {
             val current = _uiState.value.searchResults.firstOrNull { it.userId == user.userId } ?: user

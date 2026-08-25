@@ -1,10 +1,11 @@
 package com.linker.app.core.notification
 
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 object NotificationIdGenerator {
-    private val usedIds = ConcurrentHashMap.newKeySet<Int>()
-    private const val MAX_ATTEMPTS = 10
+    private const val MAX_TRACKED_KEYS = 500
+    private val keyToIdMap = ConcurrentHashMap<String, Int>()
     
     fun generateChatNotificationId(
         recipientId: String,
@@ -12,27 +13,20 @@ object NotificationIdGenerator {
         senderId: String,
         isGroup: Boolean
     ): Int {
-        val branch = if (isGroup) "g|$chatId" else "u|$senderId"
+        val branch = if (isGroup) "group|$chatId" else "user|$senderId"
         val key = "$recipientId|$branch"
         
-        var attempt = 0
-        var id = key.hashCode() and 0x7FFF_FFFE // Keep positive, avoid -1
-        
-        while (usedIds.contains(id) && attempt < MAX_ATTEMPTS) {
-            // Add attempt number to avoid collision
-            id = "$key|$attempt".hashCode() and 0x7FFF_FFFE
-            attempt++
+        return keyToIdMap.getOrPut(key) {
+            if (keyToIdMap.size >= MAX_TRACKED_KEYS) {
+                // Evict oldest entries if map grows excessively
+                keyToIdMap.clear()
+            }
+            val hash = key.hashCode()
+            if (hash == Int.MIN_VALUE) 1 else abs(hash) and 0x7FFF_FFFE
         }
-        
-        if (attempt >= MAX_ATTEMPTS) {
-            NotificationLogger.w("Failed to generate unique notification ID after $MAX_ATTEMPTS attempts")
-        }
-        
-        usedIds.add(id)
-        return id
     }
     
-    fun releaseId(id: Int) {
-        usedIds.remove(id)
+    fun releaseId(key: String) {
+        keyToIdMap.remove(key)
     }
 }

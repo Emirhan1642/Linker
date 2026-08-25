@@ -72,47 +72,59 @@ private object ValidationRateLimiter {
     private const val MAX_VALIDATIONS_PER_WINDOW = 10000
     
     private data class RateLimitInfo(
-        var count: Int = 0,
-        var windowStart: Long = System.currentTimeMillis()
+        val count: java.util.concurrent.atomic.AtomicInteger = java.util.concurrent.atomic.AtomicInteger(0),
+        val windowStart: java.util.concurrent.atomic.AtomicLong = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     )
     
     fun checkRateLimit(validationType: String): Boolean {
         val now = System.currentTimeMillis()
         val rateLimitInfo = validationCounts.getOrPut(validationType) { RateLimitInfo() }
         
-        // Reset window if expired
-        if (now - rateLimitInfo.windowStart > RATE_LIMIT_WINDOW_MS) {
-            rateLimitInfo.count = 0
-            rateLimitInfo.windowStart = now
+        synchronized(rateLimitInfo) {
+            // Reset window if expired
+            if (now - rateLimitInfo.windowStart.get() > RATE_LIMIT_WINDOW_MS) {
+                rateLimitInfo.count.set(0)
+                rateLimitInfo.windowStart.set(now)
+            }
+            
+            val currentCount = rateLimitInfo.count.incrementAndGet()
+            
+            if (currentCount > MAX_VALIDATIONS_PER_WINDOW) {
+                android.util.Log.w("InputValidator", "Rate limit exceeded for $validationType")
+                return false
+            }
+            
+            return true
         }
-        
-        rateLimitInfo.count++
-        
-        if (rateLimitInfo.count > MAX_VALIDATIONS_PER_WINDOW) {
-            android.util.Log.w("InputValidator", "Rate limit exceeded for $validationType")
-            return false
-        }
-        
-        return true
     }
 }
 
-// ── Validation Cache ────────────────────────────────────────────────────
+// ── Validation Cache (Thread-Safe LRU) ───────────────────────────────────
 
 private object ValidationCache {
-    private val emailCache = ConcurrentHashMap<String, Boolean>()
-    private val usernameCache = ConcurrentHashMap<String, ValidationResult>()
     private const val MAX_CACHE_SIZE = 1000
+    
+    private val emailCache: MutableMap<String, Boolean> = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, Boolean>(128, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean {
+                return size > MAX_CACHE_SIZE
+            }
+        }
+    )
+    
+    private val usernameCache: MutableMap<String, ValidationResult> = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, ValidationResult>(128, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ValidationResult>?): Boolean {
+                return size > MAX_CACHE_SIZE
+            }
+        }
+    )
     
     fun getCachedEmailValidation(email: String): Boolean? {
         return emailCache[email]
     }
     
     fun cacheEmailValidation(email: String, isValid: Boolean) {
-        if (emailCache.size >= MAX_CACHE_SIZE) {
-            // Clear oldest entries (simple LRU)
-            emailCache.clear()
-        }
         emailCache[email] = isValid
     }
     
@@ -121,25 +133,36 @@ private object ValidationCache {
     }
     
     fun cacheUsernameValidation(username: String, result: ValidationResult) {
-        if (usernameCache.size >= MAX_CACHE_SIZE) {
-            usernameCache.clear()
-        }
         usernameCache[username] = result
     }
 }
 
 // ── Helper Functions ────────────────────────────────────────────────────
 
+/**
+ * Checks if a password contains 5 or more sequential characters (e.g. "12345" or "abcde").
+ * Short 3-character sequences within longer strong passwords are intentionally permitted.
+ */
 private fun hasSequentialCharacters(password: String): Boolean {
-    for (i in 0 until password.length - 2) {
+    if (password.length < 5) return false
+    var seqAscCount = 1
+    var seqDescCount = 1
+    
+    for (i in 0 until password.length - 1) {
         val char1 = password[i].code
         val char2 = password[i + 1].code
-        val char3 = password[i + 2].code
         
-        // Check for sequential ascending or descending
-        if ((char2 == char1 + 1 && char3 == char2 + 1) ||
-            (char2 == char1 - 1 && char3 == char2 - 1)) {
-            return true
+        if (char2 == char1 + 1) {
+            seqAscCount++
+            seqDescCount = 1
+            if (seqAscCount >= 5) return true
+        } else if (char2 == char1 - 1) {
+            seqDescCount++
+            seqAscCount = 1
+            if (seqDescCount >= 5) return true
+        } else {
+            seqAscCount = 1
+            seqDescCount = 1
         }
     }
     return false
@@ -233,7 +256,7 @@ object InputValidator {
                 ValidationResult(false, "This password is too common. Please choose a stronger password.")
             // ✅ Check for sequential characters
             hasSequentialCharacters(password) -> 
-                ValidationResult(false, "Password cannot contain sequential characters (e.g., 'abc', '123')")
+                ValidationResult(false, "Password cannot contain 5 or more sequential characters (e.g., '12345', 'abcde')")
             // ✅ Check for repeated characters
             hasRepeatedCharacters(password) -> 
                 ValidationResult(false, "Password cannot have more than 3 repeated characters")

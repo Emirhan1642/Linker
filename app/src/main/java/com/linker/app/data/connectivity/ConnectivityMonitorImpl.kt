@@ -67,6 +67,8 @@ class ConnectivityMonitorImpl @Inject constructor(
     
     // Metrics variables
     private val stateChangeCount = AtomicInteger(0)
+    private val onlinePeriodCount = AtomicInteger(0)
+    private val offlinePeriodCount = AtomicInteger(0)
     private val lastStateChangeTime = AtomicLong(0)
     private val onlineTime = AtomicLong(0)
     private val offlineTime = AtomicLong(0)
@@ -172,7 +174,7 @@ class ConnectivityMonitorImpl @Inject constructor(
         }
         
         if (isMonitoring.compareAndSet(false, true)) {
-            runBlocking {
+            coroutineScope.launch {
                 callbackMutex.withLock {
                     try {
                         val request = NetworkRequest.Builder()
@@ -330,6 +332,8 @@ class ConnectivityMonitorImpl @Inject constructor(
     
     override fun resetMetrics() {
         stateChangeCount.set(0)
+        onlinePeriodCount.set(0)
+        offlinePeriodCount.set(0)
         onlineTime.set(0)
         offlineTime.set(0)
         limitedTime.set(0)
@@ -399,8 +403,14 @@ class ConnectivityMonitorImpl @Inject constructor(
         if (lastChange > 0) {
             val duration = now - lastChange
             when (_connectivityState.value) {
-                is ConnectivityState.Online -> onlineTime.addAndGet(duration)
-                is ConnectivityState.Offline -> offlineTime.addAndGet(duration)
+                is ConnectivityState.Online -> {
+                    onlineTime.addAndGet(duration)
+                    onlinePeriodCount.incrementAndGet()
+                }
+                is ConnectivityState.Offline -> {
+                    offlineTime.addAndGet(duration)
+                    offlinePeriodCount.incrementAndGet()
+                }
                 is ConnectivityState.Limited -> limitedTime.addAndGet(duration)
             }
         }
@@ -413,13 +423,15 @@ class ConnectivityMonitorImpl @Inject constructor(
     
     private fun publishMetrics() {
         val total = stateChangeCount.get()
+        val onPeriods = onlinePeriodCount.get()
+        val offPeriods = offlinePeriodCount.get()
         val onTime = onlineTime.get()
         val offTime = offlineTime.get()
         val limTime = limitedTime.get()
         
-        // Simple average calculation logic
-        val avgOn = if (total > 0) onTime / total else 0
-        val avgOff = if (total > 0) offTime / total else 0
+        // Correct per-period average duration calculation
+        val avgOn = if (onPeriods > 0) onTime / onPeriods else if (total > 0 && onTime > 0) onTime else 0L
+        val avgOff = if (offPeriods > 0) offTime / offPeriods else if (total > 0 && offTime > 0) offTime else 0L
         
         _metrics.value = ConnectivityMetrics(
             totalStateChanges = total,

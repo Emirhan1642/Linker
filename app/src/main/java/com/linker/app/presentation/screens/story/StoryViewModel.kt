@@ -134,4 +134,18 @@ class StoryViewModel @Inject constructor(
             reportStoryUseCase(storyId, reason)
         }
     }
+
+    val storyViewers = MutableStateFlow<List<com.linker.app.domain.repository.StoryViewer>>(emptyList())
+    val isLoadingViewers = MutableStateFlow(false)
+
+    fun loadStoryViewers(storyId: String) {
+        viewModelScope.launch {
+            isLoadingViewers.value = true
+            when (val result = storyRepository.getViewers(storyId)) {
+                is Result.Success -> storyViewers.value = result.data
+                else -> storyViewers.value = emptyList()
+            }
+            isLoadingViewers.value = false
+        }
+    }
 }

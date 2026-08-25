@@ -15,6 +15,7 @@ import org.signal.libsignal.protocol.state.KyberPreKeyRecord
 import org.signal.libsignal.protocol.util.KeyHelper
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
@@ -39,6 +40,7 @@ class EncryptionManagerImpl @Inject constructor(
     
     private val initMutex = Mutex()
     private val isInitialized = AtomicBoolean(false)
+    private val kyberKeyCounter = AtomicInteger(0)
     
     override suspend fun initialize() = withContext(Dispatchers.IO) {
         if (isInitialized.get()) return@withContext
@@ -208,11 +210,20 @@ class EncryptionManagerImpl @Inject constructor(
         } catch (e: Exception) {
             emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
         }
-        val maxId = existingPreKeys.maxOfOrNull { record -> record.id } ?: 0
+        var maxId = existingPreKeys.maxOfOrNull { record -> record.id } ?: 0
         
         if (maxId > Int.MAX_VALUE - PRE_KEY_COUNT) {
             cleanupOldPreKeys()
-            return generatePreKeys()
+            val refreshedKeys = try {
+                protocolStore.loadAllPreKeys()
+            } catch (e: Exception) {
+                emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
+            }
+            maxId = refreshedKeys.maxOfOrNull { record -> record.id } ?: 0
+            if (maxId > Int.MAX_VALUE - PRE_KEY_COUNT) {
+                Logger.e(TAG, "PreKey ID space exhausted even after cleanup. Cannot generate more pre-keys.")
+                return
+            }
         }
         
         val startId = maxId + 1
@@ -232,10 +243,6 @@ class EncryptionManagerImpl @Inject constructor(
         val signedPreKey = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
 
         protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKey)
-
-        // NOTE: Kyber pre-key generation is disabled for libsignal 0.86.5
-        // The KyberPreKeyRecord constructor and PreKeyBundle don't support Kyber parameters yet.
-        // Kyber support will be added when libsignal library is updated to support PQXDH.
         
         Logger.d(TAG, "Generated $PRE_KEY_COUNT pre-keys (starting at ID $startId) and 1 signed pre-key")
     }
@@ -276,13 +283,13 @@ class EncryptionManagerImpl @Inject constructor(
         val identityKeyPair = protocolStore.getIdentityKeyPair()
         val registrationId = protocolStore.getLocalRegistrationId()
 
-        // Get the oldest unused pre-key (lowest ID) to hand out, auto-replenish if empty
+        // Get the oldest unused pre-key (lowest ID, FIFO) to hand out, auto-replenish if empty
         var preKeys = protocolStore.loadAllPreKeys()
         if (preKeys.isEmpty()) {
             generatePreKeys()
             preKeys = protocolStore.loadAllPreKeys()
         }
-        val preKeyRecord = preKeys.randomOrNull()
+        val preKeyRecord = preKeys.minByOrNull { it.id }
             ?: throw IllegalStateException("No pre-keys available")
 
         // Note: PreKey is not removed here; libsignal automatically removes/consumes one-time prekeys upon decryption
@@ -295,9 +302,10 @@ class EncryptionManagerImpl @Inject constructor(
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }
             ?: throw IllegalStateException("No signed pre-key available")
 
-        // Generate Kyber pre-key for this bundle and persist in protocolStore
-        // libsignal 0.86.5 requires Kyber parameters in PreKeyBundle
-        val kyberPreKeyId = (System.currentTimeMillis() / 1000).toInt()
+        // Generate Kyber pre-key for this bundle with unique ID
+        val counterSeq = kyberKeyCounter.incrementAndGet() and 0xFFFF
+        val epochSeconds = (System.currentTimeMillis() / 1000).toInt()
+        val kyberPreKeyId = (epochSeconds shl 16) or counterSeq
         val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
         val kyberSignature = identityKeyPair.privateKey.calculateSignature(kyberKeyPair.publicKey.serialize())
         val kyberPreKeyRecord = KyberPreKeyRecord(kyberPreKeyId, System.currentTimeMillis(), kyberKeyPair, kyberSignature)

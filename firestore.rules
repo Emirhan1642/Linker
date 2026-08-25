@@ -130,6 +130,8 @@ service cloud.firestore {
             resource.data.senderId == request.auth.uid
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'content',
+              'mediaUrl',
+              'thumbnailUrl',
               'isEdited',
               'updatedAt',
               'isDeleted',
@@ -141,6 +143,12 @@ service cloud.firestore {
               'readAt',
               'deliveredAt'
             ])
+            && (
+              // If deletedForEveryone is requested, enforce 1-hour window from creation
+              !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deletedForEveryone'])
+              || request.resource.data.deletedForEveryone != true
+              || (request.time.toMillis() - resource.data.createdAt <= 3600000)
+            )
           )
           ||
           // Any participant can update reactions, receipts, and delivery timestamps

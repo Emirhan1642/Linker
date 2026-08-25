@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.linker.app.core.util.Result
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -84,6 +85,8 @@ fun HomeScreen(
     onNavigateBottomNav: (BottomNavItem) -> Unit,
     onNavigateToStoryGrid: () -> Unit = {},
     onNavigateToLinkDetail: (String) -> Unit = {},
+    onNavigateToProfile: (userId: String) -> Unit = {},
+    onNavigateToSearch: (query: String, tab: com.linker.app.presentation.screens.search.SearchTab) -> Unit = { _, _ -> },
     showBottomBar: Boolean = true,
     viewModel: HomeViewModel = hiltViewModel()
 ) {
@@ -139,7 +142,7 @@ fun HomeScreen(
                         onDragStart = { totalHorizontalDrag = 0f },
                         onHorizontalDrag = { change, dragAmount ->
                             totalHorizontalDrag += dragAmount
-                            if (totalHorizontalDrag < -80f) {
+                            if (totalHorizontalDrag < -50f) {
                                 change.consume()
                                 totalHorizontalDrag = 0f
                                 onNavigateToStoryGrid()
@@ -161,12 +164,15 @@ fun HomeScreen(
                             link = link,
                             isCurrentPage = pagerState.currentPage == page,
                             onZoomStateChanged = { isAnyItemZooming = it },
+                            onNavigateToProfile = onNavigateToProfile,
+                            onNavigateToSearch = onNavigateToSearch,
                             onLikeClick = { viewModel.toggleLike(link.linkId) },
                             onSaveClick = { viewModel.toggleSave(link.linkId) },
                             onRelinkClick = { viewModel.toggleRelink(link.linkId) },
                             onCommentClick = { activeCommentLinkId = link.linkId },
                             onNotInterested = { viewModel.hidePost(link.linkId) },
-                            onHideUser = { viewModel.hideUserPosts(link.author.userId) }
+                            onHideUser = { viewModel.hideUserPosts(link.author.userId) },
+                            viewModel = viewModel
                         )
                     }
                 }
@@ -338,12 +344,15 @@ fun FeedItemView(
     link: Link,
     isCurrentPage: Boolean = true,
     onZoomStateChanged: (Boolean) -> Unit = {},
+    onNavigateToProfile: (String) -> Unit = {},
+    onNavigateToSearch: (String, com.linker.app.presentation.screens.search.SearchTab) -> Unit = { _, _ -> },
     onLikeClick: () -> Unit = {},
     onSaveClick: () -> Unit = {},
     onRelinkClick: () -> Unit = {},
     onCommentClick: () -> Unit = {},
     onNotInterested: () -> Unit = {},
-    onHideUser: () -> Unit = {}
+    onHideUser: () -> Unit = {},
+    viewModel: HomeViewModel = hiltViewModel()
 ) {
     var showHeartOverlay by remember { mutableStateOf(false) }
     var showOptionsBottomSheet by remember { mutableStateOf(false) }
@@ -365,6 +374,8 @@ fun FeedItemView(
     if (!hasMedia) {
         TextFeedItemView(
             link = link,
+            onNavigateToProfile = onNavigateToProfile,
+            onNavigateToSearch = onNavigateToSearch,
             onLikeClick = onLikeClick,
             onCommentClick = onCommentClick,
             onRelinkClick = onRelinkClick,
@@ -646,83 +657,137 @@ fun FeedItemView(
                     }
                 }
 
-                // Post caption & author info
+                // Post caption & author info (Modern transparent floating overlay)
+                var isDescriptionExpanded by remember { mutableStateOf(false) }
+
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(start = 16.dp, end = 80.dp, bottom = 90.dp)
+                        .navigationBarsPadding()
+                        .padding(start = 16.dp, end = 84.dp, bottom = 78.dp)
                 ) {
-                    Box(
+                    // 1. Author Row: Avatar + Username + Verified + Location + Date
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(DarkGrayTransparent)
-                            .border(1.dp, GlassCardBorder, RoundedCornerShape(16.dp))
-                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .clickable { onNavigateToProfile(link.author.userId) }
+                            .padding(vertical = 4.dp)
                     ) {
+                        LinkerAvatar(
+                            imageUrl = link.author.profileImageUrl,
+                            size = 38.dp,
+                            storyState = StoryState.NONE
+                        )
+
                         Column {
-                            // Author & Location & AI Badges
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
                                     text = "@${link.author.username}",
-                                    color = LinkerPrimary,
-                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
                                     fontSize = 15.sp
                                 )
-
-                                if (link.isAiGenerated) {
-                                    Box(
+                                if (link.author.isVerified) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Doğrulanmış",
+                                        tint = GradientBlue,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                if (!link.location.isNullOrBlank()) {
+                                    Text(
+                                        text = "•",
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontSize = 12.sp
+                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(LinkerPrimary.copy(alpha = 0.2f))
-                                            .border(0.8.dp, LinkerPrimary.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .clickable { onNavigateToSearch(link.location, com.linker.app.presentation.screens.search.SearchTab.LINKS) }
                                     ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationOn,
+                                            contentDescription = "Konum",
+                                            tint = GradientBlue,
+                                            modifier = Modifier.size(12.dp)
+                                        )
                                         Text(
-                                            text = "✨ Yapay Zeka",
-                                            color = LinkerPrimary,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold
+                                            text = link.location,
+                                            color = Color.White.copy(alpha = 0.85f),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            maxLines = 1,
+                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                         )
                                     }
                                 }
                             }
 
-                            // Location
-                            if (!link.location.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.LocationOn,
-                                        contentDescription = "Konum",
-                                        tint = GradientBlue,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Text(
-                                        text = link.location,
-                                        color = GradientBlue,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
+                            val minutesAgo = ((System.currentTimeMillis() - link.createdAt) / 60_000).toInt()
+                            val timeText = when {
+                                minutesAgo < 1 -> "Az önce"
+                                minutesAgo < 60 -> "$minutesAgo dk önce"
+                                minutesAgo < 1440 -> "${minutesAgo / 60} sa önce"
+                                else -> "${minutesAgo / 1440} g önce"
                             }
+                            Text(
+                                text = timeText,
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
 
-                            // Description with Highlighted #hashtags and @mentions
-                            if (!link.description.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                com.linker.app.presentation.components.LinkerFormattedText(
-                                    text = link.description,
-                                    color = Color.White.copy(alpha = 0.95f),
-                                    fontSize = 14.sp,
-                                    maxLines = 3,
-                                    lineHeight = 19.sp
-                                )
-                            }
+                    // 2. Description (Expandable, clickable tags/mentions)
+                    if (!link.description.isNullOrBlank()) {
+                        val coroutineScope = rememberCoroutineScope()
+                        Spacer(modifier = Modifier.height(4.dp))
+                        com.linker.app.presentation.components.LinkerFormattedText(
+                            text = link.description,
+                            color = Color.White.copy(alpha = 0.95f),
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp,
+                            maxLines = if (isDescriptionExpanded) Int.MAX_VALUE else 3,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            onHashtagClick = { tag ->
+                                val clean = tag.removePrefix("#").trim()
+                                onNavigateToSearch("#$clean", com.linker.app.presentation.screens.search.SearchTab.LINKS)
+                            },
+                            onMentionClick = { mention ->
+                                val clean = mention.removePrefix("@").trim()
+                                coroutineScope.launch {
+                                    when (val res = viewModel.getUserByUsername(clean)) {
+                                        is Result.Success -> onNavigateToProfile(res.data.userId)
+                                        else -> onNavigateToSearch(clean, com.linker.app.presentation.screens.search.SearchTab.USERS)
+                                    }
+                                }
+                            },
+                            onClick = { isDescriptionExpanded = !isDescriptionExpanded }
+                        )
+                    }
+
+                    // 3. AI Info Chip
+                    if (link.isAiGenerated) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.Black.copy(alpha = 0.5f))
+                                .border(0.8.dp, LinkerPrimary.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                text = "✨ Yapay Zeka",
+                                color = LinkerPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -957,16 +1022,20 @@ fun ActionButton(
 @Composable
 fun TextFeedItemView(
     link: Link,
+    onNavigateToProfile: (String) -> Unit = {},
+    onNavigateToSearch: (String, com.linker.app.presentation.screens.search.SearchTab) -> Unit = { _, _ -> },
     onLikeClick: () -> Unit,
     onCommentClick: () -> Unit,
     onRelinkClick: () -> Unit,
     onSaveClick: () -> Unit,
     onNotInterested: () -> Unit,
     onHideUser: () -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
     modifier: Modifier = Modifier
 ) {
     var showHeartOverlay by remember { mutableStateOf(false) }
     var showOptionsBottomSheet by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     Box(
         modifier = modifier
@@ -1037,7 +1106,8 @@ fun TextFeedItemView(
                     // Author Header Row
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.clickable { onNavigateToProfile(link.author.userId) }
                     ) {
                         LinkerAvatar(
                             imageUrl = link.author.profileImageUrl,
@@ -1101,6 +1171,7 @@ fun TextFeedItemView(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(GradientBlue.copy(alpha = 0.12f))
+                                .clickable { onNavigateToSearch(link.location, com.linker.app.presentation.screens.search.SearchTab.LINKS) }
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Icon(
@@ -1138,7 +1209,20 @@ fun TextFeedItemView(
                         color = Color.White.copy(alpha = 0.95f),
                         fontSize = textFontSize,
                         lineHeight = textLineHeight,
-                        maxLines = 14
+                        maxLines = 14,
+                        onHashtagClick = { tag ->
+                            val clean = tag.removePrefix("#").trim()
+                            onNavigateToSearch("#$clean", com.linker.app.presentation.screens.search.SearchTab.LINKS)
+                        },
+                        onMentionClick = { mention ->
+                            val clean = mention.removePrefix("@").trim()
+                            coroutineScope.launch {
+                                when (val res = viewModel.getUserByUsername(clean)) {
+                                    is Result.Success -> onNavigateToProfile(res.data.userId)
+                                    else -> onNavigateToSearch(clean, com.linker.app.presentation.screens.search.SearchTab.USERS)
+                                }
+                            }
+                        }
                     )
 
                     Spacer(modifier = Modifier.height(18.dp))

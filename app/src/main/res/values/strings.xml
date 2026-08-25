@@ -451,4 +451,9 @@
     <string name="user_profile_relinks">Relinks</string>
     <string name="user_profile_requested">Requested</string>
 
+    <!-- Notification Strings -->
+    <string name="notification_sent_message">%1$s sent you a message</string>
+    <string name="notification_sender_you">You</string>
+    <string name="notification_new_message">New message</string>
+
 </resources>

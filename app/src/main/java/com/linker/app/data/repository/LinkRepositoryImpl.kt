@@ -374,23 +374,30 @@ class LinkRepositoryImpl @Inject constructor(
     }
 
     override suspend fun toggleLike(linkId: String): Result<Boolean> = safeCall {
-        val entity = linkDao.getLinkById(linkId) ?: throw Exception("Link not found")
-        val newLiked = !entity.isLiked
-        val delta = if (newLiked) 1 else -1
-        linkDao.updateLikeStatus(linkId, newLiked, delta)
-        
         val currentUserId = auth.currentUser?.uid
+        val entity = linkDao.getLinkById(linkId)
+        val newLiked = if (entity != null) !entity.isLiked else true
+        val delta = if (newLiked) 1 else -1
+
+        if (entity != null) {
+            linkDao.updateLikeStatus(linkId, newLiked, delta)
+        }
+        
         if (currentUserId != null) {
             try {
                 val linkRef = firestore.collection("links").document(linkId)
                 val likeRef = linkRef.collection("likes").document(currentUserId)
-                if (newLiked) {
+                val isCurrentlyLiked = likeRef.get().await().exists()
+                val targetLiked = !isCurrentlyLiked
+
+                if (targetLiked) {
                     likeRef.set(mapOf("likedAt" to System.currentTimeMillis())).await()
                     linkRef.update("likesCount", com.google.firebase.firestore.FieldValue.increment(1)).await()
                 } else {
                     likeRef.delete().await()
                     linkRef.update("likesCount", com.google.firebase.firestore.FieldValue.increment(-1)).await()
                 }
+                return@safeCall targetLiked
             } catch (e: Exception) {
                 android.util.Log.w("LinkRepositoryImpl", "Remote like sync failed: ${e.message}")
             }
@@ -399,17 +406,65 @@ class LinkRepositoryImpl @Inject constructor(
     }
 
     override suspend fun toggleSave(linkId: String): Result<Boolean> = safeCall {
-        val entity = linkDao.getLinkById(linkId) ?: throw Exception("Link not found")
-        val newSaved = !entity.isSaved
-        linkDao.updateSaveStatus(linkId, newSaved)
+        val currentUserId = auth.currentUser?.uid
+        val entity = linkDao.getLinkById(linkId)
+        val newSaved = if (entity != null) !entity.isSaved else true
+        
+        if (entity != null) {
+            linkDao.updateSaveStatus(linkId, newSaved)
+        }
+
+        if (currentUserId != null) {
+            try {
+                val userSavedRef = firestore.collection("users").document(currentUserId).collection("savedLinks").document(linkId)
+                val linkRef = firestore.collection("links").document(linkId)
+                val isCurrentlySaved = userSavedRef.get().await().exists()
+                val targetSaved = !isCurrentlySaved
+
+                if (targetSaved) {
+                    userSavedRef.set(mapOf("savedAt" to System.currentTimeMillis())).await()
+                    linkRef.update("savesCount", com.google.firebase.firestore.FieldValue.increment(1)).await()
+                } else {
+                    userSavedRef.delete().await()
+                    linkRef.update("savesCount", com.google.firebase.firestore.FieldValue.increment(-1)).await()
+                }
+                return@safeCall targetSaved
+            } catch (e: Exception) {
+                android.util.Log.w("LinkRepositoryImpl", "Remote save sync failed: ${e.message}")
+            }
+        }
         newSaved
     }
 
     override suspend fun toggleRelink(linkId: String): Result<Boolean> = safeCall {
-        val entity = linkDao.getLinkById(linkId) ?: throw Exception("Link not found")
-        val newRelinked = !entity.isRelinked
+        val currentUserId = auth.currentUser?.uid
+        val entity = linkDao.getLinkById(linkId)
+        val newRelinked = if (entity != null) !entity.isRelinked else true
         val delta = if (newRelinked) 1 else -1
-        linkDao.updateRelinkStatus(linkId, newRelinked, delta)
+
+        if (entity != null) {
+            linkDao.updateRelinkStatus(linkId, newRelinked, delta)
+        }
+
+        if (currentUserId != null) {
+            try {
+                val linkRef = firestore.collection("links").document(linkId)
+                val relinkRef = linkRef.collection("relinks").document(currentUserId)
+                val isCurrentlyRelinked = relinkRef.get().await().exists()
+                val targetRelinked = !isCurrentlyRelinked
+
+                if (targetRelinked) {
+                    relinkRef.set(mapOf("relinkedAt" to System.currentTimeMillis())).await()
+                    linkRef.update("relinksCount", com.google.firebase.firestore.FieldValue.increment(1)).await()
+                } else {
+                    relinkRef.delete().await()
+                    linkRef.update("relinksCount", com.google.firebase.firestore.FieldValue.increment(-1)).await()
+                }
+                return@safeCall targetRelinked
+            } catch (e: Exception) {
+                android.util.Log.w("LinkRepositoryImpl", "Remote relink sync failed: ${e.message}")
+            }
+        }
         newRelinked
     }
 

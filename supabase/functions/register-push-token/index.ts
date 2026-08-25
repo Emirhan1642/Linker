@@ -40,11 +40,18 @@ Deno.serve(async (req) => {
     }
 
     const body = (await req.json()) as RequestBody;
-    if (!body.user_id || !body.fcm_token) {
-      return new Response("Missing required fields", { status: 400, headers: corsHeaders });
+    const userId = body.user_id?.trim();
+    const fcmToken = body.fcm_token?.trim();
+    const platform = body.platform?.trim();
+
+    if (!userId || !fcmToken || fcmToken.length < 10) {
+      return new Response(JSON.stringify({ error: "Missing or invalid required fields (user_id, fcm_token)" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    await upsertFcmToken(body.user_id, body.fcm_token, body.platform);
+    await upsertFcmToken(userId, fcmToken, platform);
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,

@@ -142,35 +142,39 @@ class MessageBatcher @Inject constructor(
         }
     }
     
+    private val batchLock = Any()
+
     /**
      * Flush the current batch immediately.
      * 
      * Sends all queued messages to the callback.
      */
     fun flushBatch() {
-        // Cancel any pending timeout flush
-        flushJob?.cancel()
-        flushJob = null
+        synchronized(batchLock) {
+            // Cancel any pending timeout flush
+            flushJob?.cancel()
+            flushJob = null
 
-        if (messageQueue.isEmpty()) {
-            return
-        }
-
-        // Collect all messages from queue
-        val batch = mutableListOf<BLEPacket>()
-        while (messageQueue.isNotEmpty()) {
-            messageQueue.poll()?.let { batch.add(it) }
-        }
-
-        if (batch.isNotEmpty()) {
-            Log.d(TAG, "Flushing batch of ${batch.size} messages")
-            val callback = onBatchReady
-            if (callback == null) {
-                Log.w(TAG, "onBatchReady callback is null – restoring ${batch.size} messages to queue!")
-                batch.forEach { messageQueue.offer(it) }
+            if (messageQueue.isEmpty()) {
                 return
             }
-            callback.invoke(batch)
+
+            // Collect all messages from queue
+            val batch = mutableListOf<BLEPacket>()
+            while (messageQueue.isNotEmpty()) {
+                messageQueue.poll()?.let { batch.add(it) }
+            }
+
+            if (batch.isNotEmpty()) {
+                Log.d(TAG, "Flushing batch of ${batch.size} messages")
+                val callback = onBatchReady
+                if (callback == null) {
+                    Log.w(TAG, "onBatchReady callback is null – restoring ${batch.size} messages to queue!")
+                    batch.forEach { messageQueue.offer(it) }
+                    return
+                }
+                callback.invoke(batch)
+            }
         }
     }
     

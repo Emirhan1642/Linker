@@ -62,6 +62,7 @@ class FragmentManager(
             FragmentSet()
         }
         
+        var payload: ByteArray? = null
         // Add fragment if not already present
         synchronized(fragmentSet) {
             val existingFragment = fragmentSet.fragments.find { 
@@ -74,13 +75,6 @@ class FragmentManager(
                 logger.d("Added fragment ${fragment.fragmentIndex} for message $messageId")
             }
             
-            // Reschedule sliding window timeout
-            fragmentSet.timeoutJob?.cancel()
-            fragmentSet.timeoutJob = coroutineScope.launch {
-                delay(fragmentTimeout)
-                cleanupMessage(messageId)
-            }
-            
             // Check if complete
             if (packetFragmenter.isComplete(fragmentSet.fragments)) {
                 // Cancel timeout
@@ -88,14 +82,20 @@ class FragmentManager(
                 fragmentSet.timeoutJob = null
                 
                 // Reassemble and remove from store
-                val payload = packetFragmenter.reassemble(fragmentSet.fragments)
+                payload = packetFragmenter.reassemble(fragmentSet.fragments)
                 fragmentStore.remove(messageId)
                 logger.d("Message $messageId reassembled successfully, fragments removed")
-                return payload
+            } else {
+                // Reschedule sliding window timeout
+                fragmentSet.timeoutJob?.cancel()
+                fragmentSet.timeoutJob = coroutineScope.launch {
+                    delay(fragmentTimeout)
+                    cleanupMessage(messageId)
+                }
             }
         }
         
-        return null
+        return payload
     }
     
     /**

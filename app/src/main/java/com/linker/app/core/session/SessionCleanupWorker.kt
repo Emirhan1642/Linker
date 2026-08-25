@@ -42,11 +42,11 @@ class SessionCleanupWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         val startTime = System.currentTimeMillis()
 
-        // [4.4] Read retry count from inputData
-        val retryCount = inputData.getInt(KEY_RETRY_COUNT, 0)
+        // Use WorkManager's built-in runAttemptCount to accurately track retries
+        val retryCount = runAttemptCount
 
         return try {
-            Log.d(TAG, "Starting session cleanup (attempt ${retryCount + 1})")  // [4.6]
+            Log.d(TAG, "Starting session cleanup (attempt ${retryCount + 1})")
 
             // [4.2] Get metrics before cleanup
             val sessionsBefore = hybridAccountManager.getActiveSessionCount()

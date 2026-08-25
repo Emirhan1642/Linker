@@ -71,6 +71,7 @@ class MessageRepositoryImpl @Inject constructor(
 
     private val chatsCollection = firestore.collection("chats")
     private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private val gson = com.google.gson.Gson()
     
     // Global message listener for caching all messages
     private var globalMessageListener: com.google.firebase.firestore.ListenerRegistration? = null
@@ -373,7 +374,7 @@ class MessageRepositoryImpl @Inject constructor(
 
             // Sync with Firestore if offline
             if (!isConnected) {
-                syncOfflineMessageToFirestore(chatId, messageId, content, participantIds, now)
+                syncOfflineMessageToFirestore(chatId, messageId, messageType, content, replyToNote, participantIds, now)
             }
 
             // Send notifications
@@ -557,7 +558,7 @@ class MessageRepositoryImpl @Inject constructor(
             mediaDuration = null,
             sharedLinkId = null,
             replyToMessageId = replyToMessageId,
-            replyToNoteJson = replyToNote?.let { com.google.gson.Gson().toJson(it) },
+            replyToNoteJson = replyToNote?.let { gson.toJson(it) },
             forwardedFromMessageId = null,
             reactions = emptyMap(),
             isEdited = false,
@@ -598,7 +599,7 @@ class MessageRepositoryImpl @Inject constructor(
                 isDeleted = message.isDeleted,
                 deletedForEveryone = message.deletedForEveryone,
                 replyToMessageId = message.replyToMessage?.messageId,
-                replyToNoteJson = message.replyToNote?.let { com.google.gson.Gson().toJson(it) },
+                replyToNoteJson = message.replyToNote?.let { gson.toJson(it) },
                 reactions = message.reactions,
                 readAt = message.readAt,
                 deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
@@ -627,7 +628,9 @@ class MessageRepositoryImpl @Inject constructor(
     private suspend fun syncOfflineMessageToFirestore(
         chatId: String,
         messageId: String,
+        messageType: MessageType,
         content: String?,
+        replyToNote: com.linker.app.domain.model.NoteReference?,
         participantIds: List<String>,
         now: Long
     ) {
@@ -639,7 +642,7 @@ class MessageRepositoryImpl @Inject constructor(
                 messageId = messageId,
                 chatId = chatId,
                 senderId = currentUserId,
-                messageType = MessageType.TEXT,
+                messageType = messageType,
                 content = content,
                 mediaUrl = null,
                 thumbnailUrl = null,
@@ -654,7 +657,7 @@ class MessageRepositoryImpl @Inject constructor(
                 messageStatus = MessageStatus.SENDING,
                 createdAt = now,
                 updatedAt = now,
-                replyToNote = null
+                replyToNote = replyToNote
             )
             
             val messageWithDelivery = messageData.toMutableMap()
@@ -966,13 +969,15 @@ class MessageRepositoryImpl @Inject constructor(
         chatsCollection.document(chatId)
             .update("unreadCounts.$currentUserId", 0)
             .await()
-        // Mark all unread messages as READ
-        val allMessages = messagesRef(chatId)
+        // Mark unread messages as READ (bound to recent messages to prevent excessive reads)
+        val recentMessages = messagesRef(chatId)
             .whereEqualTo("isDeleted", false)
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(100)
             .get()
             .await()
         val updatesToMake = mutableListOf<com.google.firebase.firestore.DocumentReference>()
-        for (doc in allMessages.documents) {
+        for (doc in recentMessages.documents) {
             val senderId = doc.getString("senderId")
             if (senderId == currentUserId) continue
             val status = doc.getString("messageStatus")
@@ -1108,7 +1113,7 @@ class MessageRepositoryImpl @Inject constructor(
                     createdAt = messageEntity.createdAt,
                     updatedAt = now,
                     replyToNote = messageEntity.replyToNoteJson?.let { 
-                        try { com.google.gson.Gson().fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
+                        try { gson.fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
                         catch(e: Exception) { null } 
                     }
                 )
@@ -1327,7 +1332,7 @@ class MessageRepositoryImpl @Inject constructor(
             sharedLink = null,
             replyToMessage = replyStub,
             replyToNote = entity.replyToNoteJson?.let { 
-                try { com.google.gson.Gson().fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
+                try { gson.fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
                 catch(e: Exception) { null } 
             },
             reactions = entity.reactions,

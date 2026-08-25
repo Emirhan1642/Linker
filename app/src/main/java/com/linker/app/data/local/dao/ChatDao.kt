@@ -13,6 +13,9 @@ interface ChatDao {
     @Query("SELECT * FROM chats WHERE chatId = :chatId")
     suspend fun getChatById(chatId: String): ChatEntity?
     
+    @Query("SELECT * FROM chats WHERE chatType = 'PRIVATE' AND participantIds LIKE '%' || :userId1 || '%' AND participantIds LIKE '%' || :userId2 || '%' LIMIT 1")
+    suspend fun findPrivateChat(userId1: String, userId2: String): ChatEntity?
+    
     @Query("SELECT * FROM chats")
     suspend fun getAllChats(): List<ChatEntity>
     

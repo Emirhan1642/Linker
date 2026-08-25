@@ -23,7 +23,8 @@ class CredentialEncoder @Inject constructor() {
         private const val IV_LENGTH = 12
         private const val TAG_LENGTH = 128
         
-        // Rate limiting
+        // Rate limiting (thread-safe)
+        private val rateLimitLock = Any()
         private val rateLimitTimes = mutableListOf<Long>()
         private const val RATE_LIMIT_WINDOW = 60000L // 1 minute
         private const val MAX_ATTEMPTS = 30
@@ -56,15 +57,17 @@ class CredentialEncoder @Inject constructor() {
 
     private fun checkRateLimit() {
         val now = System.currentTimeMillis()
-        rateLimitTimes.add(now)
-        rateLimitTimes.removeAll { now - it > RATE_LIMIT_WINDOW }
-        
-        if (rateLimitTimes.size > MAX_ATTEMPTS) {
-            SecurityLogger.logEvent(
-                SecurityLogger.EventType.SUSPICIOUS_ACTIVITY,
-                "Credential encoder rate limit exceeded"
-            )
-            throw SecurityException("Rate limit exceeded")
+        synchronized(rateLimitLock) {
+            rateLimitTimes.add(now)
+            rateLimitTimes.removeAll { now - it > RATE_LIMIT_WINDOW }
+            
+            if (rateLimitTimes.size > MAX_ATTEMPTS) {
+                SecurityLogger.logEvent(
+                    SecurityLogger.EventType.SUSPICIOUS_ACTIVITY,
+                    "Credential encoder rate limit exceeded"
+                )
+                throw SecurityException("Rate limit exceeded")
+            }
         }
     }
 
@@ -152,8 +155,8 @@ class CredentialEncoder @Inject constructor() {
             val buffer = ByteBuffer.wrap(decodedData)
             
             val ivLength = buffer.getInt()
-            if (ivLength < 0 || ivLength > 16) {
-                throw IllegalArgumentException("Invalid IV length")
+            if (ivLength != IV_LENGTH) {
+                throw IllegalArgumentException("Invalid IV length: expected $IV_LENGTH bytes, got $ivLength")
             }
             
             val iv = ByteArray(ivLength)
@@ -204,6 +207,14 @@ class CredentialEncoder @Inject constructor() {
         }
     }
 
+    /**
+     * Decodes credential into String password.
+     * Note: Prefer using `decode()` with CharArray to prevent sensitive passwords lingering in memory.
+     */
+    @Deprecated(
+        message = "Use decode() returning CharArray for secure memory handling",
+        replaceWith = ReplaceWith("decode(encoded)")
+    )
     fun decodeToString(encoded: String): Pair<String, String> {
         val (email, passwordChars) = decode(encoded)
         val password = String(passwordChars)
@@ -216,7 +227,7 @@ class CredentialEncoder @Inject constructor() {
             val decodedData = Base64.decode(encoded, Base64.NO_WRAP)
             val buffer = ByteBuffer.wrap(decodedData)
             val ivLength = buffer.getInt()
-            ivLength in 0..16
+            ivLength == IV_LENGTH
         } catch (e: Exception) {
             false
         }

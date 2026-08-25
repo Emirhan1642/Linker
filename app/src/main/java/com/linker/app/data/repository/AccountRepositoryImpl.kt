@@ -195,16 +195,14 @@ class AccountRepositoryImpl @Inject constructor(
                 ?: throw IllegalStateException("Session bulunamadı: uid=$uid")
 
             val plainBytes = decryptWithKeystore(dto.encryptedToken)
-            var emailBytes: ByteArray? = null
-            var passwordBytes: ByteArray? = null
+            var passwordChars: CharArray? = null
 
             try {
-                // ✅ SECURITY: Use CredentialEncoder for delimiter-free decoding
+                // ✅ SECURITY: Use CredentialEncoder for delimiter-free decoding with CharArray
                 val credential = String(plainBytes, Charsets.UTF_8)
-                val (emailStr, passwordStr) = credentialEncoder.decodeToString(credential)
-                
-                emailBytes = emailStr.toByteArray(Charsets.UTF_8)
-                passwordBytes = passwordStr.toByteArray(Charsets.UTF_8)
+                val (emailStr, passChars) = credentialEncoder.decode(credential)
+                passwordChars = passChars
+                val passwordStr = String(passwordChars)
 
                 firebaseAuth.signInWithEmailAndPassword(emailStr, passwordStr).await()
                 Log.d(TAG, "switchToAccount: giriş başarılı uid=$uid")
@@ -213,9 +211,7 @@ class AccountRepositoryImpl @Inject constructor(
                 pushTokenRegistrar.registerCurrentToken()
             } finally {
                 plainBytes.fill(0)
-                emailBytes?.fill(0)
-                passwordBytes?.fill(0)
-                System.gc()
+                passwordChars?.fill('\u0000')
             }
 
             val updated = sessions.toMutableList()
@@ -322,12 +318,15 @@ class AccountRepositoryImpl @Inject constructor(
                 ?: return@withContext null
             
             val plainBytes = decryptWithKeystore(dto.encryptedToken)
+            var passwordChars: CharArray? = null
             try {
                 val credential = String(plainBytes, Charsets.UTF_8)
-                val (email, password) = credentialEncoder.decodeToString(credential)
-                return@withContext Pair(email, password)
+                val (email, passChars) = credentialEncoder.decode(credential)
+                passwordChars = passChars
+                return@withContext Pair(email, String(passwordChars))
             } finally {
                 plainBytes.fill(0)
+                passwordChars?.fill('\u0000')
             }
         } catch (e: Exception) {
             Log.e(TAG, "getDecryptedCredentials failed for uid=$uid: ${e.message}", e)

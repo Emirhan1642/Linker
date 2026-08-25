@@ -64,6 +64,15 @@ fun LinkEditorScreen(
         }
     }
 
+    val appendMediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.appendMedia(uris)
+        }
+    }
+
+    val mediaFitModes = remember { mutableStateMapOf<String, Boolean>() }
     var showLocationPicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(linkId, initialDescription) {
@@ -196,22 +205,37 @@ fun LinkEditorScreen(
                     val context = androidx.compose.ui.platform.LocalContext.current
                     HorizontalPager(
                         state = pagerState,
+                        key = { uiState.mediaUris.getOrNull(it)?.toString() ?: it.toString() },
                         modifier = Modifier.fillMaxSize()
                     ) { page ->
                         val uri = uiState.mediaUris[page]
+                        val uriKey = uri.toString()
+                        val isPageFit = mediaFitModes[uriKey] ?: false
                         val isVideo = com.linker.app.core.util.MediaUtils.isVideoUri(context, uri)
+                        val isCurrentPage = pagerState.currentPage == page
                         Box(modifier = Modifier.fillMaxSize()) {
                             if (isVideo) {
-                                com.linker.app.presentation.screens.home.VideoPlayerView(
-                                    videoUrl = uri.toString(),
-                                    isPlaying = pagerState.currentPage == page,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                if (isCurrentPage) {
+                                    com.linker.app.presentation.screens.home.VideoPlayerView(
+                                        videoUrl = uri.toString(),
+                                        isPlaying = true,
+                                        resizeMode = if (isPageFit) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                                     else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    AsyncImage(
+                                        model = uri,
+                                        contentDescription = "Selected Video",
+                                        contentScale = if (isPageFit) ContentScale.Fit else ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             } else {
                                 AsyncImage(
                                     model = uri,
                                     contentDescription = "Selected Media",
-                                    contentScale = ContentScale.Crop,
+                                    contentScale = if (isPageFit) ContentScale.Fit else ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             }
@@ -238,6 +262,31 @@ fun LinkEditorScreen(
                         }
                     }
 
+                    // Fit vs Crop Toggle Button (Toggles active page's media mode)
+                    val activeUriKey = uiState.mediaUris.getOrNull(pagerState.currentPage)?.toString()
+                    val isActiveFit = activeUriKey?.let { mediaFitModes[it] } ?: false
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Black.copy(alpha = 0.75f))
+                            .border(1.dp, GlassCardBorder, RoundedCornerShape(12.dp))
+                            .bouncyClick {
+                                if (activeUriKey != null) {
+                                    mediaFitModes[activeUriKey] = !isActiveFit
+                                }
+                            }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = if (isActiveFit) "📐 Sığdır" else "✂️ Kırp",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
                     // Add more media button
                     Box(
                         modifier = Modifier
@@ -247,7 +296,7 @@ fun LinkEditorScreen(
                             .background(Black.copy(alpha = 0.75f))
                             .border(1.dp, GlassCardBorder, RoundedCornerShape(12.dp))
                             .bouncyClick {
-                                mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
+                                appendMediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                             }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
