@@ -1,14 +1,18 @@
 package com.linker.app.presentation.screens.story
 
+import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.linker.app.R
+import com.linker.app.core.util.MediaUtils
 import com.linker.app.core.util.Result
 import com.linker.app.domain.model.StoryMediaType
 import com.linker.app.domain.repository.StoryPrivacy
 import com.linker.app.domain.repository.StoryRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,7 +33,8 @@ data class StoryEditorUiState(
 
 @HiltViewModel
 class StoryEditorViewModel @Inject constructor(
-    private val storyRepository: StoryRepository
+    private val storyRepository: StoryRepository,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StoryEditorUiState())
@@ -57,6 +62,7 @@ class StoryEditorViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 selectedMediaUri = null,
+                mediaType = StoryMediaType.IMAGE,
                 caption = "",
                 error = null
             )
@@ -66,8 +72,18 @@ class StoryEditorViewModel @Inject constructor(
     fun publishStory() {
         val uri = _uiState.value.selectedMediaUri
         if (uri == null) {
-            _uiState.update { it.copy(error = "Lütfen bir fotoğraf veya video seçin") }
+            _uiState.update { it.copy(error = context.getString(R.string.link_editor_error_empty)) }
             return
+        }
+
+        // Validate video duration
+        if (_uiState.value.mediaType == StoryMediaType.VIDEO) {
+            val durationSeconds = MediaUtils.getVideoDurationSeconds(context, uri.toString())
+            val maxAllowed = StoryMediaType.VIDEO.maxDurationSeconds ?: 60
+            if (durationSeconds != null && durationSeconds > maxAllowed) {
+                _uiState.update { it.copy(error = context.getString(R.string.story_editor_video_max_duration)) }
+                return
+            }
         }
 
         viewModelScope.launch {
@@ -91,3 +107,4 @@ class StoryEditorViewModel @Inject constructor(
         }
     }
 }
+

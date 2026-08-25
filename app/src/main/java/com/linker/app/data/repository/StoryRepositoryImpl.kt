@@ -60,7 +60,7 @@ class StoryRepositoryImpl @Inject constructor(
             .orderBy("expiresAt", Query.Direction.ASCENDING)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
-                    trySend(Result.Success(emptyList()))
+                    trySend(Result.Error(error.message ?: "Hikayeler yüklenirken hata oluştu"))
                     return@addSnapshotListener
                 }
 
@@ -324,7 +324,7 @@ class StoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markStoryAsViewed(storyId: String): Result<Unit> = RetryUtil.retrySafeCall {
-        val currentUserId = auth.currentUser?.uid ?: "local_user"
+        val currentUserId = auth.currentUser?.uid ?: return@retrySafeCall
 
         if (viewedStoriesCache.contains(storyId)) {
             return@retrySafeCall
@@ -479,7 +479,7 @@ class StoryRepositoryImpl @Inject constructor(
 
         // 2. Send direct message in chat with story author
         try {
-            val chatId = if (currentUserId < authorId) "${currentUserId}_${authorId}" else "${authorId}_${currentUserId}"
+            val chatId = com.linker.app.core.util.ChatUtils.getPrivateChatId(currentUserId, authorId)
             val messageId = UUID.randomUUID().toString()
             val messageText = "📷 Hikayeye yanıt verdi: $content"
             

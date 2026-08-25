@@ -134,42 +134,33 @@ class NoteEditorViewModel @Inject constructor(
             when (val locationResult = liveLocationRepository.getCurrentLocation()) {
                 is Result.Success -> {
                     val loc = locationResult.data
-                    // Resolve city / district
                     val placeResult = liveLocationRepository.reverseGeocode(loc.lat, loc.lon)
-                    val place = when (placeResult) {
-                        is Result.Success -> placeResult.data
-                        is Result.Error -> {
-                            // Log error but use coordinates as fallback
-                            android.util.Log.w(
-                                "LocationUpdate",
-                                "Reverse geocoding failed: ${placeResult.message}"
-                            )
-                            com.linker.app.domain.repository.PlaceName(
-                                city = String.format(java.util.Locale.US, "%.4f", loc.lat),
-                                district = String.format(java.util.Locale.US, "%.4f", loc.lon)
-                            )
-                        }
-                        else -> com.linker.app.domain.repository.PlaceName("", "")
+
+                    val (city, district) = if (placeResult is Result.Success) {
+                        Pair(placeResult.data.city, placeResult.data.district)
+                    } else {
+                        Pair(null, null)
                     }
 
-                    val displayName = if (place.city.isBlank() && place.district.isBlank()) {
-                        String.format(java.util.Locale.US, "%.4f°N, %.4f°E", loc.lat, loc.lon)
-                    } else {
-                        place.display()
-                    }
+                    val fullPlace = buildString {
+                        if (!district.isNullOrBlank()) append(district)
+                        if (!city.isNullOrBlank()) {
+                            if (isNotEmpty()) append(", ")
+                            append(city)
+                        }
+                    }.ifBlank { String.format(java.util.Locale.US, "%.4f°N, %.4f°E", loc.lat, loc.lon) }
 
                     _uiState.value = _uiState.value.copy(
                         latitude = loc.lat,
                         longitude = loc.lon,
-                        placeName = displayName,
-                        locationCity = place.city,
-                        locationDistrict = place.district,
-                        locationUpdatedAt = loc.updatedAt,
+                        placeName = fullPlace,
+                        locationCity = city ?: "",
+                        locationDistrict = district ?: "",
+                        locationUpdatedAt = System.currentTimeMillis(),
                         isLocationLoading = false,
-                        locationError = null
+                        error = null
                     )
 
-                    // Start continuous updates
                     startLocationUpdates()
                 }
                 is Result.Error -> {
@@ -186,7 +177,7 @@ class NoteEditorViewModel @Inject constructor(
     }
 
     /**
-     * Observes live location updates every 5 seconds while the ViewModel is alive.
+     * Starts continuous location updates via LocationManager/FusedLocation.
      * Each update reverse-geocodes to keep the city/district display fresh.
      */
     private fun startLocationUpdates() {
@@ -205,7 +196,7 @@ class NoteEditorViewModel @Inject constructor(
 
                         val distLat = Math.abs(loc.lat - lastGeocodedLat)
                         val distLon = Math.abs(loc.lon - lastGeocodedLon)
-                        val movedSignificantly = (distLat > 0.001 || distLon > 0.001) || _uiState.value.placeName.isNullOrEmpty()
+                        val movedSignificantly = (distLat > 0.001 || distLon > 0.001) || _uiState.value.placeName.isEmpty()
 
                         val place = if (movedSignificantly) {
                             val placeResult = liveLocationRepository.reverseGeocode(loc.lat, loc.lon)
@@ -418,9 +409,10 @@ class NoteEditorViewModel @Inject constructor(
     private fun validateNoteState(state: NoteEditorUiState): String? {
         return when (state.selectedType) {
             NoteType.TEXT -> {
+                val codePointCount = state.textContent.codePointCount(0, state.textContent.length)
                 when {
                     state.textContent.isBlank() -> "Lütfen metin girin"
-                    state.textContent.length > com.linker.app.domain.model.Note.Text.MAX_TEXT_CONTENT_LENGTH ->
+                    codePointCount > com.linker.app.domain.model.Note.Text.MAX_TEXT_CONTENT_LENGTH ->
                         "Metin çok uzun (Max: ${com.linker.app.domain.model.Note.Text.MAX_TEXT_CONTENT_LENGTH} karakter)"
                     else -> null
                 }

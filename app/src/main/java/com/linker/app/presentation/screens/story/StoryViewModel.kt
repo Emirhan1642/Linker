@@ -18,6 +18,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import androidx.compose.runtime.Immutable
 
+import com.linker.app.domain.usecase.user.CurrentUserProvider
+
 @Immutable
 data class StoryViewerUiState(
     val currentStories: List<Story> = emptyList(),
@@ -31,14 +33,24 @@ class StoryViewModel @Inject constructor(
     private val storyRepository: StoryRepository,
     private val likeStoryUseCase: LikeStoryUseCase,
     private val reactToStoryUseCase: ReactToStoryUseCase,
-    private val reportStoryUseCase: ReportStoryUseCase
+    private val reportStoryUseCase: ReportStoryUseCase,
+    private val currentUserProvider: CurrentUserProvider
 ) : ViewModel() {
+
+    val currentUserId: String
+        get() = currentUserProvider.getCurrentUserId() ?: ""
 
     private val _uiState = MutableStateFlow(StoryViewerUiState())
     val uiState: StateFlow<StoryViewerUiState> = _uiState.asStateFlow()
 
     init {
         loadAllUserStories()
+    }
+
+    fun initialize(initialStories: List<UserStories>) {
+        if (initialStories.isNotEmpty() && _uiState.value.allUserStories.isEmpty()) {
+            _uiState.update { it.copy(allUserStories = initialStories) }
+        }
     }
 
     private fun loadAllUserStories() {
@@ -108,9 +120,6 @@ class StoryViewModel @Inject constructor(
             storyRepository.replyToStory(storyId, content)
         }
     }
-
-    val currentUserId: String
-        get() = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
 
     fun deleteStory(storyId: String, onDeleted: () -> Unit = {}) {
         viewModelScope.launch {

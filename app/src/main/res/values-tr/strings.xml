@@ -361,11 +361,17 @@
     <string name="link_editor_description_hint">Bir açıklama yazın...</string>
     <string name="link_editor_add_media">Medya Ekle</string>
     <string name="link_editor_share_button">Paylaş</string>
+    <string name="link_editor_drafts_button">Taslaklar</string>
     <string name="link_editor_location_hint">Konum ekle</string>
     <string name="link_editor_success">Gönderi başarıyla paylaşıldı!</string>
+    <string name="link_editor_error_empty">Lütfen bir açıklama girin veya medya ekleyin</string>
+    <string name="link_editor_draft_saved">Taslak kaydedildi</string>
+    <string name="story_editor_video_max_duration">Video hikaye en fazla 60 saniye olabilir</string>
+    <string name="link_detail_post_title">Gönderi</string>
     <string name="link_comments_title">Yorumlar</string>
     <string name="link_comments_empty">Henüz yorum yapılmadı. İlk yorumu sen yap!</string>
     <string name="link_comments_add_hint">Yorum ekle...</string>
+    <string name="note_editor_timer_title">Sayaç</string>
 
     <!-- Settings & Offline Messaging -->
     <string name="offline_messaging_title">Çevrimdışı Mesajlaşma</string>

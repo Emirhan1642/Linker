@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun StoryScreen(
     userId: String,
-    allUserStories: List<UserStories>,
+    allUserStories: List<UserStories> = emptyList(),
     onNavigateBack: () -> Unit,
     onUserTap: (userId: String) -> Unit,
     viewModel: StoryViewModel = hiltViewModel()
@@ -129,12 +129,13 @@ fun StoryScreen(
         val isEffectivelyPaused = isHolding || showReplyInput || showMenu || showDeleteDialog || showViewersSheet || showReportSheet || isStoryZooming || !isCurrentPageActive
 
         // Auto-advance timer per story (strictly active page only)
-        LaunchedEffect(currentStoryIndex, isEffectivelyPaused, isCurrentPageActive, stories) {
+        LaunchedEffect(currentStoryIndex, isEffectivelyPaused, isCurrentPageActive) {
             val story = stories.getOrNull(currentStoryIndex) ?: return@LaunchedEffect
-            val durationMs = (story.duration?.toLong()?.times(1000L)) ?: 5000L
+            val durationSeconds = story.getDisplayDuration().coerceAtLeast(1)
+            val durationMs = durationSeconds.toLong() * 1000L
 
             val interval = 50L
-            val totalSteps = durationMs / interval
+            val totalSteps = maxOf(1f, durationMs.toFloat() / interval.toFloat())
             while (currentProgress < 1f) {
                 if (!isEffectivelyPaused) {
                     delay(interval)
@@ -144,7 +145,7 @@ fun StoryScreen(
                 }
             }
 
-            if (isCurrentPageActive) {
+            if (isCurrentPageActive && currentProgress >= 1f) {
                 // Advance to next story or next user group
                 if (currentStoryIndex < stories.lastIndex) {
                     currentProgress = 0f
@@ -400,10 +401,15 @@ fun StoryScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             currentStory?.let {
-                                val minutesAgo = ((System.currentTimeMillis() - it.createdAt) / 60_000).toInt()
+                                val minutesAgo = ((System.currentTimeMillis() - it.createdAt) / 60_000).coerceAtLeast(0)
+                                val timeAgoText = when {
+                                    minutesAgo < 1 -> "Az önce"
+                                    minutesAgo < 60 -> "$minutesAgo dk önce"
+                                    minutesAgo < 1440 -> "${minutesAgo / 60} sa önce"
+                                    else -> "${minutesAgo / 1440} gün önce"
+                                }
                                 Text(
-                                    text = if (minutesAgo < 60) "$minutesAgo dk önce"
-                                           else "${minutesAgo / 60} sa önce",
+                                    text = timeAgoText,
                                     color = Color.White.copy(alpha = 0.75f),
                                     fontSize = 11.sp
                                 )
@@ -432,19 +438,7 @@ fun StoryScreen(
                             ) {
                                 if (isOwnStory) {
                                     DropdownMenuItem(
-                                        text = { 
-                                            Text("Görüntüleyenler (${currentStory?.viewsCount ?: 0})", color = com.linker.app.presentation.theme.TextPrimary) 
-                                        },
-                                        onClick = {
-                                            showMenu = false
-                                            currentStory?.let {
-                                                viewModel.loadStoryViewers(it.storyId)
-                                                showViewersSheet = true
-                                            }
-                                        }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Hikayeyi Sil", color = com.linker.app.presentation.theme.ErrorRed) },
+                                        text = { Text("Sil", color = com.linker.app.presentation.theme.ErrorRed) },
                                         onClick = {
                                             showMenu = false
                                             showDeleteDialog = true
@@ -452,7 +446,7 @@ fun StoryScreen(
                                     )
                                 } else {
                                     DropdownMenuItem(
-                                        text = { Text("Şikayet Et", color = com.linker.app.presentation.theme.ErrorRed) },
+                                        text = { Text("Şikayet Et", color = com.linker.app.presentation.theme.TextPrimary) },
                                         onClick = {
                                             showMenu = false
                                             showReportSheet = true
@@ -499,22 +493,24 @@ fun StoryScreen(
                         .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Story Caption display
-                    if (!currentStory?.caption.isNullOrBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color.Black.copy(alpha = 0.6f))
-                                .border(0.8.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
-                        ) {
-                            Text(
-                                text = currentStory?.caption ?: "",
-                                color = Color.White,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                    // Floating Story Caption
+                    currentStory?.caption?.let { caption ->
+                        if (caption.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.Black.copy(alpha = 0.55f))
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = caption,
+                                    color = Color.White,
+                                    fontSize = 14.sp,
+                                    lineHeight = 18.sp
+                                )
+                            }
                         }
                     }
 
@@ -523,19 +519,19 @@ fun StoryScreen(
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(StoryReaction.values().toList()) { reaction ->
+                            items(StoryReaction.entries) { reaction ->
                                 val isSelected = currentStory?.reactionEmoji == reaction.emoji
                                 Box(
                                     modifier = Modifier
                                         .size(44.dp)
                                         .clip(RoundedCornerShape(22.dp))
                                         .background(
-                                            if (isSelected) Color.White.copy(alpha = 0.25f)
+                                            if (isSelected) Color.White.copy(alpha = 0.35f)
                                             else Color.Black.copy(alpha = 0.4f)
                                         )
                                         .border(
-                                            width = if (isSelected) 1.5.dp else 0.dp,
-                                            color = Color.White.copy(alpha = 0.6f),
+                                            width = if (isSelected) 2.dp else 0.dp,
+                                            color = if (isSelected) com.linker.app.presentation.theme.LinkerPrimary else Color.Transparent,
                                             shape = RoundedCornerShape(22.dp)
                                         )
                                         .clickable {

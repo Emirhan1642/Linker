@@ -361,11 +361,17 @@
     <string name="link_editor_description_hint">Write a caption...</string>
     <string name="link_editor_add_media">Add Media</string>
     <string name="link_editor_share_button">Share</string>
+    <string name="link_editor_drafts_button">Drafts</string>
     <string name="link_editor_location_hint">Add location</string>
     <string name="link_editor_success">Post shared successfully!</string>
+    <string name="link_editor_error_empty">Please enter a description or add media</string>
+    <string name="link_editor_draft_saved">Draft saved</string>
+    <string name="story_editor_video_max_duration">Video story must be 60 seconds or less</string>
+    <string name="link_detail_post_title">Post</string>
     <string name="link_comments_title">Comments</string>
     <string name="link_comments_empty">No comments yet. Be the first to comment!</string>
     <string name="link_comments_add_hint">Add a comment...</string>
+    <string name="note_editor_timer_title">Timer</string>
 
     <!-- Settings & Offline Messaging -->
     <string name="offline_messaging_title">Offline Messaging</string>

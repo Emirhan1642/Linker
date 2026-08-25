@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import androidx.compose.runtime.Immutable
 
+import com.linker.app.domain.usecase.user.CurrentUserProvider
+
 @Immutable
 data class NoteDetailUiState(
     val isLoadingLyrics: Boolean = false,
@@ -38,20 +40,24 @@ class NoteDetailViewModel @Inject constructor(
     private val noteRepository: NoteRepository,
     private val chatRepository: ChatRepository,
     private val messageRepository: MessageRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val currentUserProvider: CurrentUserProvider
 ) : ViewModel() {
 
     val currentUserId: String?
-        get() = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+        get() = currentUserProvider.getCurrentUserId()
 
     private val _uiState = MutableStateFlow(NoteDetailUiState())
     val uiState: StateFlow<NoteDetailUiState> = _uiState.asStateFlow()
 
     private var currentNoteId: String? = null
+    @Volatile
+    private var isCleared = false
 
     fun initNote(context: Context, note: Note) {
         if (note.noteId == currentNoteId) return
         currentNoteId = note.noteId
+        isCleared = false
         
         // Reset state
         _uiState.value = NoteDetailUiState()
@@ -184,6 +190,8 @@ class NoteDetailViewModel @Inject constructor(
     }
 
     fun clearNote() {
+        if (isCleared) return
+        isCleared = true
         currentNoteId = null
         audioPlayerManager.stop()
         spotifyAppRemoteManager.pauseAndDisconnect()

@@ -87,7 +87,7 @@ class LinkRepositoryImpl @Inject constructor(
                 }
                 if (snapshot != null) {
                     val currentUserId = auth.currentUser?.uid ?: ""
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    launch(kotlinx.coroutines.Dispatchers.IO) {
                         val entities = snapshot.documents.mapNotNull { doc ->
                             val typeStr = doc.getString("linkType") ?: "FEED"
                             val mappedType = when (typeStr) {
@@ -238,8 +238,45 @@ class LinkRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getLinkById(linkId: String): Result<Link> = safeCall {
-        val entity = linkDao.getLinkById(linkId) ?: throw Exception("Link $linkId not found")
-        entity.toDomain(resolveAuthor(entity.authorId))
+        val localEntity = linkDao.getLinkById(linkId)
+        if (localEntity != null) {
+            return@safeCall localEntity.toDomain(resolveAuthor(localEntity.authorId))
+        }
+
+        // Remote fallback from Firestore if not in local database
+        val doc = firestore.collection("links").document(linkId).get().await()
+        if (!doc.exists()) throw Exception("Link $linkId not found")
+
+        val typeStr = doc.getString("linkType") ?: "FEED"
+        val mappedType = when (typeStr) {
+            "VIDEO" -> com.linker.app.data.local.entity.LinkType.VIDEO
+            "REEL" -> com.linker.app.data.local.entity.LinkType.REEL
+            else -> com.linker.app.data.local.entity.LinkType.FEED
+        }
+        @Suppress("UNCHECKED_CAST")
+        val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+        @Suppress("UNCHECKED_CAST")
+        val fitList = (doc.get("mediaFitModes") as? List<Boolean>) ?: emptyList()
+        val authorId = doc.getString("authorId") ?: ""
+
+        val entity = com.linker.app.data.local.entity.LinkEntity(
+            linkId = doc.id,
+            authorId = authorId,
+            linkType = mappedType,
+            description = doc.getString("description"),
+            mediaUrls = mediaList,
+            mediaFitModes = fitList,
+            thumbnailUrl = doc.getString("thumbnailUrl"),
+            location = doc.getString("location"),
+            isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
+            likesCount = (doc.getLong("likesCount") ?: 0L).toInt(),
+            commentsCount = (doc.getLong("commentsCount") ?: 0L).toInt(),
+            sharesCount = (doc.getLong("sharesCount") ?: 0L).toInt(),
+            createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis(),
+            updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
+        )
+        linkDao.insertLink(entity)
+        entity.toDomain(resolveAuthor(authorId))
     }
 
     override fun observeLinkById(linkId: String): Flow<Result<Link?>> =
@@ -322,11 +359,16 @@ class LinkRepositoryImpl @Inject constructor(
         linkDao.insertLink(entity)
 
         try {
+            val hashtags = if (!description.isNullOrBlank()) {
+                Regex("#(\\w+)").findAll(description).map { it.groupValues[1] }.toList()
+            } else emptyList()
+
             firestore.collection("links").document(linkId).set(
                 mapOf(
                     "authorId" to currentUserId,
                     "linkType" to linkType.name,
                     "description" to (description ?: ""),
+                    "hashtags" to hashtags,
                     "location" to (location ?: ""),
                     "isAiGenerated" to isAiGenerated,
                     "mediaUrls" to emptyList<String>(),
@@ -483,8 +525,11 @@ class LinkRepositoryImpl @Inject constructor(
     }
 
     override fun recordView(linkId: String) {
-        // Optimistic local update only; batched sync handled by WorkManager
-        // TODO: implement view batching
+        val currentUserId = auth.currentUser?.uid
+        if (currentUserId != null) {
+            firestore.collection("links").document(linkId)
+                .update("viewsCount", com.google.firebase.firestore.FieldValue.increment(1))
+        }
     }
 
     // ── Description Editing ────────────────────────────────────────────────
@@ -550,16 +595,32 @@ class LinkRepositoryImpl @Inject constructor(
         }
 
     // ── Sharing & Safety ────────────────────────────────────────────────
-
     override suspend fun sendLinkToDm(linkId: String, recipientUserId: String): Result<Unit> =
         RetryUtil.retrySafeCall {
             val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
 
-            // Standard private chat ID format used across ChatRepository
-            val sortedIds = listOf(currentUserId, recipientUserId).sorted()
-            val chatId = "private_${sortedIds[0]}_${sortedIds[1]}"
+            // Standard canonical private chat ID
+            val chatId = com.linker.app.core.util.ChatUtils.getPrivateChatId(currentUserId, recipientUserId)
             val messageId = java.util.UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
+
+            // Ensure private chat document exists with merge before inserting message
+            firestore.collection("chats").document(chatId).set(
+                mapOf(
+                    "chatId" to chatId,
+                    "participantIds" to listOf(currentUserId, recipientUserId),
+                    "participants" to listOf(currentUserId, recipientUserId),
+                    "type" to "DIRECT",
+                    "lastMessageAt" to now,
+                    "lastMessageText" to "🔗 Link paylaşıldı",
+                    "lastMessage" to "🔗 Link paylaşıldı",
+                    "lastMessageSenderId" to currentUserId,
+                    "lastMessageTimestamp" to now,
+                    "createdAt" to now,
+                    "updatedAt" to now
+                ),
+                com.google.firebase.firestore.SetOptions.merge()
+            ).await()
 
             // Create a MessageType.LINK message in the chat
             firestore.collection("chats").document(chatId)
@@ -576,13 +637,6 @@ class LinkRepositoryImpl @Inject constructor(
                     "createdAt" to now,
                     "updatedAt" to now,
                     "messageStatus" to "SENT"
-                )).await()
-
-            // Update chat's last message metadata
-            firestore.collection("chats").document(chatId)
-                .update(mapOf(
-                    "lastMessageAt" to now,
-                    "lastMessageText" to "🔗 Link paylaşıldı"
                 )).await()
         }
 

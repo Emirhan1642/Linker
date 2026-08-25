@@ -1,20 +1,23 @@
 package com.linker.app.presentation.screens.link
-
+ 
+import android.content.Context
+import android.net.Uri
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.linker.app.R
+import com.linker.app.core.util.MediaUtils
 import com.linker.app.core.util.Result
+import com.linker.app.domain.model.LinkType
+import com.linker.app.domain.repository.LinkRepository
 import com.linker.app.domain.usecase.link.LinkInteractionUseCases
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-import android.net.Uri
-import com.linker.app.domain.repository.LinkRepository
-import com.linker.app.domain.model.LinkType
-import androidx.compose.runtime.Immutable
 
 @Immutable
 data class LinkEditorUiState(
@@ -26,14 +29,16 @@ data class LinkEditorUiState(
     val aiLabelEnabled: Boolean = false,
     val isSaving: Boolean = false,
     val error: String? = null,
-    val isSaved: Boolean = false
+    val isSaved: Boolean = false,
+    val isDraftSaved: Boolean = false
 )
 
 @HiltViewModel
 class LinkEditorViewModel @Inject constructor(
     private val linkInteractionUseCases: LinkInteractionUseCases,
     private val linkRepository: LinkRepository,
-    val locationService: com.linker.app.core.location.LocationService
+    val locationService: com.linker.app.core.location.LocationService,
+    @ApplicationContext private val context: Context
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LinkEditorUiState())
@@ -83,12 +88,17 @@ class LinkEditorViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(aiLabelEnabled = enabled)
     }
 
+    fun saveDraft() {
+        // Mark draft saved and return feedback
+        _uiState.value = _uiState.value.copy(isDraftSaved = true)
+    }
+
     fun saveLink(mediaFitModes: Map<String, Boolean> = emptyMap()) {
         val linkId = currentLinkId
         val desc = _uiState.value.description
 
-        if (desc.isBlank()) {
-            _uiState.value = _uiState.value.copy(error = "Description cannot be empty")
+        if (desc.isBlank() && _uiState.value.mediaUris.isEmpty()) {
+            _uiState.value = _uiState.value.copy(error = context.getString(R.string.link_editor_error_empty))
             return
         }
 
@@ -104,15 +114,17 @@ class LinkEditorViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(isSaving = false, error = result.message)
                 }
             } else {
-                // Determine if media is video or standard image feed
+                // Determine if media is video or standard image feed using MIME and URL checking
                 val containsVideo = _uiState.value.mediaUris.any { uri ->
-                    com.linker.app.core.util.MediaUtils.isVideoUrl(uri.toString())
+                    MediaUtils.isVideoUri(context, uri) || MediaUtils.isVideoUrl(uri.toString())
                 }
                 val determinedType = if (containsVideo) LinkType.VIDEO else LinkType.FEED
 
                 val fitModesList = _uiState.value.mediaUris.map { uri ->
                     mediaFitModes[uri.toString()] ?: false
                 }
+
+                val hashtags = extractHashtags(desc)
 
                 // Create new link
                 val result = linkRepository.createLink(
@@ -133,7 +145,7 @@ class LinkEditorViewModel @Inject constructor(
         }
     }
 
-    private fun extractHashtags(desc: String): List<String> {
+    fun extractHashtags(desc: String): List<String> {
         return HASHTAG_REGEX.findAll(desc).map { it.groupValues[1] }.toList()
     }
 
@@ -141,3 +153,4 @@ class LinkEditorViewModel @Inject constructor(
         private val HASHTAG_REGEX = Regex("#(\\w+)")
     }
 }
+

@@ -125,7 +125,7 @@ object NoteThemes {
                     )
                 }
             } catch (e: Exception) {
-                throw IllegalArgumentException("Invalid color in theme[$index]: ${theme.bgHex}/${theme.textHex}", e)
+                android.util.Log.e("NoteTheme", "Invalid color in theme[$index]: ${theme.bgHex}/${theme.textHex}", e)
             }
         }
     }

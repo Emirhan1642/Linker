@@ -65,7 +65,7 @@ fun NoteEditorScreen(
     onNavigateBack: () -> Unit,
     onNavigateToSpotifySearch: () -> Unit,
     onNavigateToLocationMap: (lat: Double, lon: Double, placeName: String) -> Unit,
-    navController: NavController,
+    navController: NavController? = null,
     viewModel: NoteEditorViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -101,7 +101,7 @@ fun NoteEditorScreen(
     }
 
     // Spotify track saved state
-    val savedStateHandle = navController.currentBackStackEntry?.savedStateHandle
+    val savedStateHandle = navController?.currentBackStackEntry?.savedStateHandle
 
     LaunchedEffect(Unit) {
         savedStateHandle?.run {
@@ -146,7 +146,6 @@ fun NoteEditorScreen(
             modifier = Modifier
                 .padding(16.dp)
                 .align(Alignment.TopStart)
-                .bouncyClick(onClick = onNavigateBack)
         ) {
             Icon(
                 imageVector = Icons.Default.Close,
@@ -162,7 +161,6 @@ fun NoteEditorScreen(
             modifier = Modifier
                 .padding(16.dp)
                 .align(Alignment.TopEnd)
-                .bouncyClick { viewModel.toggleColorPicker() }
         ) {
             Icon(
                 imageVector = Icons.Default.Edit,
@@ -300,14 +298,14 @@ fun NoteEditorScreen(
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val targetTime = uiState.targetTime ?: 0L
                             val remaining = (targetTime - System.currentTimeMillis()).coerceAtLeast(0L)
-                            val days = (remaining / 86400000L).coerceAtLeast(0)
-                            val hours = ((remaining % 86400000L) / 3600000L).coerceAtLeast(0)
-                            val mins = ((remaining % 3600000L) / 60000L).coerceAtLeast(0)
+                            val remainingDays = (remaining / 86400000L).coerceAtLeast(0)
+                            val remainingHours = ((remaining % 86400000L) / 3600000L).coerceAtLeast(0)
+                            val remainingMins = ((remaining % 3600000L) / 60000L).coerceAtLeast(0)
                             
                             val timeString = buildString {
-                                if (days > 0) append("${days}g ")
-                                if (hours > 0 || days > 0) append("${hours}s ")
-                                append("${mins}d")
+                                if (remainingDays > 0) append("${remainingDays}g ")
+                                if (remainingHours > 0 || remainingDays > 0) append("${remainingHours}s ")
+                                append("${remainingMins}d")
                             }
                             
                             Text(
@@ -565,7 +563,7 @@ fun NoteEditorScreen(
                     Button(
                         onClick = {
                             val timeMs = System.currentTimeMillis() + (days * 86400000L) + (hours * 3600000L) + (minutes * 60000L)
-                            viewModel.onCountdownChange(uiState.textContent.ifBlank { "Sayac" }, timeMs)
+                            viewModel.onCountdownChange(uiState.textContent.ifBlank { "Sayaç" }, timeMs)
                             showTimerPicker = false
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F51B5)),

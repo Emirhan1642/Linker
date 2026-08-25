@@ -123,12 +123,11 @@ class NoteRepositoryImpl @Inject constructor(
                         emptyMap()
                     }
 
-                    val currentTs = System.currentTimeMillis()
-                    // Map to domain models with real user data and filter by followers and dynamic expiration
+                    // Map to domain models with real user data and filter by followers
                     val notes = rawNotesData.map { (docId, data) ->
                         mapToNoteWithUser(docId, data, usersMap)
                     }.filter { note ->
-                        note.expiresAt > currentTs && (note.author.userId == currentUserId || usersMap[note.author.userId]?.isFollowing == true)
+                        note.author.userId == currentUserId || usersMap[note.author.userId]?.isFollowing == true
                     }
                     
                     trySend(Result.Success(notes))
@@ -153,7 +152,7 @@ class NoteRepositoryImpl @Inject constructor(
 
             val lastPostTime = lastNotePostTime[currentUserId] ?: 0L
             if (now - lastPostTime < 1000L) {
-                return Result.Error("Please wait before posting again")
+                return Result.Error("Lütfen tekrar paylaşmadan önce biraz bekleyin")
             }
 
             val noteId = UUID.randomUUID().toString()
@@ -467,6 +466,30 @@ class NoteRepositoryImpl @Inject constructor(
         }
     }
 
+    private suspend fun resolveCurrentNoteAuthor(): NoteAuthor {
+        return try {
+            val localUser = userDao.getUserById(currentUserId)
+            if (localUser != null) {
+                NoteAuthor(
+                    userId = localUser.userId,
+                    username = localUser.username,
+                    displayName = localUser.displayName,
+                    profileImageUrl = localUser.profileImageUrl
+                )
+            } else {
+                val userDoc = firestore.collection("users").document(currentUserId).get().await()
+                NoteAuthor(
+                    userId = currentUserId,
+                    username = userDoc.getString("username") ?: "user",
+                    displayName = userDoc.getString("displayName") ?: userDoc.getString("username") ?: "User",
+                    profileImageUrl = userDoc.getString("profileImageUrl")
+                )
+            }
+        } catch (_: Exception) {
+            NoteAuthor(userId = currentUserId, username = "user", displayName = "User", profileImageUrl = null)
+        }
+    }
+
     override suspend fun postLocationNote(
         latitude: Double,
         longitude: Double,
@@ -494,11 +517,11 @@ class NoteRepositoryImpl @Inject constructor(
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
+            val author = resolveCurrentNoteAuthor()
             Result.Success(
                 Note.Location(
                     noteId = noteId,
-                    author = authorStub,
+                    author = author,
                     latitude = latitude,
                     longitude = longitude,
                     placeName = placeName,
@@ -523,6 +546,9 @@ class NoteRepositoryImpl @Inject constructor(
     ): Result<Note.Countdown> {
         return try {
             val now = System.currentTimeMillis()
+            if (targetTime <= now) {
+                return Result.Error("Hedef zaman gelecekte olmalıdır")
+            }
             val expiresAt = targetTime + com.linker.app.core.util.TimeConstants.DAY_MS
             val noteId = UUID.randomUUID().toString()
 
@@ -539,11 +565,11 @@ class NoteRepositoryImpl @Inject constructor(
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
+            val author = resolveCurrentNoteAuthor()
             Result.Success(
                 Note.Countdown(
                     noteId = noteId,
-                    author = authorStub,
+                    author = author,
                     content = content,
                     countdownTitle = title,
                     countdownTargetTime = targetTime,
@@ -593,11 +619,11 @@ class NoteRepositoryImpl @Inject constructor(
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
+            val author = resolveCurrentNoteAuthor()
             Result.Success(
                 Note.Music(
                     noteId = noteId,
-                    author = authorStub,
+                    author = author,
                     content = caption,
                     musicTrackId = trackId,
                     musicTrackName = trackName,
@@ -642,11 +668,11 @@ class NoteRepositoryImpl @Inject constructor(
             )
             notesCollection.document(noteId).set(noteData).await()
 
-            val authorStub = NoteAuthor(userId = currentUserId, username = "unknown", displayName = "Unknown", profileImageUrl = null)
+            val author = resolveCurrentNoteAuthor()
             Result.Success(
                 Note.Gif(
                     noteId = noteId,
-                    author = authorStub,
+                    author = author,
                     content = content,
                     gifUrl = gifUrl,
                     aspectRatio = aspectRatio,

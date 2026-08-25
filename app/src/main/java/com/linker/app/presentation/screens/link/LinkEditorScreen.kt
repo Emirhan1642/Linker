@@ -14,8 +14,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MusicNote
@@ -79,9 +79,22 @@ fun LinkEditorScreen(
         viewModel.initialize(linkId, initialDescription)
     }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
             onSaved()
+        }
+    }
+
+    LaunchedEffect(uiState.isDraftSaved) {
+        if (uiState.isDraftSaved) {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.link_editor_draft_saved),
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            onNavigateBack()
         }
     }
 
@@ -103,7 +116,8 @@ fun LinkEditorScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = if (linkId == null) "Yeni gönderi" else "Düzenle",
+                        text = if (linkId == null) androidx.compose.ui.res.stringResource(R.string.link_editor_title)
+                               else androidx.compose.ui.res.stringResource(R.string.action_edit),
                         color = TextPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
@@ -112,8 +126,8 @@ fun LinkEditorScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(
-                            imageVector = Icons.Default.ArrowBack,
-                            contentDescription = "Geri",
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = androidx.compose.ui.res.stringResource(R.string.action_back),
                             tint = TextPrimary
                         )
                     }
@@ -148,10 +162,15 @@ fun LinkEditorScreen(
                             .clip(RoundedCornerShape(14.dp))
                             .background(DarkGrayTransparent)
                             .border(1.dp, GlassCardBorder, RoundedCornerShape(14.dp))
-                            .bouncyClick { onNavigateBack() },
+                            .bouncyClick { viewModel.saveDraft() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Taslaklar", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.link_editor_drafts_button),
+                            color = TextPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp
+                        )
                     }
                     
                     // Paylaş (Share) Button
@@ -172,7 +191,7 @@ fun LinkEditorScreen(
                             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                         } else {
                             Text(
-                                text = "Paylaş",
+                                text = androidx.compose.ui.res.stringResource(R.string.link_editor_share_button),
                                 color = if (canShare) Color.White else TextSecondary,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp

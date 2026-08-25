@@ -7,6 +7,7 @@ import com.linker.app.core.util.Result
 import com.linker.app.domain.model.Comment
 import com.linker.app.domain.model.CommentVersion
 import com.linker.app.domain.usecase.comment.CommentUseCases
+import com.linker.app.domain.usecase.user.CurrentUserProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,11 +30,12 @@ data class CommentSheetUiState(
 
 @HiltViewModel
 class CommentSheetViewModel @Inject constructor(
-    private val commentUseCases: CommentUseCases
+    private val commentUseCases: CommentUseCases,
+    private val currentUserProvider: CurrentUserProvider
 ) : ViewModel() {
 
     val currentUserId: String
-        get() = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+        get() = currentUserProvider.getCurrentUserId() ?: ""
 
     private val _uiState = MutableStateFlow(CommentSheetUiState())
     val uiState: StateFlow<CommentSheetUiState> = _uiState.asStateFlow()

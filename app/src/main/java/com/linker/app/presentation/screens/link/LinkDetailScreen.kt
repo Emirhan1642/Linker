@@ -26,6 +26,13 @@ import com.linker.app.presentation.theme.TextPrimary
 import com.linker.app.presentation.theme.TextSecondary
 import com.linker.app.domain.model.ReportableContentType
 
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.outlined.BookmarkBorder
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.outlined.ModeComment
+
 @Composable
 fun LinkDetailScreen(
     linkId: String,
@@ -41,8 +48,9 @@ fun LinkDetailScreen(
     }
 
     if (showActionSheet) {
+        val isAuthor = uiState.link?.author?.userId == viewModel.currentUserId
         UserActionSheet(
-            isOwnContent = false, // TODO: Check if current user is author
+            isOwnContent = isAuthor,
             contentType = ReportableContentType.LINK,
             onReport = { reason ->
                 viewModel.reportLink(reason)
@@ -68,12 +76,12 @@ fun LinkDetailScreen(
                 IconButton(onClick = onNavigateBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        contentDescription = androidx.compose.ui.res.stringResource(R.string.action_back),
                         tint = TextPrimary
                     )
                 }
                 Text(
-                    text = "Post",
+                    text = androidx.compose.ui.res.stringResource(R.string.link_detail_post_title),
                     color = TextPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
@@ -171,10 +179,104 @@ fun LinkDetailScreen(
                         }
                     }
 
+                    // Engagement Action Row (Like, Comment, Relink, Save)
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Like button
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.clickable { viewModel.toggleLike() }
+                                ) {
+                                    Icon(
+                                        imageVector = if (post.engagement.isLiked) androidx.compose.material.icons.Icons.Default.Favorite
+                                                      else androidx.compose.material.icons.Icons.Outlined.FavoriteBorder,
+                                        contentDescription = "Beğen",
+                                        tint = if (post.engagement.isLiked) Color(0xFFFF4B4B) else TextPrimary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    if (post.engagement.likesCount > 0) {
+                                        Text(
+                                            text = post.engagement.likesCount.toString(),
+                                            color = TextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                // Comment button
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.clickable { showCommentSheet = true }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.ModeComment,
+                                        contentDescription = "Yorumlar",
+                                        tint = TextPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    if (post.engagement.commentsCount > 0) {
+                                        Text(
+                                            text = post.engagement.commentsCount.toString(),
+                                            color = TextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                // Relink button
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    modifier = Modifier.clickable { viewModel.toggleRelink() }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Repeat,
+                                        contentDescription = "Yeniden Paylaş",
+                                        tint = if (post.engagement.isRelinked) com.linker.app.presentation.theme.LinkerPrimary else TextPrimary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    if (post.engagement.relinksCount > 0) {
+                                        Text(
+                                            text = post.engagement.relinksCount.toString(),
+                                            color = TextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Save button
+                            IconButton(onClick = { viewModel.toggleSave() }) {
+                                Icon(
+                                    imageVector = if (post.engagement.isSaved) Icons.Default.Bookmark
+                                                  else Icons.Outlined.BookmarkBorder,
+                                    contentDescription = "Kaydet",
+                                    tint = if (post.engagement.isSaved) com.linker.app.presentation.theme.LinkerPrimary else TextPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+                    }
+
                     // Description and Actions
                     item {
                         Column(
-                            modifier = Modifier.padding(16.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             if (!post.description.isNullOrBlank()) {
                                 Text(

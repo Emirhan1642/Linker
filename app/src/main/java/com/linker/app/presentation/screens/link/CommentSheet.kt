@@ -39,8 +39,19 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
 
-private val commentTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 private val commentHistoryDateFormat = SimpleDateFormat("dd MMM HH:mm", Locale.getDefault())
+
+private fun formatRelativeCommentTime(timestamp: Long): String {
+    val diffMs = System.currentTimeMillis() - timestamp
+    val minutes = (diffMs / 60_000).coerceAtLeast(0)
+    return when {
+        minutes < 1 -> "Az önce"
+        minutes < 60 -> "$minutes dk"
+        minutes < 1440 -> "${minutes / 60} sa"
+        minutes < 10080 -> "${minutes / 1440} gün"
+        else -> commentHistoryDateFormat.format(Date(timestamp))
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +92,7 @@ fun CommentSheet(
                 .imePadding()
         ) {
             // Header
+            val totalCommentsCount = uiState.comments.size + uiState.repliesMap.values.sumOf { it.size }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -89,7 +101,7 @@ fun CommentSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Yorumlar (${uiState.comments.size})",
+                    text = "Yorumlar ($totalCommentsCount)",
                     color = TextPrimary,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
@@ -472,7 +484,7 @@ fun CommentItem(
                     fontSize = 10.sp
                 )
                 Text(
-                    text = commentTimeFormat.format(Date(comment.createdAt)),
+                    text = formatRelativeCommentTime(comment.createdAt),
                     color = TextSecondary,
                     fontSize = 11.sp
                 )
