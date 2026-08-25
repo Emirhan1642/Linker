@@ -134,6 +134,7 @@ class SpotifySearchViewModel @Inject constructor(
 
     fun playOrPausePreview(previewUrl: String?) {
         if (previewUrl == null) return
+        spotifyAppRemoteManager.pause()
         audioPlayerManager.playPreview(previewUrl)
     }
 
@@ -165,6 +166,9 @@ class SpotifySearchViewModel @Inject constructor(
             onAuthRequired()
             return
         }
+
+        // Stop any running preview playback first
+        audioPlayerManager.stop()
 
         // Step 2: Token present → connect (or reuse existing connection) and play
         Log.d("SpotifyViewModel", "Access token present. Connecting via App Remote.")

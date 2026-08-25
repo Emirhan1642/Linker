@@ -34,8 +34,11 @@ class AudioPlayerManager @Inject constructor() {
 
     private var currentUrl: String? = null
     private var targetEndTimeMs: Long? = null
+    private var pendingSeekMs: Long? = null
 
     fun playPreview(url: String, startMs: Long? = null, endMs: Long? = null) {
+        val effectiveStartMs = startMs ?: pendingSeekMs
+        pendingSeekMs = null
         targetEndTimeMs = endMs
         if (currentUrl == url && mediaPlayer?.isPlaying == true) {
             pause()
@@ -44,9 +47,9 @@ class AudioPlayerManager @Inject constructor() {
 
         if (currentUrl == url && mediaPlayer != null) {
             // Same track loaded. Just seek and resume to avoid recreating the MediaPlayer.
-            if (startMs != null && startMs >= 0L) {
-                mediaPlayer?.seekTo(startMs.toInt())
-                _currentPositionMs.value = startMs
+            if (effectiveStartMs != null && effectiveStartMs >= 0L) {
+                mediaPlayer?.seekTo(effectiveStartMs.toInt())
+                _currentPositionMs.value = effectiveStartMs
             }
             mediaPlayer?.start()
             _isPlaying.value = true
@@ -69,7 +72,7 @@ class AudioPlayerManager @Inject constructor() {
                 setDataSource(url)
                 setOnPreparedListener { mp ->
                     _durationMs.value = mp.duration.toLong()
-                    if (startMs != null && startMs > 0) mp.seekTo(startMs.toInt())
+                    if (effectiveStartMs != null && effectiveStartMs > 0) mp.seekTo(effectiveStartMs.toInt())
                     mp.start()
                     _isPlaying.value = true
                     startProgressTracking()
@@ -105,8 +108,18 @@ class AudioPlayerManager @Inject constructor() {
         if (endTimeMs != null) {
             targetEndTimeMs = endTimeMs
         }
-        mediaPlayer?.seekTo(positionMs.toInt())
         _currentPositionMs.value = positionMs
+        if (mediaPlayer != null) {
+            mediaPlayer?.seekTo(positionMs.toInt())
+        } else {
+            pendingSeekMs = positionMs
+        }
+    }
+
+    fun seekBy(deltaMs: Long) {
+        val maxDuration = if (_durationMs.value > 0) _durationMs.value else 30_000L
+        val newPos = (_currentPositionMs.value + deltaMs).coerceIn(0L, maxDuration)
+        seekTo(newPos, targetEndTimeMs)
     }
 
     fun stop() {

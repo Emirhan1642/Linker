@@ -32,6 +32,8 @@ class SpotifyAppRemoteManager @Inject constructor(
     val durationMs: StateFlow<Long> = _durationMs.asStateFlow()
 
     private var targetEndTimeMs: Long? = null
+    private var currentClipStartTimeMs: Long? = null
+    private var currentClipEndTimeMs: Long? = null
     private var progressJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -64,7 +66,6 @@ class SpotifyAppRemoteManager @Inject constructor(
     }
 
     private var lastSeekTime = 0L
-
     private var lastProgressUpdateMs = 0L
 
     private fun observePlayerState() {
@@ -72,8 +73,8 @@ class SpotifyAppRemoteManager @Inject constructor(
             _isPlaying.value = !playerState.isPaused
             _durationMs.value = playerState.track?.duration ?: 0L
 
-            // Ignore delayed player state updates right after a seek to prevent race conditions 
-            if (System.currentTimeMillis() - lastSeekTime > 1000) {
+            // Ignore delayed player state updates right after a seek or play to prevent race conditions 
+            if (System.currentTimeMillis() - lastSeekTime > 1200) {
                 _currentPositionMs.value = playerState.playbackPosition
                 lastProgressUpdateMs = System.currentTimeMillis()
             }
@@ -101,7 +102,6 @@ class SpotifyAppRemoteManager @Inject constructor(
                 targetEndTimeMs?.let { endTime ->
                     if (newPos >= endTime) {
                         pause()
-                        targetEndTimeMs = null
                         _currentPositionMs.value = endTime
                     }
                 }
@@ -139,19 +139,27 @@ class SpotifyAppRemoteManager @Inject constructor(
 
     fun playTrack(trackId: String, startTimeMs: Long? = 0L, endTimeMs: Long? = null) {
         targetEndTimeMs = endTimeMs
+        currentClipStartTimeMs = startTimeMs
+        currentClipEndTimeMs = endTimeMs
         val trackUri = "spotify:track:$trackId"
         
         spotifyAppRemote?.playerApi?.playerState?.setResultCallback { playerState ->
             if (playerState.track?.uri == trackUri) {
                 if (startTimeMs != null && startTimeMs >= 0L) {
+                    lastSeekTime = System.currentTimeMillis()
                     spotifyAppRemote?.playerApi?.seekTo(startTimeMs)
                     _currentPositionMs.value = startTimeMs
                 }
                 resume()
             } else {
+                lastSeekTime = System.currentTimeMillis()
+                if (startTimeMs != null && startTimeMs >= 0L) {
+                    _currentPositionMs.value = startTimeMs
+                }
                 spotifyAppRemote?.playerApi?.play(trackUri)
                     ?.setResultCallback {
                         if (startTimeMs != null && startTimeMs >= 0L) {
+                            lastSeekTime = System.currentTimeMillis()
                             spotifyAppRemote?.playerApi?.seekTo(startTimeMs)
                             _currentPositionMs.value = startTimeMs
                         }
@@ -178,9 +186,20 @@ class SpotifyAppRemoteManager @Inject constructor(
 
     fun seekTo(positionMs: Long, endTimeMs: Long? = null) {
         lastSeekTime = System.currentTimeMillis()
-        if (endTimeMs != null) targetEndTimeMs = endTimeMs
+        if (endTimeMs != null) {
+            targetEndTimeMs = endTimeMs
+            currentClipEndTimeMs = endTimeMs
+        }
         spotifyAppRemote?.playerApi?.seekTo(positionMs)
         _currentPositionMs.value = positionMs
+    }
+
+    fun seekBy(deltaMs: Long) {
+        val duration = if (_durationMs.value > 0) _durationMs.value else 300_000L
+        val minPos = currentClipStartTimeMs ?: 0L
+        val maxPos = currentClipEndTimeMs ?: duration
+        val newPos = (_currentPositionMs.value + deltaMs).coerceIn(minPos, maxPos)
+        seekTo(newPos, targetEndTimeMs)
     }
 
     /**
@@ -197,6 +216,8 @@ class SpotifyAppRemoteManager @Inject constructor(
         _currentPositionMs.value = 0L
         _durationMs.value = 0L
         targetEndTimeMs = null
+        currentClipStartTimeMs = null
+        currentClipEndTimeMs = null
         Log.d("SpotifyAppRemoteManager", "Paused and disconnected.")
     }
 

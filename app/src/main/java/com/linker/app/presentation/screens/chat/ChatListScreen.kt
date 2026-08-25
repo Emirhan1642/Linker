@@ -56,6 +56,8 @@ import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -586,11 +588,11 @@ fun NoteDetailBottomSheet(
                 }
             }
 
-            // Auto-pause playback when clip finishes (keep sheet open for replay)
+            // Auto-pause playback when clip finishes (resets position to start so user can replay easily)
             LaunchedEffect(currentPosMs) {
                 if (note is com.linker.app.domain.model.Note.Music) {
                     if (currentPosMs >= note.clipEndTime && note.clipEndTime > 0) {
-                        viewModel.clearNote()
+                        viewModel.pausePlayback(note)
                     }
                 }
             }
@@ -752,6 +754,110 @@ fun NoteDetailBottomSheet(
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Seek & Progress Timeline
+                    val clipStart = note.clipStartTime.toFloat()
+                    val clipEnd = if (note.clipEndTime > note.clipStartTime) note.clipEndTime.toFloat() else (clipStart + 30000f)
+                    val currentPosClamped = currentPosMs.toFloat().coerceIn(clipStart, clipEnd)
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Slider(
+                            value = currentPosClamped,
+                            onValueChange = { newPos ->
+                                viewModel.seekToPosition(newPos.toLong(), note)
+                            },
+                            valueRange = clipStart..clipEnd,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF1DB954),
+                                activeTrackColor = Color(0xFF1DB954),
+                                inactiveTrackColor = txtColor.copy(alpha = 0.2f)
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(24.dp)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatTimeDisplay(currentPosMs),
+                                color = txtColor.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = formatTimeDisplay(clipEnd.toLong()),
+                                color = txtColor.copy(alpha = 0.7f),
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Seek Action Buttons (-5s, Play/Pause, +5s)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // -5s Rewind
+                            IconButton(
+                                onClick = { viewModel.seekDelta(-5000L, note) },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            ) {
+                                Text("-5s", color = txtColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Play / Pause
+                            IconButton(
+                                onClick = {
+                                    if (isPlaying) {
+                                        if (isAudioPlaying) viewModel.audioPlayerManager.pause()
+                                        else viewModel.spotifyAppRemoteManager.pause()
+                                    } else {
+                                        if (isRemoteConnected) {
+                                            viewModel.spotifyAppRemoteManager.playTrack(
+                                                note.musicTrackId,
+                                                currentPosMs,
+                                                if (note.clipEndTime > 0) note.clipEndTime else null
+                                            )
+                                        } else if (note.previewUrl != null) {
+                                            viewModel.audioPlayerManager.playPreview(
+                                                note.previewUrl,
+                                                currentPosMs,
+                                                30000L
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(Color(0xFF1DB954), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isPlaying) "Duraklat" else "Oynat",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            // +5s Forward
+                            IconButton(
+                                onClick = { viewModel.seekDelta(+5000L, note) },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            ) {
+                                Text("+5s", color = txtColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -1142,4 +1248,11 @@ private fun ChatEmptySuggestionsSection(
             }
         }
     }
+}
+
+private fun formatTimeDisplay(timeMs: Long): String {
+    val totalSec = (timeMs / 1000).toInt().coerceAtLeast(0)
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return String.format(java.util.Locale.US, "%d:%02d", min, sec)
 }

@@ -28,6 +28,9 @@ import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -100,23 +103,37 @@ fun NoteEditorScreen(
         }
     }
 
-    // Spotify track saved state
+    val isAudioPlaying by viewModel.isAudioPlaying.collectAsStateWithLifecycle()
+    val isRemotePlaying by viewModel.isRemotePlaying.collectAsStateWithLifecycle()
+    val isPlayingMusic = isAudioPlaying || isRemotePlaying
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopPlayback()
+        }
+    }
+
+    // Spotify track saved state — reactive flow from savedStateHandle
     val savedStateHandle = navController?.currentBackStackEntry?.savedStateHandle
+    val selectedTrackIdFlow = remember(savedStateHandle) {
+        savedStateHandle?.getStateFlow<String?>("selected_track_id", null)
+    }
+    val selectedTrackId by selectedTrackIdFlow?.collectAsStateWithLifecycle() ?: remember { mutableStateOf(null) }
 
-    LaunchedEffect(Unit) {
-        savedStateHandle?.run {
-            val selectedTrackId = get<String>("selected_track_id")
-            val selectedTrackName = get<String>("selected_track_name")
-            val selectedTrackArtist = get<String>("selected_track_artist")
-            val selectedTrackArt = get<String>("selected_track_art")
-            val selectedTrackPreview = get<String>("selected_track_preview")
-            val selectedClipStartMs = get<Long>("selected_clip_start_ms") ?: 0L
-            val selectedClipEndMs = get<Long>("selected_clip_end_ms") ?: 30_000L
+    LaunchedEffect(selectedTrackId) {
+        val trackId = selectedTrackId ?: return@LaunchedEffect
+        savedStateHandle?.let { handle ->
+            val selectedTrackName = handle.get<String>("selected_track_name") ?: ""
+            val selectedTrackArtist = handle.get<String>("selected_track_artist") ?: ""
+            val selectedTrackArt = handle.get<String>("selected_track_art")
+            val selectedTrackPreview = handle.get<String>("selected_track_preview")
+            val selectedClipStartMs = handle.get<Long>("selected_clip_start_ms") ?: 0L
+            val selectedClipEndMs = handle.get<Long>("selected_clip_end_ms") ?: 30_000L
 
-            if (selectedTrackId != null && selectedTrackName != null && selectedTrackArtist != null) {
+            if (trackId.isNotBlank() && selectedTrackName.isNotBlank()) {
                 viewModel.selectType(NoteType.MUSIC)
                 viewModel.onMusicChange(
-                    id = selectedTrackId,
+                    id = trackId,
                     name = selectedTrackName,
                     artist = selectedTrackArtist,
                     artUrl = selectedTrackArt,
@@ -124,16 +141,18 @@ fun NoteEditorScreen(
                     caption = uiState.textContent
                 )
                 viewModel.onMusicClipChange(selectedClipStartMs, selectedClipEndMs)
-                remove<String>("selected_track_id")
-                remove<String>("selected_track_name")
-                remove<String>("selected_track_artist")
-                remove<String>("selected_track_art")
-                remove<String>("selected_track_preview")
-                remove<Long>("selected_clip_start_ms")
-                remove<Long>("selected_clip_end_ms")
+                handle.remove<String>("selected_track_id")
+                handle.remove<String>("selected_track_name")
+                handle.remove<String>("selected_track_artist")
+                handle.remove<String>("selected_track_art")
+                handle.remove<String>("selected_track_preview")
+                handle.remove<Long>("selected_clip_start_ms")
+                handle.remove<Long>("selected_clip_end_ms")
             }
         }
     }
+
+    val context = LocalPlatformContext.current
 
     Box(
         modifier = Modifier
@@ -212,37 +231,71 @@ fun NoteEditorScreen(
                     uiState.selectedType == NoteType.MUSIC && uiState.trackName.isNotBlank() -> {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)
                         ) {
-                            Text(
-                                text = uiState.trackName,
-                                color = bubbleTextColor,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = uiState.artistName,
-                                color = Color.Gray,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            
-                            if (uiState.textContent.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = uiState.textContent,
-                                    color = bubbleTextColor,
-                                    fontSize = 14.sp,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                // Play / Pause Preview Button
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF1DB954))
+                                        .clickable { viewModel.togglePlayPreview(context) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPlayingMusic) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlayingMusic) "Duraklat" else "Önizle",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.width(10.dp))
+                                
+                                Column(modifier = Modifier.weight(1f, fill = false)) {
+                                    Text(
+                                        text = uiState.trackName,
+                                        color = bubbleTextColor,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = uiState.artistName,
+                                        color = bubbleTextColor.copy(alpha = 0.7f),
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
+                            
+                            Spacer(modifier = Modifier.height(10.dp))
+                            
+                            // Editable Caption TextField for Note
+                            BasicTextField(
+                                value = uiState.textContent,
+                                onValueChange = { viewModel.onTextChange(it) },
+                                textStyle = TextStyle(
+                                    color = bubbleTextColor,
+                                    fontSize = 15.sp,
+                                    textAlign = TextAlign.Center
+                                ),
+                                cursorBrush = SolidColor(bubbleTextColor),
+                                decorationBox = { innerTextField ->
+                                    if (uiState.textContent.isEmpty()) {
+                                        Text("Bir açıklama ekle...", color = Color.Gray, fontSize = 15.sp, textAlign = TextAlign.Center)
+                                    }
+                                    innerTextField()
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
                     uiState.selectedType == NoteType.LOCATION -> {
@@ -399,7 +452,7 @@ fun NoteEditorScreen(
                 CircularIconButton(
                     icon = Icons.Default.Headphones,
                     tint = Color(0xFFFF9800),
-                    onClick = { viewModel.fetchCurrentlyPlayingTrack() },
+                    onClick = { viewModel.fetchCurrentlyPlayingTrack(context) },
                     contentDescription = stringResource(R.string.note_btn_current_song)
                 )
 

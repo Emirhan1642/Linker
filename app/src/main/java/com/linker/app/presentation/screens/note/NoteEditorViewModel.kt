@@ -62,11 +62,15 @@ data class NoteEditorUiState(
 class NoteEditorViewModel @Inject constructor(
     private val noteInteractionUseCases: NoteInteractionUseCases,
     private val liveLocationRepository: LiveLocationRepository,
-    private val spotifyAppRemoteManager: com.linker.app.core.util.SpotifyAppRemoteManager
+    val spotifyAppRemoteManager: com.linker.app.core.util.SpotifyAppRemoteManager,
+    val audioPlayerManager: com.linker.app.core.util.AudioPlayerManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(NoteEditorUiState())
     val uiState: StateFlow<NoteEditorUiState> = _uiState.asStateFlow()
+
+    val isAudioPlaying: StateFlow<Boolean> = audioPlayerManager.isPlaying
+    val isRemotePlaying: StateFlow<Boolean> = spotifyAppRemoteManager.isPlaying
 
     /** Running location update job — cancelled when a new one starts or ViewModel is cleared. */
     private var locationUpdateJob: Job? = null
@@ -245,7 +249,27 @@ class NoteEditorViewModel @Inject constructor(
         )
     }
 
-    fun fetchCurrentlyPlayingTrack() {
+    fun fetchCurrentlyPlayingTrack(context: android.content.Context) {
+        _uiState.value = _uiState.value.copy(error = null)
+        if (spotifyAppRemoteManager.isConnected.value) {
+            readCurrentTrack()
+        } else {
+            spotifyAppRemoteManager.connect(
+                context = context,
+                clientId = com.linker.app.BuildConfig.SPOTIFY_CLIENT_ID,
+                onConnected = {
+                    readCurrentTrack()
+                },
+                onError = {
+                    _uiState.value = _uiState.value.copy(
+                        error = "Spotify'a bağlanılamadı. Lütfen Spotify uygulamasını açıp bir parça çalın."
+                    )
+                }
+            )
+        }
+    }
+
+    private fun readCurrentTrack() {
         spotifyAppRemoteManager.getCurrentTrack(
             onResult = { trackId, trackName, artistName, albumArtUrl, durationMs ->
                 _uiState.value = _uiState.value.copy(
@@ -255,7 +279,7 @@ class NoteEditorViewModel @Inject constructor(
                     artistName = artistName,
                     albumArtUrl = albumArtUrl,
                     clipStartMs = 0L,
-                    clipEndMs = minOf(30000L, durationMs),
+                    clipEndMs = minOf(30000L, if (durationMs > 0) durationMs else 30000L),
                     error = null
                 )
             },
@@ -265,6 +289,60 @@ class NoteEditorViewModel @Inject constructor(
                 )
             }
         )
+    }
+
+    fun togglePlayPreview(context: android.content.Context) {
+        val state = _uiState.value
+        if (state.trackId.isBlank()) return
+
+        val isAudio = audioPlayerManager.isPlaying.value
+        val isRemote = spotifyAppRemoteManager.isPlaying.value
+
+        if (isAudio || isRemote) {
+            audioPlayerManager.stop()
+            spotifyAppRemoteManager.pause()
+            return
+        }
+
+        if (!state.previewUrl.isNullOrBlank()) {
+            spotifyAppRemoteManager.pause()
+            audioPlayerManager.playPreview(
+                url = state.previewUrl,
+                startMs = 0L,
+                endMs = 30000L
+            )
+        } else {
+            audioPlayerManager.stop()
+            if (spotifyAppRemoteManager.isConnected.value) {
+                spotifyAppRemoteManager.playTrack(
+                    trackId = state.trackId,
+                    startTimeMs = state.clipStartMs,
+                    endTimeMs = state.clipEndMs
+                )
+            } else {
+                spotifyAppRemoteManager.connect(
+                    context = context,
+                    clientId = com.linker.app.BuildConfig.SPOTIFY_CLIENT_ID,
+                    onConnected = {
+                        spotifyAppRemoteManager.playTrack(
+                            trackId = state.trackId,
+                            startTimeMs = state.clipStartMs,
+                            endTimeMs = state.clipEndMs
+                        )
+                    },
+                    onError = {
+                        _uiState.value = _uiState.value.copy(
+                            error = "Spotify App Remote bağlantısı kurulamadı."
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    fun stopPlayback() {
+        audioPlayerManager.stop()
+        spotifyAppRemoteManager.pause()
     }
 
     fun onMusicChange(id: String, name: String, artist: String, artUrl: String?, preview: String?, caption: String) {
@@ -373,7 +451,7 @@ class NoteEditorViewModel @Inject constructor(
                             previewUrl = state.previewUrl,
                             clipStartMs = state.clipStartMs,
                             clipEndMs = state.clipEndMs,
-                            caption = state.musicCaption.ifBlank { state.textContent },
+                            caption = state.textContent.ifBlank { state.musicCaption },
                             backgroundColor = state.selectedBackgroundColor,
                             textColor = state.selectedTextColor
                         )
@@ -460,5 +538,7 @@ class NoteEditorViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         locationUpdateJob?.cancel()
+        audioPlayerManager.stop()
+        spotifyAppRemoteManager.pause()
     }
 }

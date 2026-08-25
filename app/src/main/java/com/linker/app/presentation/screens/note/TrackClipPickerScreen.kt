@@ -73,11 +73,11 @@ fun TrackClipPickerScreen(
     isExplicit: Boolean = false,
     onNavigateBack: () -> Unit,
     onClipConfirmed: (startMs: Long, endMs: Long) -> Unit,
-    audioPlayerManager: AudioPlayerManager = hiltViewModel<SpotifySearchViewModel>().audioPlayerManager,
-    spotifyAppRemoteManager: SpotifyAppRemoteManager = hiltViewModel<SpotifySearchViewModel>().spotifyAppRemoteManager,
-    spotifyAuthManager: SpotifyAuthManager = hiltViewModel<SpotifySearchViewModel>().spotifyAuthManager,
-    viewModel: SpotifySearchViewModel = hiltViewModel<SpotifySearchViewModel>()
+    viewModel: SpotifySearchViewModel = hiltViewModel()
 ) {
+    val audioPlayerManager = viewModel.audioPlayerManager
+    val spotifyAppRemoteManager = viewModel.spotifyAppRemoteManager
+    val spotifyAuthManager = viewModel.spotifyAuthManager
     val context = LocalContext.current
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -89,12 +89,13 @@ fun TrackClipPickerScreen(
     LaunchedEffect(Unit) {
         // Stop any dashboard preview that might still be playing
         audioPlayerManager.stop()
+        spotifyAppRemoteManager.pause()
     }
 
     val isPremium by spotifyAuthManager.isPremium.collectAsStateWithLifecycle()
     
-    // If we are NOT premium and we have a previewUrl, we are forced to use the preview
-    val isPreviewMode = (isPremium == false && previewUrl.isNotEmpty())
+    // If we are NOT confirmed premium (false or null) and we have a previewUrl, use the preview mode
+    val isPreviewMode = (isPremium != true && previewUrl.isNotEmpty())
     
     val audioIsPlaying by audioPlayerManager.isPlaying.collectAsStateWithLifecycle()
     val remoteIsPlaying by spotifyAppRemoteManager.isPlaying.collectAsStateWithLifecycle()
@@ -120,7 +121,7 @@ fun TrackClipPickerScreen(
 
     // Clip duration state (adjustable 1s - 30s)
     var showDurationPicker by remember { mutableStateOf(false) }
-    var selectedDurationSec by remember { mutableIntStateOf(minOf(durationSec.toInt(), 30)) }
+    var selectedDurationSec by remember { mutableIntStateOf(minOf(durationSec.toInt().coerceAtLeast(1), 30)) }
     val clipDuration = minOf(durationSec, selectedDurationSec.toFloat())
     
     // Clip start state
@@ -142,12 +143,10 @@ fun TrackClipPickerScreen(
     } else 0f
 
     // Seek automatically when clipStartMs or clipEndMs changes, but NOT while dragging
-    // We seek even when paused so the playhead accurately snaps to the new beginning!
     LaunchedEffect(clipStartMs, clipEndMs, isDragging) {
         if (!isDragging) {
             if (isPreviewMode) {
-                // mediaPlayer.seekTo takes milliseconds, but in AudioPlayerManager we don't expose manual seek unless it's playing.
-                // However playPreview will start from the correct startMs when play is clicked.
+                audioPlayerManager.seekTo(clipStartMs, clipEndMs)
             } else {
                 spotifyAppRemoteManager.seekTo(clipStartMs, clipEndMs)
             }
@@ -169,14 +168,14 @@ fun TrackClipPickerScreen(
     }
 
     fun togglePlayback() {
-        // If we are not connected, we MUST pass clipStartMs so it starts from the right place instead of 0:00.
-        // If the playhead is outside the clip boundaries, restart from the beginning of the clip.
         val startMs = if ((!isConnected && !isPreviewMode) || positionMs < clipStartMs || positionMs >= clipEndMs - 200) clipStartMs else null
 
         if (isPreviewMode) {
+            spotifyAppRemoteManager.pause()
             if (isPlaying) audioPlayerManager.pause()
             else audioPlayerManager.playPreview(previewUrl, startMs ?: positionMs, clipEndMs)
         } else {
+            audioPlayerManager.stop()
             if (isPlaying) spotifyAppRemoteManager.pause()
             else {
                 if (isConnected) {
@@ -185,7 +184,7 @@ fun TrackClipPickerScreen(
                     val hasToken = spotifyAuthManager.accessToken.value != null
                     if (hasToken) {
                         spotifyAppRemoteManager.connect(
-                            context = context as android.app.Activity,
+                            context = context,
                             clientId = com.linker.app.BuildConfig.SPOTIFY_CLIENT_ID,
                             onConnected = {
                                 spotifyAppRemoteManager.playTrack(
@@ -196,6 +195,8 @@ fun TrackClipPickerScreen(
                             },
                             onError = {}
                         )
+                    } else {
+                        spotifyAuthManager.openLoginInBrowser(context)
                     }
                 }
             }

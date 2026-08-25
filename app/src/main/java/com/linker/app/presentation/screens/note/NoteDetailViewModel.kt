@@ -184,6 +184,31 @@ class NoteDetailViewModel @Inject constructor(
         }
     }
 
+    fun pausePlayback(note: com.linker.app.domain.model.Note.Music) {
+        if (spotifyAppRemoteManager.isConnected.value) {
+            spotifyAppRemoteManager.pause()
+            spotifyAppRemoteManager.seekTo(note.clipStartTime, if (note.clipEndTime > 0) note.clipEndTime else null)
+        }
+        audioPlayerManager.pause()
+        audioPlayerManager.seekTo(0L)
+    }
+
+    fun seekDelta(deltaMs: Long, note: com.linker.app.domain.model.Note.Music) {
+        if (spotifyAppRemoteManager.isConnected.value) {
+            spotifyAppRemoteManager.seekBy(deltaMs)
+        } else {
+            audioPlayerManager.seekBy(deltaMs)
+        }
+    }
+
+    fun seekToPosition(targetMs: Long, note: com.linker.app.domain.model.Note.Music) {
+        if (spotifyAppRemoteManager.isConnected.value) {
+            spotifyAppRemoteManager.seekTo(targetMs, if (note.clipEndTime > 0) note.clipEndTime else null)
+        } else {
+            audioPlayerManager.seekTo(targetMs)
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         clearNote()
