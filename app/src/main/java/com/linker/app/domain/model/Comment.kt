@@ -56,6 +56,7 @@ data class Comment(
     val isLiked: Boolean = false,
     val isPinned: Boolean = false,
     val isEdited: Boolean = false,
+    val isDeleted: Boolean = false,
     val editCount: Int = 0,
     val editHistory: List<CommentVersion> = emptyList(),
     val createdAt: Long,

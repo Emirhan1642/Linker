@@ -137,19 +137,6 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = paddingValues.calculateTopPadding(), bottom = 0.dp)
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { totalHorizontalDrag = 0f },
-                        onHorizontalDrag = { change, dragAmount ->
-                            totalHorizontalDrag += dragAmount
-                            if (totalHorizontalDrag < -50f) {
-                                change.consume()
-                                totalHorizontalDrag = 0f
-                                onNavigateToStoryGrid()
-                            }
-                        }
-                    )
-                }
         ) {
             // Feed Items Pager
             if (currentLinks.isNotEmpty()) {
@@ -166,6 +153,7 @@ fun HomeScreen(
                             onZoomStateChanged = { isAnyItemZooming = it },
                             onNavigateToProfile = onNavigateToProfile,
                             onNavigateToSearch = onNavigateToSearch,
+                            onNavigateToStoryGrid = onNavigateToStoryGrid,
                             onLikeClick = { viewModel.toggleLike(link.linkId) },
                             onSaveClick = { viewModel.toggleSave(link.linkId) },
                             onRelinkClick = { viewModel.toggleRelink(link.linkId) },
@@ -223,7 +211,8 @@ fun HomeScreen(
             if (activeCommentLinkId != null) {
                 CommentSheet(
                     targetId = activeCommentLinkId!!,
-                    onDismiss = { activeCommentLinkId = null }
+                    onDismiss = { activeCommentLinkId = null },
+                    onUserClick = onNavigateToProfile
                 )
             }
         }
@@ -346,6 +335,7 @@ fun FeedItemView(
     onZoomStateChanged: (Boolean) -> Unit = {},
     onNavigateToProfile: (String) -> Unit = {},
     onNavigateToSearch: (String, com.linker.app.presentation.screens.search.SearchTab) -> Unit = { _, _ -> },
+    onNavigateToStoryGrid: () -> Unit = {},
     onLikeClick: () -> Unit = {},
     onSaveClick: () -> Unit = {},
     onRelinkClick: () -> Unit = {},
@@ -364,7 +354,6 @@ fun FeedItemView(
     var durationMs by remember { mutableLongStateOf(0L) }
     var isScrubbing by remember { mutableStateOf(false) }
     var seekTargetMs by remember { mutableStateOf<Long?>(null) }
-    var resizeMode by remember { mutableIntStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     val rawPrimaryUrl = link.primaryMedia.url
     val cleanPrimaryUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(rawPrimaryUrl)
@@ -391,6 +380,7 @@ fun FeedItemView(
             com.linker.app.core.util.MediaUtils.isVideoUrl(cleanPrimaryUrl)
 
     var isLocalZooming by remember { mutableStateOf(false) }
+    var singleItemDragAmount by remember { mutableFloatStateOf(0f) }
 
     Box(
         modifier = Modifier
@@ -426,17 +416,41 @@ fun FeedItemView(
                             }
                         )
                     }
+                    .then(
+                        if (link.mediaItems.size <= 1) {
+                            Modifier.pointerInput(Unit) {
+                                detectHorizontalDragGestures(
+                                    onDragStart = { singleItemDragAmount = 0f },
+                                    onHorizontalDrag = { change, dragAmount ->
+                                        singleItemDragAmount += dragAmount
+                                        if (singleItemDragAmount > 50f) {
+                                            change.consume()
+                                            singleItemDragAmount = 0f
+                                            onNavigateToStoryGrid()
+                                        } else if (singleItemDragAmount < -50f) {
+                                            change.consume()
+                                            singleItemDragAmount = 0f
+                                            onNavigateToSearch("", com.linker.app.presentation.screens.search.SearchTab.LINKS)
+                                        }
+                                    }
+                                )
+                            }
+                        } else Modifier
+                    )
             ) {
                 val mediaUrls = link.mediaItems.map { it.url }
 
                 if (isVideo) {
+                    val primaryMedia = link.mediaItems.firstOrNull()
+                    val isFit = primaryMedia?.isFitMode ?: false
+                    val videoResizeMode = if (isFit) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                     VideoPlayerView(
                         videoUrl = cleanPrimaryUrl,
                         isPlaying = isCurrentPage,
                         isManuallyPaused = isManuallyPaused,
                         playbackSpeed = if (isFastForwarding) 2.0f else 1.0f,
                         seekToMs = seekTargetMs,
-                        resizeMode = resizeMode,
+                        resizeMode = videoResizeMode,
                         onProgressUpdate = { position, duration ->
                             currentPositionMs = position
                             durationMs = duration
@@ -445,37 +459,70 @@ fun FeedItemView(
                     )
                 } else if (mediaUrls.size > 1) {
                     val carouselState = rememberPagerState(pageCount = { mediaUrls.size })
+                    var carouselDragAmount by remember { mutableFloatStateOf(0f) }
                     Box(modifier = Modifier.fillMaxSize()) {
                         HorizontalPager(
                             state = carouselState,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(carouselState.currentPage) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { carouselDragAmount = 0f },
+                                        onHorizontalDrag = { change, dragAmount ->
+                                            carouselDragAmount += dragAmount
+                                            if (carouselState.currentPage == 0 && carouselDragAmount > 50f) {
+                                                change.consume()
+                                                carouselDragAmount = 0f
+                                                onNavigateToStoryGrid()
+                                            } else if (carouselState.currentPage == mediaUrls.lastIndex && carouselDragAmount < -50f) {
+                                                change.consume()
+                                                carouselDragAmount = 0f
+                                                onNavigateToSearch("", com.linker.app.presentation.screens.search.SearchTab.LINKS)
+                                            }
+                                        }
+                                    )
+                                }
                         ) { pageIdx ->
                             val media = mediaUrls[pageIdx]
                             val isPageVideo = com.linker.app.core.util.MediaUtils.isVideoUrl(media)
+                            val mediaItem = link.mediaItems.getOrNull(pageIdx)
+                            val isItemFit = mediaItem?.isFitMode ?: false
+
                             if (isPageVideo) {
+                                val itemResizeMode = if (isItemFit) androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT else androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                                 VideoPlayerView(
                                     videoUrl = media,
                                     isPlaying = isCurrentPage && carouselState.currentPage == pageIdx && !isManuallyPaused,
+                                    resizeMode = itemResizeMode,
                                     modifier = Modifier.fillMaxSize()
                                 )
                             } else {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    coil3.compose.AsyncImage(
-                                        model = media,
-                                        contentDescription = null,
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .drawWithContent {
-                                                drawContent()
-                                                drawRect(Color.Black.copy(alpha = 0.55f))
-                                            }
-                                            .blur(30.dp)
-                                    )
+                                if (isItemFit) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        coil3.compose.AsyncImage(
+                                            model = media,
+                                            contentDescription = null,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .drawWithContent {
+                                                    drawContent()
+                                                    drawRect(Color.Black.copy(alpha = 0.55f))
+                                                }
+                                                .blur(30.dp)
+                                        )
+                                        coil3.compose.AsyncImage(
+                                            model = media,
+                                            contentDescription = link.description,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                } else {
                                     coil3.compose.AsyncImage(
                                         model = media,
                                         contentDescription = link.description,
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
@@ -519,26 +566,38 @@ fun FeedItemView(
                         }
                     }
                 } else if (cleanPrimaryUrl.isNotBlank()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        coil3.compose.AsyncImage(
-                            model = cleanPrimaryUrl,
-                            contentDescription = null,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .drawWithContent {
-                                    drawContent()
-                                    drawRect(Color.Black.copy(alpha = 0.55f))
-                                }
-                                .blur(30.dp)
-                        )
+                    val primaryMedia = link.mediaItems.firstOrNull()
+                    val isFit = primaryMedia?.isFitMode ?: false
+
+                    if (isFit) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            coil3.compose.AsyncImage(
+                                model = cleanPrimaryUrl,
+                                contentDescription = null,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .drawWithContent {
+                                        drawContent()
+                                        drawRect(Color.Black.copy(alpha = 0.55f))
+                                    }
+                                    .blur(30.dp)
+                            )
+                            coil3.compose.AsyncImage(
+                                model = cleanPrimaryUrl,
+                                contentDescription = link.description,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    } else {
                         coil3.compose.AsyncImage(
                             model = cleanPrimaryUrl,
                             contentDescription = link.description,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()
                         )
                     }

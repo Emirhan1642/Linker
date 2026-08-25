@@ -47,13 +47,15 @@ fun LinkerFormattedText(
                 val layout = layoutResult
                 if (layout != null) {
                     val offset = layout.getOffsetForPosition(pos)
-                    val hashtagAnnotation = annotatedString.getStringAnnotations(tag = "HASHTAG", start = offset, end = offset).firstOrNull()
+                    val hashtagAnnotation = annotatedString.getStringAnnotations(tag = "HASHTAG", start = 0, end = annotatedString.length)
+                        .find { it.start <= offset && offset <= it.end }
                     if (hashtagAnnotation != null) {
                         onHashtagClick?.invoke(hashtagAnnotation.item)
                         return@detectTapGestures
                     }
 
-                    val mentionAnnotation = annotatedString.getStringAnnotations(tag = "MENTION", start = offset, end = offset).firstOrNull()
+                    val mentionAnnotation = annotatedString.getStringAnnotations(tag = "MENTION", start = 0, end = annotatedString.length)
+                        .find { it.start <= offset && offset <= it.end }
                     if (mentionAnnotation != null) {
                         onMentionClick?.invoke(mentionAnnotation.item)
                         return@detectTapGestures

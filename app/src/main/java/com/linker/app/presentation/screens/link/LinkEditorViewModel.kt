@@ -83,7 +83,7 @@ class LinkEditorViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(aiLabelEnabled = enabled)
     }
 
-    fun saveLink() {
+    fun saveLink(mediaFitModes: Map<String, Boolean> = emptyMap()) {
         val linkId = currentLinkId
         val desc = _uiState.value.description
 
@@ -110,13 +110,18 @@ class LinkEditorViewModel @Inject constructor(
                 }
                 val determinedType = if (containsVideo) LinkType.VIDEO else LinkType.FEED
 
+                val fitModesList = _uiState.value.mediaUris.map { uri ->
+                    mediaFitModes[uri.toString()] ?: false
+                }
+
                 // Create new link
                 val result = linkRepository.createLink(
                     linkType = determinedType,
                     description = desc,
                     mediaLocalPaths = _uiState.value.mediaUris.map { it.toString() },
                     location = _uiState.value.location,
-                    isAiGenerated = _uiState.value.aiLabelEnabled
+                    isAiGenerated = _uiState.value.aiLabelEnabled,
+                    mediaFitModes = fitModesList
                 )
                 
                 if (result is Result.Success) {

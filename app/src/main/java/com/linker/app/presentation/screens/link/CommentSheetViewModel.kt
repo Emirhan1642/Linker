@@ -32,6 +32,9 @@ class CommentSheetViewModel @Inject constructor(
     private val commentUseCases: CommentUseCases
 ) : ViewModel() {
 
+    val currentUserId: String
+        get() = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+
     private val _uiState = MutableStateFlow(CommentSheetUiState())
     val uiState: StateFlow<CommentSheetUiState> = _uiState.asStateFlow()
 

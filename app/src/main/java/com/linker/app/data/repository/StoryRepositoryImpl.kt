@@ -45,6 +45,9 @@ class StoryRepositoryImpl @Inject constructor(
 
     private val viewedStoriesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val likedStoriesCache = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val storyLikesCountMap = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
+    private val storyViewsCountMap = java.util.Collections.synchronizedMap(mutableMapOf<String, Int>())
+    private val storyViewersMap = java.util.Collections.synchronizedMap(mutableMapOf<String, MutableList<com.linker.app.domain.repository.StoryViewer>>())
 
     private val storiesCollection = firestore.collection("stories")
     private val usersCollection = firestore.collection("users")
@@ -75,10 +78,17 @@ class StoryRepositoryImpl @Inject constructor(
 
                     val currentUserId = auth.currentUser?.uid ?: ""
 
-                    // Filter stories based on privacy settings
+                    // Correctly fetch active following user IDs from follows collection
                     val currentFollowingIds = if (currentUserId.isNotEmpty()) {
                         try {
-                            usersCollection.document(currentUserId).collection("following").get().await().documents.map { it.id }.toSet()
+                            firestore.collection("follows")
+                                .whereEqualTo("followerId", currentUserId)
+                                .whereEqualTo("status", "active")
+                                .get()
+                                .await()
+                                .documents
+                                .mapNotNull { it.getString("followedId") }
+                                .toSet()
                         } catch (_: Exception) { emptySet() }
                     } else emptySet()
 
@@ -154,6 +164,8 @@ class StoryRepositoryImpl @Inject constructor(
                         } else null
 
                         val isLiked = (currentUserId.isNotEmpty() && data.likedBy.contains(currentUserId)) || likedStoriesCache.contains(id)
+                        val effectiveLikesCount = storyLikesCountMap[id] ?: data.likesCount
+                        val effectiveViewsCount = storyViewsCountMap[id] ?: data.viewsCount
 
                         Story(
                             storyId = id,
@@ -163,8 +175,8 @@ class StoryRepositoryImpl @Inject constructor(
                             thumbnailUrl = data.thumbnailUrl,
                             duration = storyDuration,
                             caption = data.caption,
-                            viewsCount = data.viewsCount,
-                            likesCount = data.likesCount,
+                            viewsCount = effectiveViewsCount,
+                            likesCount = effectiveLikesCount,
                             isViewed = viewedStoriesCache.contains(id),
                             isLiked = isLiked,
                             createdAt = data.createdAt,
@@ -312,29 +324,53 @@ class StoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun markStoryAsViewed(storyId: String): Result<Unit> = RetryUtil.retrySafeCall {
-        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
+        val currentUserId = auth.currentUser?.uid ?: "local_user"
 
         if (viewedStoriesCache.contains(storyId)) {
             return@retrySafeCall
         }
-
-        val viewerRef = storiesCollection
-            .document(storyId)
-            .collection("viewers")
-            .document(currentUserId)
-
-        val viewerDoc = viewerRef.get().await()
-        if (viewerDoc.exists()) {
-            viewedStoriesCache.add(storyId)
-            return@retrySafeCall
-        }
-
-        val batch = firestore.batch()
-        batch.set(viewerRef, mapOf("viewedAt" to System.currentTimeMillis(), "userId" to currentUserId))
-        val storyRef = storiesCollection.document(storyId)
-        batch.update(storyRef, "viewsCount", com.google.firebase.firestore.FieldValue.increment(1))
-        batch.commit().await()
         viewedStoriesCache.add(storyId)
+        storyViewsCountMap[storyId] = (storyViewsCountMap[storyId] ?: 0) + 1
+
+        try {
+            val currentUserDoc = usersCollection.document(currentUserId).get().await()
+            val author = StoryAuthor(
+                userId = currentUserId,
+                username = currentUserDoc.getString("username") ?: "Kullanıcı",
+                displayName = currentUserDoc.getString("displayName") ?: "",
+                profileImageUrl = currentUserDoc.getString("profileImageUrl")
+            )
+            val localList = storyViewersMap.getOrPut(storyId) { mutableListOf() }
+            if (localList.none { it.userId == currentUserId }) {
+                localList.add(
+                    com.linker.app.domain.repository.StoryViewer(
+                        userId = currentUserId,
+                        username = author.username.ifBlank { author.displayName },
+                        avatarUrl = author.profileImageUrl,
+                        viewedAt = System.currentTimeMillis(),
+                        hasLiked = likedStoriesCache.contains(storyId)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+
+        try {
+            val viewerRef = storiesCollection
+                .document(storyId)
+                .collection("viewers")
+                .document(currentUserId)
+
+            val viewerDoc = viewerRef.get().await()
+            if (!viewerDoc.exists()) {
+                val batch = firestore.batch()
+                batch.set(viewerRef, mapOf("viewedAt" to System.currentTimeMillis(), "userId" to currentUserId))
+                val storyRef = storiesCollection.document(storyId)
+                batch.update(storyRef, "viewsCount", com.google.firebase.firestore.FieldValue.increment(1))
+                batch.commit().await()
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("StoryRepo", "Remote view sync failed, preserved locally: ${e.message}")
+        }
     }
 
     override suspend fun deleteStory(storyId: String): Result<Unit> = RetryUtil.retrySafeCall {
@@ -368,44 +404,55 @@ class StoryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getViewCount(storyId: String): Result<Int> = RetryUtil.retrySafeCall {
-        val snapshot = storiesCollection.document(storyId).collection("viewers").get().await()
-        snapshot.size()
+        val localCount = storyViewsCountMap[storyId]
+        try {
+            val snapshot = storiesCollection.document(storyId).collection("viewers").get().await()
+            maxOf(localCount ?: 0, snapshot.size())
+        } catch (e: Exception) {
+            localCount ?: 0
+        }
     }
 
     override suspend fun getViewers(storyId: String): Result<List<com.linker.app.domain.repository.StoryViewer>> = RetryUtil.retrySafeCall {
-        val viewersSnap = storiesCollection.document(storyId).collection("viewers").get().await()
-        if (viewersSnap.isEmpty) return@retrySafeCall emptyList()
+        val localViewers = storyViewersMap[storyId] ?: emptyList()
+        try {
+            val viewersSnap = storiesCollection.document(storyId).collection("viewers").get().await()
+            if (viewersSnap.isEmpty) return@retrySafeCall localViewers
 
-        val viewerUserIds = viewersSnap.documents.mapNotNull { it.getString("userId") ?: it.id }
-        val usersMap = mutableMapOf<String, StoryAuthor>()
+            val viewerUserIds = viewersSnap.documents.mapNotNull { it.getString("userId") ?: it.id }
+            val usersMap = mutableMapOf<String, StoryAuthor>()
 
-        viewerUserIds.chunked(10).forEach { chunk ->
-            val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
-            userDocs.documents.forEach { doc ->
-                usersMap[doc.id] = StoryAuthor(
-                    userId = doc.id,
-                    username = doc.getString("username") ?: "",
-                    displayName = doc.getString("displayName") ?: "",
-                    profileImageUrl = doc.getString("profileImageUrl")
+            viewerUserIds.chunked(10).forEach { chunk ->
+                val userDocs = usersCollection.whereIn(com.google.firebase.firestore.FieldPath.documentId(), chunk).get().await()
+                userDocs.documents.forEach { doc ->
+                    usersMap[doc.id] = StoryAuthor(
+                        userId = doc.id,
+                        username = doc.getString("username") ?: "",
+                        displayName = doc.getString("displayName") ?: "",
+                        profileImageUrl = doc.getString("profileImageUrl")
+                    )
+                }
+            }
+
+            val likesSnap = storiesCollection.document(storyId).collection("likes").get().await()
+            val likedUserIds = likesSnap.documents.map { it.id }.toSet()
+
+            val remoteList = viewersSnap.documents.mapNotNull { vDoc ->
+                val uId = vDoc.getString("userId") ?: vDoc.id
+                val author = usersMap[uId] ?: return@mapNotNull null
+                val viewedAt = vDoc.getLong("viewedAt") ?: System.currentTimeMillis()
+                com.linker.app.domain.repository.StoryViewer(
+                    userId = uId,
+                    username = author.username.ifBlank { author.displayName },
+                    avatarUrl = author.profileImageUrl,
+                    viewedAt = viewedAt,
+                    hasLiked = likedUserIds.contains(uId) || (uId == auth.currentUser?.uid && likedStoriesCache.contains(storyId))
                 )
             }
+            (remoteList + localViewers).distinctBy { it.userId }.sortedByDescending { it.viewedAt }
+        } catch (e: Exception) {
+            localViewers
         }
-
-        val likesSnap = storiesCollection.document(storyId).collection("likes").get().await()
-        val likedUserIds = likesSnap.documents.map { it.id }.toSet()
-
-        viewersSnap.documents.mapNotNull { vDoc ->
-            val uId = vDoc.getString("userId") ?: vDoc.id
-            val author = usersMap[uId] ?: return@mapNotNull null
-            val viewedAt = vDoc.getLong("viewedAt") ?: System.currentTimeMillis()
-            com.linker.app.domain.repository.StoryViewer(
-                userId = uId,
-                username = author.username.ifBlank { author.displayName },
-                avatarUrl = author.profileImageUrl,
-                viewedAt = viewedAt,
-                hasLiked = likedUserIds.contains(uId)
-            )
-        }.sortedByDescending { it.viewedAt }
     }
 
     override suspend fun replyToStory(storyId: String, content: String): Result<Unit> = RetryUtil.retrySafeCall {
@@ -416,15 +463,19 @@ class StoryRepositoryImpl @Inject constructor(
         // 1. Save reply to story replies subcollection
         val replyId = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
-        storiesCollection.document(storyId).collection("replies").document(replyId).set(
-            mapOf(
-                "replyId" to replyId,
-                "storyId" to storyId,
-                "senderId" to currentUserId,
-                "content" to content,
-                "createdAt" to now
-            )
-        ).await()
+        try {
+            storiesCollection.document(storyId).collection("replies").document(replyId).set(
+                mapOf(
+                    "replyId" to replyId,
+                    "storyId" to storyId,
+                    "senderId" to currentUserId,
+                    "content" to content,
+                    "createdAt" to now
+                )
+            ).await()
+        } catch (e: Exception) {
+            android.util.Log.w("StoryRepo", "Could not write to story replies subcollection: ${e.message}")
+        }
 
         // 2. Send direct message in chat with story author
         try {
@@ -478,35 +529,46 @@ class StoryRepositoryImpl @Inject constructor(
     // ── New: Engagement & Safety ───────────────────────────────────────────
 
     override suspend fun toggleLikeStory(storyId: String): Result<Boolean> = RetryUtil.retrySafeCall {
-        val currentUserId = auth.currentUser?.uid ?: throw IllegalStateException("Not authenticated")
-        val likesRef = storiesCollection
-            .document(storyId)
-            .collection("likes")
-            .document(currentUserId)
+        val currentUserId = auth.currentUser?.uid ?: "local_user"
+        val wasLiked = likedStoriesCache.contains(storyId)
+        val newLiked = !wasLiked
 
-        val likeDoc = likesRef.get().await()
-        val isLiked = likeDoc.exists()
-
-        val batch = firestore.batch()
-        if (isLiked) {
-            likedStoriesCache.remove(storyId)
-            batch.delete(likesRef)
-            batch.update(
-                storiesCollection.document(storyId),
-                "likesCount", com.google.firebase.firestore.FieldValue.increment(-1),
-                "likedBy", com.google.firebase.firestore.FieldValue.arrayRemove(currentUserId)
-            )
-        } else {
+        if (newLiked) {
             likedStoriesCache.add(storyId)
-            batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis(), "userId" to currentUserId))
-            batch.update(
-                storiesCollection.document(storyId),
-                "likesCount", com.google.firebase.firestore.FieldValue.increment(1),
-                "likedBy", com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId)
-            )
+            storyLikesCountMap[storyId] = (storyLikesCountMap[storyId] ?: 0) + 1
+        } else {
+            likedStoriesCache.remove(storyId)
+            storyLikesCountMap[storyId] = maxOf(0, (storyLikesCountMap[storyId] ?: 1) - 1)
         }
-        batch.commit().await()
-        !isLiked
+
+        try {
+            val likesRef = storiesCollection
+                .document(storyId)
+                .collection("likes")
+                .document(currentUserId)
+
+            val batch = firestore.batch()
+            if (wasLiked) {
+                batch.delete(likesRef)
+                batch.update(
+                    storiesCollection.document(storyId),
+                    "likesCount", com.google.firebase.firestore.FieldValue.increment(-1),
+                    "likedBy", com.google.firebase.firestore.FieldValue.arrayRemove(currentUserId)
+                )
+            } else {
+                batch.set(likesRef, mapOf("likedAt" to System.currentTimeMillis(), "userId" to currentUserId))
+                batch.update(
+                    storiesCollection.document(storyId),
+                    "likesCount", com.google.firebase.firestore.FieldValue.increment(1),
+                    "likedBy", com.google.firebase.firestore.FieldValue.arrayUnion(currentUserId)
+                )
+            }
+            batch.commit().await()
+        } catch (e: Exception) {
+            android.util.Log.w("StoryRepo", "Remote like sync failed, preserved locally: ${e.message}")
+        }
+
+        newLiked
     }
 
     override suspend fun reactToStory(storyId: String, emoji: String?): Result<Unit> = RetryUtil.retrySafeCall {

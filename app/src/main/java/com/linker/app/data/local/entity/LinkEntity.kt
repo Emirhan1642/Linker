@@ -35,6 +35,7 @@ data class LinkEntity(
     val linkType: LinkType, // FEED, VIDEO, REEL
     val description: String?,
     val mediaUrls: List<String>, // Image/Video URLs
+    val mediaFitModes: List<Boolean> = emptyList(), // Per-media Fit vs Crop flags
     val thumbnailUrl: String?,
     val videoDuration: Int? = null, // in seconds
     val aspectRatio: Float? = null,

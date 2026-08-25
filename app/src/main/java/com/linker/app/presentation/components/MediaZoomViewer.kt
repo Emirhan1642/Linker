@@ -40,6 +40,9 @@ fun ZoomableMediaBox(
                     do {
                         val event = awaitPointerEvent()
                         if (event.changes.size >= 2) {
+                            // Immediately inform parent that multi-touch zoom has started
+                            onZoomStateChanged(true)
+
                             val centroid = event.calculateCentroid(useCurrent = true)
                             val zoom = event.calculateZoom()
                             val pan = event.calculatePan()
@@ -55,18 +58,11 @@ fun ZoomableMediaBox(
 
                             val newScale = (scale * zoom).coerceIn(1f, 4.5f)
                             scale = newScale
-                            val isCurrentlyZoomed = newScale > 1.05f
-                            onZoomStateChanged(isCurrentlyZoomed)
+                            offset += pan
 
-                            if (isCurrentlyZoomed) {
-                                offset += pan
-                            }
-
-                            // Consume all pointer events during multi-touch so underlying pagers do not swipe!
+                            // Consume ALL multi-touch pointer events unconditionally so pagers do not steal the touch!
                             event.changes.forEach { change ->
-                                if (change.positionChanged()) {
-                                    change.consume()
-                                }
+                                change.consume()
                             }
                         } else {
                             isFirstTwoFinger = true
@@ -74,7 +70,7 @@ fun ZoomableMediaBox(
                     } while (event.changes.any { it.pressed })
 
                     // When fingers are lifted, smoothly snap back to normal
-                    if (scale > 1.05f || offset != Offset.Zero) {
+                    if (scale > 1.01f || offset != Offset.Zero) {
                         scope.launch {
                             animatableScale.snapTo(scale)
                             animatableOffset.snapTo(offset)

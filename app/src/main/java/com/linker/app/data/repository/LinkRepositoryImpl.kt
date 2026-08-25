@@ -97,15 +97,22 @@ class LinkRepositoryImpl @Inject constructor(
                             }
                             @Suppress("UNCHECKED_CAST")
                             val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+                            @Suppress("UNCHECKED_CAST")
+                            val fitList = (doc.get("mediaFitModes") as? List<Boolean>) ?: emptyList()
                             val authorId = doc.getString("authorId") ?: ""
                             val linkId = doc.id
 
                             // Fallback to local placeholder only if server mediaUrls is empty and current user is author
+                            val local = linkDao.getLinkById(linkId)
                             val resolvedMedia = if (mediaList.isEmpty() && authorId == currentUserId) {
-                                val local = linkDao.getLinkById(linkId)
                                 local?.mediaUrls ?: emptyList()
                             } else {
                                 mediaList
+                            }
+                            val resolvedFits = if (fitList.isEmpty() && authorId == currentUserId) {
+                                local?.mediaFitModes ?: emptyList()
+                            } else {
+                                fitList
                             }
 
                             com.linker.app.data.local.entity.LinkEntity(
@@ -114,6 +121,7 @@ class LinkRepositoryImpl @Inject constructor(
                                 linkType = mappedType,
                                 description = doc.getString("description"),
                                 mediaUrls = resolvedMedia,
+                                mediaFitModes = resolvedFits,
                                 thumbnailUrl = doc.getString("thumbnailUrl"),
                                 location = doc.getString("location"),
                                 isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
@@ -198,12 +206,15 @@ class LinkRepositoryImpl @Inject constructor(
                 }
                 @Suppress("UNCHECKED_CAST")
                 val mediaList = (doc.get("mediaUrls") as? List<String>) ?: emptyList()
+                @Suppress("UNCHECKED_CAST")
+                val fitList = (doc.get("mediaFitModes") as? List<Boolean>) ?: emptyList()
                 com.linker.app.data.local.entity.LinkEntity(
                     linkId = doc.id,
                     authorId = doc.getString("authorId") ?: "",
                     linkType = mappedType,
                     description = doc.getString("description"),
                     mediaUrls = mediaList,
+                    mediaFitModes = fitList,
                     thumbnailUrl = doc.getString("thumbnailUrl"),
                     location = doc.getString("location"),
                     isAiGenerated = doc.getBoolean("isAiGenerated") ?: false,
@@ -260,7 +271,8 @@ class LinkRepositoryImpl @Inject constructor(
         description: String?,
         mediaLocalPaths: List<String>,
         location: String?,
-        isAiGenerated: Boolean
+        isAiGenerated: Boolean,
+        mediaFitModes: List<Boolean>
     ): Result<Link> = safeCall {
         val currentUserId = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             ?: throw IllegalStateException("Not authenticated")
@@ -288,6 +300,7 @@ class LinkRepositoryImpl @Inject constructor(
             linkType = mappedLinkType,
             description = description,
             mediaUrls = placeholderMedia,
+            mediaFitModes = mediaFitModes,
             thumbnailUrl = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) "placeholder" else null,
             videoDuration = if (mappedLinkType != com.linker.app.data.local.entity.LinkType.FEED) 15 else null,
             location = location,
@@ -317,6 +330,7 @@ class LinkRepositoryImpl @Inject constructor(
                     "location" to (location ?: ""),
                     "isAiGenerated" to isAiGenerated,
                     "mediaUrls" to emptyList<String>(),
+                    "mediaFitModes" to mediaFitModes,
                     "likesCount" to 0,
                     "commentsCount" to 0,
                     "sharesCount" to 0,

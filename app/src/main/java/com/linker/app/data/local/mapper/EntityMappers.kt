@@ -94,6 +94,7 @@ fun LinkEntity.toDomain(author: User?): Link {
     val mediaItems = if (mediaUrls.isNotEmpty()) {
         mediaUrls.mapIndexed { index, rawUrl ->
             val url = if (rawUrl.isBlank()) "placeholder://empty" else rawUrl
+            val isFit = mediaFitModes.getOrNull(index) ?: false
             if (videoDuration != null && index == 0) {
                 // First item is a video
                 MediaItem.Video(
@@ -102,7 +103,8 @@ fun LinkEntity.toDomain(author: User?): Link {
                     thumbnailUrl = thumbnailUrl,
                     duration = videoDuration ?: 15,
                     width = null,
-                    height = null
+                    height = null,
+                    isFitMode = isFit
                 )
             } else {
                 // Image item
@@ -110,12 +112,13 @@ fun LinkEntity.toDomain(author: User?): Link {
                     url = url,
                     aspectRatio = aspectRatio,
                     width = null,
-                    height = null
+                    height = null,
+                    isFitMode = isFit
                 )
             }
         }
     } else {
-        listOf(MediaItem.Image(url = "placeholder://text_only", aspectRatio = null, width = null, height = null))
+        listOf(MediaItem.Image(url = "placeholder://text_only", aspectRatio = null, width = null, height = null, isFitMode = false))
     }
     
     return Link(
@@ -159,6 +162,7 @@ inline fun LinkType.toEntity(): com.linker.app.data.local.entity.LinkType = when
 fun Link.toEntity(): LinkEntity {
     // Extract legacy flat structure from MediaItem sealed class
     val mediaUrls = mediaItems.map { it.url }
+    val mediaFitModes = mediaItems.map { it.isFitMode }
     val thumbnailUrl = mediaItems.filterIsInstance<MediaItem.Video>().firstOrNull()?.thumbnailUrl
     val videoDuration = mediaItems.filterIsInstance<MediaItem.Video>().firstOrNull()?.duration
     val aspectRatio = mediaItems.firstOrNull()?.aspectRatio
@@ -169,6 +173,7 @@ fun Link.toEntity(): LinkEntity {
         linkType = linkType.toEntity(),
         description = description,
         mediaUrls = mediaUrls,
+        mediaFitModes = mediaFitModes,
         thumbnailUrl = thumbnailUrl,
         videoDuration = videoDuration,
         aspectRatio = aspectRatio,

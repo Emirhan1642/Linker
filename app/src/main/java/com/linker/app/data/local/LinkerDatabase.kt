@@ -22,7 +22,7 @@ import kotlinx.coroutines.TimeoutCancellationException
         SignalPreKeyEntity::class, SignalSignedPreKeyEntity::class,
         SignalKyberPreKeyEntity::class, SignalSenderKeyEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = true
 )
 @TypeConverters(Converters::class, com.linker.app.data.local.converter.NoteReferenceConverter::class)
@@ -361,6 +361,17 @@ abstract class LinkerDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE links ADD COLUMN isAiGenerated INTEGER NOT NULL DEFAULT 0")
                 } catch (e: Exception) {
                     android.util.Log.d("LinkerDatabase", "isAiGenerated column already exists: ${e.message}")
+                }
+            }
+        }
+
+        val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Added mediaFitModes field for link posts
+                try {
+                    db.execSQL("ALTER TABLE links ADD COLUMN mediaFitModes TEXT NOT NULL DEFAULT '[]'")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "mediaFitModes column already exists: ${e.message}")
                 }
             }
         }

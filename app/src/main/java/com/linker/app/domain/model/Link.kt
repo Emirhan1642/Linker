@@ -101,6 +101,7 @@ data class EngagementMetrics(
 sealed class MediaItem {
     abstract val url: String
     abstract val aspectRatio: Float?
+    abstract val isFitMode: Boolean
 
     /**
      * Static image media item.
@@ -109,12 +110,14 @@ sealed class MediaItem {
      * @property aspectRatio Image aspect ratio (width/height).
      * @property width Image width in pixels.
      * @property height Image height in pixels.
+     * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
     data class Image(
         override val url: String,
         override val aspectRatio: Float?,
         val width: Int?,
-        val height: Int?
+        val height: Int?,
+        override val isFitMode: Boolean = false
     ) : MediaItem() {
         init {
             require(url.isNotBlank()) { "Image URL cannot be blank" }
@@ -139,6 +142,7 @@ sealed class MediaItem {
      * @property duration Video duration in seconds.
      * @property width Video width in pixels.
      * @property height Video height in pixels.
+     * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
     data class Video(
         override val url: String,
@@ -146,7 +150,8 @@ sealed class MediaItem {
         val thumbnailUrl: String?,
         val duration: Int,
         val width: Int?,
-        val height: Int?
+        val height: Int?,
+        override val isFitMode: Boolean = false
     ) : MediaItem() {
         init {
             require(url.isNotBlank()) { "Video URL cannot be blank" }
@@ -170,12 +175,14 @@ sealed class MediaItem {
      * @property aspectRatio GIF aspect ratio (width/height).
      * @property width GIF width in pixels.
      * @property height GIF height in pixels.
+     * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
     data class Gif(
         override val url: String,
         override val aspectRatio: Float?,
         val width: Int?,
-        val height: Int?
+        val height: Int?,
+        override val isFitMode: Boolean = false
     ) : MediaItem() {
         init {
             require(url.isNotBlank()) { "GIF URL cannot be blank" }

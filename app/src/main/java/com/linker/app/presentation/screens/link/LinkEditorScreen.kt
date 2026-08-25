@@ -165,7 +165,7 @@ fun LinkEditorScreen(
                                 if (canShare) Modifier.background(Brush.horizontalGradient(LinkerBrandGradient))
                                 else Modifier.background(DarkGray)
                             )
-                            .bouncyClick(enabled = canShare) { viewModel.saveLink() },
+                            .bouncyClick(enabled = canShare) { viewModel.saveLink(mediaFitModes) },
                         contentAlignment = Alignment.Center
                     ) {
                         if (uiState.isSaving) {

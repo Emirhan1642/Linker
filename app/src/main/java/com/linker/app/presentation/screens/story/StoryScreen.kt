@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -210,44 +211,54 @@ fun StoryScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val screenWidth = maxWidth
 
-            // 1. Zoomable Story Media Layer
+            // 1. Zoomable Story Media & Tap Layer
             ZoomableMediaBox(
                 modifier = Modifier.fillMaxSize(),
                 onZoomStateChanged = { isStoryZooming = it }
             ) {
-                if (currentStory != null) {
-                    val cleanUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(currentStory.mediaUrl)
-                    val isVideo = currentStory.mediaType == com.linker.app.domain.model.StoryMediaType.VIDEO ||
-                            com.linker.app.core.util.MediaUtils.isVideoUrl(cleanUrl)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (currentStory != null) {
+                        val cleanUrl = com.linker.app.core.util.MediaUtils.sanitizeMediaUrl(currentStory.mediaUrl)
+                        val isVideo = currentStory.mediaType == com.linker.app.domain.model.StoryMediaType.VIDEO ||
+                                com.linker.app.core.util.MediaUtils.isVideoUrl(cleanUrl)
 
-                    if (isVideo && cleanUrl.isNotBlank()) {
-                        com.linker.app.presentation.screens.home.VideoPlayerView(
-                            videoUrl = cleanUrl,
-                            isPlaying = !isEffectivelyPaused,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else if (cleanUrl.isNotBlank()) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            AsyncImage(
-                                model = cleanUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
+                        if (isVideo && cleanUrl.isNotBlank()) {
+                            com.linker.app.presentation.screens.home.VideoPlayerView(
+                                videoUrl = cleanUrl,
+                                isPlaying = !isEffectivelyPaused,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else if (cleanUrl.isNotBlank()) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                AsyncImage(
+                                    model = cleanUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .drawWithContent {
+                                            drawContent()
+                                            drawRect(Color.Black.copy(alpha = 0.55f))
+                                        }
+                                        .blur(30.dp)
+                                )
+                                AsyncImage(
+                                    model = cleanUrl,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        } else {
+                            Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .drawWithContent {
-                                        drawContent()
-                                        drawRect(Color.Black.copy(alpha = 0.55f))
-                                    }
-                                    .blur(30.dp)
-                            )
-                            AsyncImage(
-                                model = cleanUrl,
-                                contentDescription = null,
-                                contentScale = ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(listOf(Color(0xFF2D1B69), Color(0xFF11111F)))
+                                    )
                             )
                         }
                     } else {
@@ -259,72 +270,64 @@ fun StoryScreen(
                                 )
                         )
                     }
-                } else {
+
+                    // Tap & Hold Detection Layer (Inside ZoomableMediaBox)
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(listOf(Color(0xFF2D1B69), Color(0xFF11111F)))
-                            )
-                    )
-                }
-            }
+                            .pointerInput(currentStoryIndex, groupIndex) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val downTime = System.currentTimeMillis()
+                                    var isLongHold = false
+                                    var isMultiTouch = false
 
-            // 2. Gesture Tap & Hold Detection Layer (Passes multi-touch pinch to ZoomableMediaBox)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(currentStoryIndex, groupIndex) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val downTime = System.currentTimeMillis()
-                            var isLongHold = false
-                            var isMultiTouch = false
-
-                            // Wait in gesture loop; only activate hold pause after 200ms
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.changes.size > 1) {
-                                    isMultiTouch = true
-                                }
-                                if (!event.changes.any { it.pressed }) {
-                                    break
-                                }
-                                val elapsed = System.currentTimeMillis() - downTime
-                                if (elapsed > 200 && !isLongHold && !isMultiTouch && !isStoryZooming) {
-                                    isLongHold = true
-                                    isHolding = true
-                                }
-                            }
-
-                            val holdDuration = System.currentTimeMillis() - downTime
-                            isHolding = false
-
-                            // Quick tap (< 200ms) navigates; Multi-touch zoom ignored for navigation
-                            if (holdDuration <= 200 && !isLongHold && !isMultiTouch && !isStoryZooming && !showReplyInput && !showMenu && !showReportSheet && !showViewersSheet) {
-                                val isLeft = down.position.x < screenWidth.toPx() * 0.35f
-                                scope.launch {
-                                    currentProgress = 0f
-                                    if (isLeft) {
-                                        if (currentStoryIndex > 0) {
-                                            currentStoryIndex--
-                                        } else if (groupIndex > 0) {
-                                            groupPagerState.animateScrollToPage(groupIndex - 1)
+                                    // Wait in gesture loop; only activate hold pause after 200ms
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        if (event.changes.size > 1) {
+                                            isMultiTouch = true
                                         }
-                                    } else {
-                                        if (currentStoryIndex < stories.lastIndex) {
-                                            currentStoryIndex++
-                                        } else if (groupIndex < displayStories.lastIndex) {
-                                            groupPagerState.animateScrollToPage(groupIndex + 1)
-                                        } else {
-                                            onNavigateBack()
+                                        if (!event.changes.any { it.pressed }) {
+                                            break
+                                        }
+                                        val elapsed = System.currentTimeMillis() - downTime
+                                        if (elapsed > 200 && !isLongHold && !isMultiTouch && !isStoryZooming) {
+                                            isLongHold = true
+                                            isHolding = true
+                                        }
+                                    }
+
+                                    val holdDuration = System.currentTimeMillis() - downTime
+                                    isHolding = false
+
+                                    // Quick tap (< 200ms) navigates; Multi-touch zoom ignored for navigation
+                                    if (holdDuration <= 200 && !isLongHold && !isMultiTouch && !isStoryZooming && !showReplyInput && !showMenu && !showReportSheet && !showViewersSheet) {
+                                        val isLeft = down.position.x < screenWidth.toPx() * 0.35f
+                                        scope.launch {
+                                            currentProgress = 0f
+                                            if (isLeft) {
+                                                if (currentStoryIndex > 0) {
+                                                    currentStoryIndex--
+                                                } else if (groupIndex > 0) {
+                                                    groupPagerState.animateScrollToPage(groupIndex - 1)
+                                                }
+                                            } else {
+                                                if (currentStoryIndex < stories.lastIndex) {
+                                                    currentStoryIndex++
+                                                } else if (groupIndex < displayStories.lastIndex) {
+                                                    groupPagerState.animateScrollToPage(groupIndex + 1)
+                                                } else {
+                                                    onNavigateBack()
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-            )
+                    )
+                }
+            }
 
             // 3. Top HUD (Clean view when held)
             AnimatedVisibility(
@@ -460,6 +463,20 @@ fun StoryScreen(
                         }
                     }
                 }
+            }
+
+            // Reply overlay scrim to dismiss reply on outside click (rendered behind bottom bar)
+            if (showReplyInput) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            showReplyInput = false
+                        }
+                )
             }
 
             // 4. Bottom: caption + emoji reactions + reply input (Clean view when held or zooming)
@@ -612,6 +629,27 @@ fun StoryScreen(
                                         placeholder = {
                                             Text("Yanıtla...", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp)
                                         },
+                                        trailingIcon = {
+                                            if (replyText.isNotBlank()) {
+                                                IconButton(
+                                                    onClick = {
+                                                        currentStory?.let {
+                                                            viewModel.replyToStory(it.storyId, replyText.trim())
+                                                        }
+                                                        replyText = ""
+                                                        showReplyInput = false
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                                        contentDescription = "Gönder",
+                                                        tint = com.linker.app.presentation.theme.LinkerPrimary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
                                         colors = TextFieldDefaults.colors(
                                             focusedContainerColor = Color.Transparent,
                                             unfocusedContainerColor = Color.Transparent,
@@ -684,20 +722,6 @@ fun StoryScreen(
                         }
                     }
                 }
-            }
-
-            // Reply overlay scrim to dismiss reply on outside click
-            if (showReplyInput) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            showReplyInput = false
-                        }
-                )
             }
 
             // Viewers Bottom Sheet

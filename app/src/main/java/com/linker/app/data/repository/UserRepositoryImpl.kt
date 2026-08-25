@@ -111,13 +111,25 @@ class UserRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getUserByUsername(username: String): Result<User> = safeCall {
-        val q = firestore.collection("users").whereEqualTo("username", username).limit(1).get().await()
-        if (q.isEmpty) throw Exception("User '$username' not found")
-        val doc = q.documents[0]
-        val data = doc.data ?: throw Exception("User data is null")
-        val entity = enrichWithRelationship(mapToEntity(doc.id, data))
-        userDao.insertUser(entity)
-        entity.toDomain()
+        try {
+            val q = firestore.collection("users").whereEqualTo("username", username).limit(1).get().await()
+            if (!q.isEmpty) {
+                val doc = q.documents[0]
+                val data = doc.data
+                if (data != null) {
+                    val entity = enrichWithRelationship(mapToEntity(doc.id, data))
+                    userDao.insertUser(entity)
+                    return@safeCall entity.toDomain()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("UserRepo", "Remote user fetch failed: ${e.message}")
+        }
+        val local = userDao.getUserByUsername(username)
+        if (local != null) {
+            return@safeCall local.toDomain()
+        }
+        throw Exception("User '$username' not found")
     }
 
     override suspend fun searchUsers(query: String, limit: Int, cursor: String?): Result<PaginatedUsers> = safeCall {

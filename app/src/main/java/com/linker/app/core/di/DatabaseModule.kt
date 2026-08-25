@@ -104,7 +104,8 @@ object DatabaseModule {
                     LinkerDatabase.MIGRATION_11_12,
                     LinkerDatabase.MIGRATION_12_13,
                     LinkerDatabase.MIGRATION_13_14,
-                    LinkerDatabase.MIGRATION_14_15
+                    LinkerDatabase.MIGRATION_14_15,
+                    LinkerDatabase.MIGRATION_15_16
                 )
                 .fallbackToDestructiveMigration()
                 .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)

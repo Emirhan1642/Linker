@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -46,6 +47,7 @@ private val commentHistoryDateFormat = SimpleDateFormat("dd MMM HH:mm", Locale.g
 fun CommentSheet(
     targetId: String,
     onDismiss: () -> Unit,
+    onUserClick: ((String) -> Unit)? = null,
     viewModel: CommentSheetViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -74,6 +76,7 @@ fun CommentSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.85f)
                 .navigationBarsPadding()
                 .imePadding()
         ) {
@@ -106,10 +109,10 @@ fun CommentSheet(
                 modifier = Modifier.padding(bottom = 4.dp)
             )
 
-            // Comments List
+            // Comments List (takes flexible remaining space above pinned input bar)
             Box(
                 modifier = Modifier
-                    .weight(1f, fill = false)
+                    .weight(1f)
                     .fillMaxWidth()
             ) {
                 if (uiState.isLoading && uiState.comments.isEmpty()) {
@@ -142,7 +145,7 @@ fun CommentSheet(
                     }
                 } else {
                     LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -156,15 +159,15 @@ fun CommentSheet(
                                     isReply = false,
                                     onReplyClick = {
                                         viewModel.setReplyTo(comment)
-                                        coroutineScope.launch { sheetState.expand() }
                                     },
                                     onLikeClick = { viewModel.toggleLike(comment.commentId) },
                                     onEditClick = {
                                         viewModel.setEditComment(comment)
-                                        coroutineScope.launch { sheetState.expand() }
                                     },
                                     onDeleteClick = { viewModel.deleteComment(comment.commentId) },
-                                    onHistoryClick = { viewModel.loadCommentHistory(comment.commentId) }
+                                    onHistoryClick = { viewModel.loadCommentHistory(comment.commentId) },
+                                    onUserClick = onUserClick,
+                                    currentUserId = viewModel.currentUserId
                                 )
 
                                 if (comment.repliesCount > 0) {
@@ -174,11 +177,7 @@ fun CommentSheet(
                                         modifier = Modifier
                                             .padding(start = 48.dp)
                                             .clickable {
-                                                if (isExpanded) {
-                                                    viewModel.toggleReplies(comment.commentId)
-                                                } else {
-                                                    viewModel.loadReplies(comment.commentId)
-                                                }
+                                                viewModel.toggleReplies(comment.commentId)
                                             }
                                             .padding(vertical = 4.dp)
                                     ) {
@@ -230,7 +229,9 @@ fun CommentSheet(
                                                     onLikeClick = { viewModel.toggleLike(reply.commentId) },
                                                     onEditClick = { viewModel.setEditComment(reply) },
                                                     onDeleteClick = { viewModel.deleteComment(reply.commentId) },
-                                                    onHistoryClick = { viewModel.loadCommentHistory(reply.commentId) }
+                                                    onHistoryClick = { viewModel.loadCommentHistory(reply.commentId) },
+                                                    onUserClick = onUserClick,
+                                                    currentUserId = viewModel.currentUserId
                                                 )
                                             }
                                         }
@@ -242,7 +243,7 @@ fun CommentSheet(
                 }
             }
 
-            // Modern Input Bar pinned at bottom
+            // Modern Input Bar pinned at bottom (always visible in both short and expanded sheet states)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -297,7 +298,14 @@ fun CommentSheet(
                             .weight(1f)
                             .clip(RoundedCornerShape(24.dp))
                             .background(Black.copy(alpha = 0.6f))
-                            .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp)),
+                            .border(1.dp, GlassCardBorder, RoundedCornerShape(24.dp))
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) {
+                                    coroutineScope.launch {
+                                        sheetState.expand()
+                                    }
+                                }
+                            },
                         placeholder = {
                             Text(
                                 text = if (uiState.replyToComment != null) "Yanıtını yaz..." else "Bir yorum ekle...",
@@ -416,35 +424,48 @@ fun CommentItem(
     onLikeClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    onHistoryClick: () -> Unit
+    onHistoryClick: () -> Unit,
+    onUserClick: ((String) -> Unit)? = null,
+    currentUserId: String = ""
 ) {
+    val isDeleted = comment.isDeleted
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Author Avatar
         LinkerAvatar(
-            imageUrl = comment.author.profileImageUrl,
+            imageUrl = if (isDeleted) null else comment.author.profileImageUrl,
             size = if (isReply) 28.dp else 36.dp,
-            storyState = StoryState.NONE
+            storyState = StoryState.NONE,
+            onClick = {
+                if (!isDeleted && comment.author.userId.isNotBlank()) {
+                    onUserClick?.invoke(comment.author.userId)
+                }
+            }
         )
 
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = if (!isDeleted && comment.author.userId.isNotBlank()) {
+                    Modifier.clickable { onUserClick?.invoke(comment.author.userId) }
+                } else Modifier
             ) {
                 Text(
-                    text = comment.author.displayName.ifBlank { comment.author.username.ifBlank { "Kullanıcı" } },
-                    color = TextPrimary,
+                    text = if (isDeleted) "Linker Kullanıcısı" else comment.author.displayName.ifBlank { comment.author.username.ifBlank { "Kullanıcı" } },
+                    color = if (isDeleted) TextSecondary else TextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = if (isReply) 13.sp else 14.sp
                 )
-                Text(
-                    text = "@${comment.author.username}",
-                    color = TextSecondary,
-                    fontSize = 11.sp
-                )
+                if (!isDeleted && comment.author.username.isNotBlank()) {
+                    Text(
+                        text = "@${comment.author.username}",
+                        color = TextSecondary,
+                        fontSize = 11.sp
+                    )
+                }
                 Text(
                     text = "•",
                     color = TextSecondary,
@@ -459,74 +480,92 @@ fun CommentItem(
 
             Spacer(modifier = Modifier.height(3.dp))
 
-            com.linker.app.presentation.components.LinkerFormattedText(
-                text = comment.content,
-                color = TextPrimary.copy(alpha = 0.95f),
-                fontSize = if (isReply) 13.sp else 14.sp,
-                lineHeight = 18.sp
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+            if (isDeleted) {
                 Text(
-                    text = "Yanıtla",
+                    text = "Bu yorum silindi.",
                     color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.clickable { onReplyClick() }
+                    fontSize = if (isReply) 13.sp else 14.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                 )
+            } else {
+                com.linker.app.presentation.components.LinkerFormattedText(
+                    text = comment.content,
+                    color = TextPrimary.copy(alpha = 0.95f),
+                    fontSize = if (isReply) 13.sp else 14.sp,
+                    lineHeight = 18.sp
+                )
+            }
 
-                if (comment.editCount > 0) {
+            if (!isDeleted) {
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     Text(
-                        text = "Düzenlendi",
+                        text = "Yanıtla",
                         color = TextSecondary,
                         fontSize = 11.sp,
-                        modifier = Modifier.clickable { onHistoryClick() }
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.clickable { onReplyClick() }
                     )
+
+                    if (comment.editCount > 0) {
+                        Text(
+                            text = "Düzenlendi",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.clickable { onHistoryClick() }
+                        )
+                    }
+
+                    if (currentUserId.isNotBlank() && comment.author.userId == currentUserId && comment.canEdit()) {
+                        Text(
+                            text = "Düzenle",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.clickable { onEditClick() }
+                        )
+                    }
+
+                    if (currentUserId.isNotBlank() && comment.author.userId == currentUserId) {
+                        Text(
+                            text = "Sil",
+                            color = ErrorRed.copy(alpha = 0.8f),
+                            fontSize = 11.sp,
+                            modifier = Modifier.clickable { onDeleteClick() }
+                        )
+                    }
                 }
-
-                Text(
-                    text = "Düzenle",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    modifier = Modifier.clickable { onEditClick() }
-                )
-
-                Text(
-                    text = "Sil",
-                    color = ErrorRed.copy(alpha = 0.8f),
-                    fontSize = 11.sp,
-                    modifier = Modifier.clickable { onDeleteClick() }
-                )
             }
         }
 
         // Like Button & Counter
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(top = 2.dp)
-        ) {
-            IconButton(
-                onClick = onLikeClick,
-                modifier = Modifier.size(24.dp)
+        if (!isDeleted) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.padding(top = 2.dp)
             ) {
-                Icon(
-                    imageVector = if (comment.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = "Beğen",
-                    tint = if (comment.isLiked) ErrorRed else TextSecondary,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            if (comment.likesCount > 0) {
-                Text(
-                    text = comment.likesCount.toString(),
-                    color = TextSecondary,
-                    fontSize = 10.sp
-                )
+                IconButton(
+                    onClick = onLikeClick,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (comment.isLiked) Icons.Default.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = "Beğen",
+                        tint = if (comment.isLiked) ErrorRed else TextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                if (comment.likesCount > 0) {
+                    Text(
+                        text = comment.likesCount.toString(),
+                        color = if (comment.isLiked) ErrorRed else TextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

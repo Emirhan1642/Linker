@@ -38,6 +38,23 @@ class Converters {
             emptyList()
         }
     }
+
+    // List<Boolean> converters
+    @TypeConverter
+    fun fromBooleanList(value: List<Boolean>?): String? {
+        return value?.let { json.encodeToString(it) }
+    }
+    
+    @TypeConverter
+    fun toBooleanList(value: String?): List<Boolean> {
+        if (value.isNullOrBlank()) return emptyList()
+        return try {
+            json.decodeFromString<List<Boolean>>(value)
+        } catch (e: Exception) {
+            logConversionError("List<Boolean>", value, e)
+            emptyList()
+        }
+    }
     
     // Map<String, String> converters (for reactions)
     @TypeConverter

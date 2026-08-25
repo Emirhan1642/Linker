@@ -408,15 +408,27 @@ class CommentRepositoryImpl @Inject constructor(
         return kotlinx.coroutines.coroutineScope {
             dataList.map { (docId, data) ->
                 async {
-                    val author = usersMap[data.authorId] ?: CommentAuthor(
-                        userId = data.authorId,
-                        username = "kullanici_${data.authorId.take(4)}",
-                        displayName = "Kullanıcı",
-                        profileImageUrl = null,
-                        isVerified = false
-                    )
+                    val isDeleted = data.isDeleted || data.content == "[Silindi]"
+                    val author = if (isDeleted) {
+                        CommentAuthor(
+                            userId = "",
+                            username = "Linker Kullanıcısı",
+                            displayName = "Linker Kullanıcısı",
+                            profileImageUrl = null,
+                            isVerified = false
+                        )
+                    } else {
+                        usersMap[data.authorId] ?: CommentAuthor(
+                            userId = data.authorId,
+                            username = "kullanici_${data.authorId.take(4)}",
+                            displayName = "Kullanıcı",
+                            profileImageUrl = null,
+                            isVerified = false
+                        )
+                    }
+                    val displayContent = if (isDeleted) "Bu yorum silindi." else data.content
 
-                    val isLiked = if (currentUserId != null) {
+                    val isLiked = if (currentUserId != null && !isDeleted) {
                         if (data.likedBy.contains(currentUserId)) {
                             true
                         } else {
@@ -446,15 +458,16 @@ class CommentRepositoryImpl @Inject constructor(
                         commentId = docId,
                         linkId = data.linkId,
                         author = author,
-                        content = data.content,
-                        gifUrl = data.gifUrl,
+                        content = displayContent,
+                        gifUrl = if (isDeleted) null else data.gifUrl,
                         parentCommentId = data.parentCommentId,
                         nestingLevel = effectiveNesting,
-                        likesCount = data.likesCount,
+                        likesCount = if (isDeleted) 0 else data.likesCount,
                         repliesCount = data.repliesCount,
                         isLiked = isLiked,
-                        isPinned = data.isPinned,
+                        isPinned = if (isDeleted) false else data.isPinned,
                         isEdited = data.isEdited,
+                        isDeleted = isDeleted,
                         editCount = data.editCount,
                         createdAt = data.createdAt,
                         updatedAt = data.updatedAt
