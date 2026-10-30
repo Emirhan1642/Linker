@@ -60,6 +60,7 @@ class MessageRepositoryImpl @Inject constructor(
     private val messageDao: MessageDao,
     private val messageQueueDao: MessageQueueDao,
     private val userDao: UserDao,
+    private val database: com.linker.app.data.local.LinkerDatabase,
     private val notificationRepository: NotificationRepository,
     private val messageReactionRepository: MessageReactionRepository,
     private val readReceiptRepository: ReadReceiptRepository,
@@ -123,15 +124,9 @@ class MessageRepositoryImpl @Inject constructor(
                                 doc.data?.let { mapToMessageSync(doc.id, it) }
                             } ?: emptyList()
                             
-                            // Save messages to local database for offline access
+                            // Save messages to local database for offline access atomically
                             launch(kotlinx.coroutines.Dispatchers.IO) {
-                                try {
-                                    messages.forEach { message ->
-                                        saveMessageToLocal(message, chatId)
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.e("MessageRepository", "Error saving messages to local: ${e.message}")
-                                }
+                                saveMessagesToLocal(messages, chatId)
                             }
                             
                             //android.util.Log.d("MessageRepository", "Firestore emitted ${messages.size} messages for chat $chatId")
@@ -217,39 +212,8 @@ class MessageRepositoryImpl @Inject constructor(
         
         //android.util.Log.d("MessageRepository", "Downloaded ${messages.size} messages from Firestore for chat $chatId")
         
-        // Save to local database
-        messages.forEach { message ->
-            val entity = MessageEntity(
-                messageId = message.messageId,
-                chatId = chatId,
-                senderId = message.sender.userId,
-                content = message.content,
-                messageType = when (message.messageType) {
-                    MessageType.TEXT -> com.linker.app.data.local.entity.MessageType.TEXT
-                    MessageType.IMAGE -> com.linker.app.data.local.entity.MessageType.IMAGE
-                    MessageType.VIDEO -> com.linker.app.data.local.entity.MessageType.VIDEO
-                    MessageType.AUDIO -> com.linker.app.data.local.entity.MessageType.AUDIO
-                    MessageType.FILE -> com.linker.app.data.local.entity.MessageType.FILE
-                    else -> {com.linker.app.data.local.entity.MessageType.TEXT}
-                },
-                createdAt = message.createdAt,
-                updatedAt = message.updatedAt,
-                messageStatus = when (message.messageStatus) {
-                    MessageStatus.SENDING -> EntityMessageStatus.SENDING
-                    MessageStatus.SENT -> EntityMessageStatus.SENT
-                    MessageStatus.DELIVERED -> EntityMessageStatus.DELIVERED
-                    MessageStatus.READ -> EntityMessageStatus.READ
-                    MessageStatus.FAILED -> EntityMessageStatus.FAILED
-                },
-                isDeleted = message.isDeleted,
-                deletedForEveryone = message.deletedForEveryone,
-                replyToMessageId = message.replyToMessage?.messageId,
-                reactions = message.reactions,
-                readAt = message.readAt,
-                deliveryMethod = EntityDeliveryMethod.ONLINE
-            )
-            messageDao.insertMessage(entity)
-        }
+        // Save to local database atomically
+        saveMessagesToLocal(messages, chatId)
         
         //android.util.Log.d("MessageRepository", "Saved ${messages.size} messages to local DB for chat $chatId")
     }
@@ -572,48 +536,77 @@ class MessageRepositoryImpl @Inject constructor(
             deliveredAt = null,
             readAt = null
         )
-        messageDao.insertMessage(localMessage)
+        val displayText = content ?: "[Media]"
+        val atomicRes = database.saveMessageAndChatAtomic(localMessage, chatId, displayText, now)
+        if (atomicRes.isFailure) {
+            messageDao.insertMessage(localMessage)
+            chatDao.updateLastMessage(chatId, messageId, displayText, now)
+        }
     }
     
+    /**
+     * Map a domain Message to a Room MessageEntity
+     */
+    private fun mapMessageToEntity(message: Message, chatId: String): MessageEntity {
+        return MessageEntity(
+            messageId = message.messageId,
+            chatId = chatId,
+            senderId = message.sender.userId,
+            content = message.content,
+            messageType = domainMessageTypeToEntity(message.messageType),
+            createdAt = message.createdAt,
+            updatedAt = message.updatedAt,
+            messageStatus = when (message.messageStatus) {
+                MessageStatus.SENDING -> EntityMessageStatus.SENDING
+                MessageStatus.SENT -> EntityMessageStatus.SENT
+                MessageStatus.DELIVERED -> EntityMessageStatus.DELIVERED
+                MessageStatus.READ -> EntityMessageStatus.READ
+                MessageStatus.FAILED -> EntityMessageStatus.FAILED
+            },
+            isDeleted = message.isDeleted,
+            deletedForEveryone = message.deletedForEveryone,
+            replyToMessageId = message.replyToMessage?.messageId,
+            replyToNoteJson = message.replyToNote?.let { gson.toJson(it) },
+            reactions = message.reactions,
+            readAt = message.readAt,
+            deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
+            mediaUrl = message.mediaUrl,
+            thumbnailUrl = message.thumbnailUrl,
+            mediaWidth = message.mediaWidth,
+            mediaHeight = message.mediaHeight,
+            mediaDuration = message.mediaDuration,
+            sharedLinkId = message.sharedLink?.linkId,
+            forwardedFromMessageId = null,
+            isEdited = message.isEdited,
+            encryptedContent = null,
+            deliveredAt = message.deliveredAt
+        )
+    }
+
+    /**
+     * Save a batch of messages from Firestore to local database atomically.
+     */
+    private suspend fun saveMessagesToLocal(messages: List<Message>, chatId: String) {
+        if (messages.isEmpty()) return
+        try {
+            val entities = messages.map { mapMessageToEntity(it, chatId) }
+            val lastEntity = entities.maxByOrNull { it.createdAt }
+            val res = database.saveMessagesAndChatAtomic(entities, chatId, lastEntity)
+            if (res.isFailure) {
+                messageDao.insertMessages(entities)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MessageRepository", "Error batch saving messages to local: ${e.message}")
+        }
+    }
+
     /**
      * Save a message from Firestore to local database
      * Used for offline access
      */
     private suspend fun saveMessageToLocal(message: Message, chatId: String) {
         try {
-            val entity = MessageEntity(
-                messageId = message.messageId,
-                chatId = chatId,
-                senderId = message.sender.userId,
-                content = message.content,
-                messageType = domainMessageTypeToEntity(message.messageType),
-                createdAt = message.createdAt,
-                updatedAt = message.updatedAt,
-                messageStatus = when (message.messageStatus) {
-                    MessageStatus.SENDING -> EntityMessageStatus.SENDING
-                    MessageStatus.SENT -> EntityMessageStatus.SENT
-                    MessageStatus.DELIVERED -> EntityMessageStatus.DELIVERED
-                    MessageStatus.READ -> EntityMessageStatus.READ
-                    MessageStatus.FAILED -> EntityMessageStatus.FAILED
-                },
-                isDeleted = message.isDeleted,
-                deletedForEveryone = message.deletedForEveryone,
-                replyToMessageId = message.replyToMessage?.messageId,
-                replyToNoteJson = message.replyToNote?.let { gson.toJson(it) },
-                reactions = message.reactions,
-                readAt = message.readAt,
-                deliveryMethod = domainDeliveryToEntity(message.deliveryMethod),
-                mediaUrl = message.mediaUrl,
-                thumbnailUrl = message.thumbnailUrl,
-                mediaWidth = message.mediaWidth,
-                mediaHeight = message.mediaHeight,
-                mediaDuration = message.mediaDuration,
-                sharedLinkId = message.sharedLink?.linkId,
-                forwardedFromMessageId = null,
-                isEdited = message.isEdited,
-                encryptedContent = null,
-                deliveredAt = message.deliveredAt
-            )
+            val entity = mapMessageToEntity(message, chatId)
             messageDao.insertMessage(entity)
         } catch (e: Exception) {
             android.util.Log.e("MessageRepository", "Error saving message ${message.messageId} to local: ${e.message}")
@@ -1126,9 +1119,18 @@ class MessageRepositoryImpl @Inject constructor(
                     now = now
                 )
 
-                // After successful send, clear queue and update local status
-                messageDao.updateMessageStatus(messageEntity.messageId, EntityMessageStatus.SENT)
-                messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENT, now)
+                // After successful send, clear queue and update local status atomically
+                val atomicSentRes = database.updateQueueAndMessageStatusAtomic(
+                    queueId = queueItem.queueId,
+                    queueStatus = QueueStatus.SENT,
+                    sentAt = now,
+                    messageId = messageEntity.messageId,
+                    messageStatus = EntityMessageStatus.SENT
+                )
+                if (atomicSentRes.isFailure) {
+                    messageDao.updateMessageStatus(messageEntity.messageId, EntityMessageStatus.SENT)
+                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENT, now)
+                }
 
                 // Send push notification 
                 val sender = getSender()
@@ -1158,8 +1160,16 @@ class MessageRepositoryImpl @Inject constructor(
                 messageQueueDao.incrementRetryCount(queueItem.queueId, now, e.message)
                 val newRetryCount = queueItem.retryCount + 1
                 if (newRetryCount >= queueItem.maxRetries) {
-                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.FAILED, now)
-                    messageDao.updateMessageStatus(queueItem.messageId, EntityMessageStatus.FAILED)
+                    val atomicFailRes = database.markQueueAndMessageFailedAtomic(
+                        queueId = queueItem.queueId,
+                        messageId = queueItem.messageId,
+                        errorMessage = e.message,
+                        timestamp = now
+                    )
+                    if (atomicFailRes.isFailure) {
+                        messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.FAILED, now)
+                        messageDao.updateMessageStatus(queueItem.messageId, EntityMessageStatus.FAILED)
+                    }
                 } else {
                     messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.PENDING, now)
                 }
@@ -1169,7 +1179,83 @@ class MessageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun retryFailedMessagesForChat(chatId: String, batchSize: Int): Result<Int> = safeCall {
-        0
+        val now = System.currentTimeMillis()
+        var processedCount = 0
+        val pendingQueueItems = messageQueueDao.getPendingQueueItemsByChat(chatId).take(batchSize)
+
+        pendingQueueItems.forEach { queueItem ->
+            try {
+                val messageEntity = messageDao.getMessageById(queueItem.messageId) ?: return@forEach
+                val chatEntity = chatDao.getChatById(chatId)
+                val participantIds = chatEntity?.participantIds ?: listOf(currentUserId, queueItem.recipientId)
+
+                messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENDING, now)
+
+                val messageData = buildFirestoreMessagePayload(
+                    messageId = messageEntity.messageId,
+                    chatId = messageEntity.chatId,
+                    senderId = messageEntity.senderId,
+                    messageType = entityMessageTypeToDomain(messageEntity.messageType),
+                    content = messageEntity.content,
+                    mediaUrl = messageEntity.mediaUrl,
+                    thumbnailUrl = messageEntity.thumbnailUrl,
+                    mediaWidth = messageEntity.mediaWidth,
+                    mediaHeight = messageEntity.mediaHeight,
+                    mediaDuration = messageEntity.mediaDuration,
+                    sharedLinkId = messageEntity.sharedLinkId,
+                    replyToMessageId = messageEntity.replyToMessageId,
+                    forwardedFromMessageId = messageEntity.forwardedFromMessageId,
+                    participantIds = participantIds,
+                    deliveryMethod = DeliveryMethod.ONLINE,
+                    messageStatus = MessageStatus.SENT,
+                    createdAt = messageEntity.createdAt,
+                    updatedAt = now,
+                    replyToNote = messageEntity.replyToNoteJson?.let { 
+                        try { gson.fromJson(it, com.linker.app.domain.model.NoteReference::class.java) } 
+                        catch(e: Exception) { null } 
+                    }
+                )
+                sendMessageOnline(
+                    chatId = messageEntity.chatId,
+                    messageId = messageEntity.messageId,
+                    messageData = messageData,
+                    content = messageEntity.content,
+                    participantIds = participantIds,
+                    now = now
+                )
+
+                val atomicSentRes = database.updateQueueAndMessageStatusAtomic(
+                    queueId = queueItem.queueId,
+                    queueStatus = QueueStatus.SENT,
+                    sentAt = now,
+                    messageId = messageEntity.messageId,
+                    messageStatus = EntityMessageStatus.SENT
+                )
+                if (atomicSentRes.isFailure) {
+                    messageDao.updateMessageStatus(messageEntity.messageId, EntityMessageStatus.SENT)
+                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.SENT, now)
+                }
+                processedCount++
+            } catch (e: Exception) {
+                messageQueueDao.incrementRetryCount(queueItem.queueId, now, e.message)
+                val newRetryCount = queueItem.retryCount + 1
+                if (newRetryCount >= queueItem.maxRetries) {
+                    val atomicFailRes = database.markQueueAndMessageFailedAtomic(
+                        queueId = queueItem.queueId,
+                        messageId = queueItem.messageId,
+                        errorMessage = e.message,
+                        timestamp = now
+                    )
+                    if (atomicFailRes.isFailure) {
+                        messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.FAILED, now)
+                        messageDao.updateMessageStatus(queueItem.messageId, EntityMessageStatus.FAILED)
+                    }
+                } else {
+                    messageQueueDao.updateQueueStatus(queueItem.queueId, QueueStatus.PENDING, now)
+                }
+            }
+        }
+        processedCount
     }
 
     override fun observeMessageReactions(messageId: String): Flow<Result<Map<String, String>>> = kotlinx.coroutines.flow.flowOf()
@@ -1611,19 +1697,19 @@ class MessageRepositoryImpl @Inject constructor(
                 // Process messages in background
                 repositoryScope.launch {
                     try {
+                        val messagesByChat = mutableMapOf<String, MutableList<Message>>()
                         snapshot.documents.forEach { doc ->
                             try {
                                 val data = doc.data ?: return@forEach
                                 val message = mapToMessageSync(doc.id, data) ?: return@forEach
-                                
-                                // Extract chatId from document path (chats/{chatId}/messages/{messageId})
                                 val chatId = doc.reference.parent.parent?.id ?: return@forEach
-                                
-                                // Save to local database
-                                saveMessageToLocal(message, chatId)
+                                messagesByChat.getOrPut(chatId) { mutableListOf() }.add(message)
                             } catch (e: Exception) {
                                 android.util.Log.e("MessageRepository", "Error processing message ${doc.id}: ${e.message}")
                             }
+                        }
+                        messagesByChat.forEach { (chatId, chatMessages) ->
+                            saveMessagesToLocal(chatMessages, chatId)
                         }
                         android.util.Log.d("MessageRepository", "Global listener processed ${snapshot.documents.size} messages")
                     } catch (e: Exception) {

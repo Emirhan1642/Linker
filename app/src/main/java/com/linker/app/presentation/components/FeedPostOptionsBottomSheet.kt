@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,7 +55,7 @@ fun FeedPostOptionsBottomSheet(
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "Gönderi Seçenekleri",
+                text = stringResource(R.string.feed_options_title),
                 color = TextPrimary,
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
@@ -64,12 +65,12 @@ fun FeedPostOptionsBottomSheet(
             // Not Interested
             OptionRow(
                 icon = painterResource(R.drawable.ic_forbidden_outline),
-                title = "İlgilenmiyorum",
-                subtitle = "Buna benzer gönderileri daha az göster",
+                title = stringResource(R.string.feed_options_not_interested),
+                subtitle = stringResource(R.string.feed_options_not_interested_desc),
                 tint = Color.White,
                 onClick = {
                     onNotInterested()
-                    Toast.makeText(context, "Gönderi akıştan gizlendi", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.feed_options_hidden_success), Toast.LENGTH_SHORT).show()
                     onDismiss()
                 }
             )
@@ -77,8 +78,8 @@ fun FeedPostOptionsBottomSheet(
             // Save / Bookmark
             OptionRow(
                 icon = painterResource(if (link.engagement.isSaved) R.drawable.ic_bookmark_2_bold else R.drawable.ic_bookmark_2_outline),
-                title = if (link.engagement.isSaved) "Kaydedilenlerden Çıkar" else "Kaydet",
-                subtitle = "Koleksiyonlarınıza ekleyin",
+                title = stringResource(if (link.engagement.isSaved) R.string.feed_options_save_remove else R.string.feed_options_save_add),
+                subtitle = stringResource(R.string.feed_options_save_desc),
                 tint = if (link.engagement.isSaved) GradientYellow else Color.White,
                 onClick = {
                     onSaveToggle()
@@ -89,14 +90,14 @@ fun FeedPostOptionsBottomSheet(
             // Copy Link
             OptionRow(
                 icon = painterResource(R.drawable.ic_hashtag_down_outline),
-                title = "Bağlantıyı Kopyala",
-                subtitle = "Gönderi linkini panoya kopyala",
+                title = stringResource(R.string.feed_options_copy_link),
+                subtitle = stringResource(R.string.feed_options_copy_link_desc),
                 tint = Color.White,
                 onClick = {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip = ClipData.newPlainText("Linker Post", "https://linker.app/p/${link.linkId}")
                     clipboard.setPrimaryClip(clip)
-                    Toast.makeText(context, "Bağlantı kopyalandı!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.feed_options_link_copied), Toast.LENGTH_SHORT).show()
                     onDismiss()
                 }
             )
@@ -104,13 +105,13 @@ fun FeedPostOptionsBottomSheet(
             // System Share
             OptionRow(
                 icon = painterResource(R.drawable.ic_toy_6_outline),
-                title = "Paylaş...",
-                subtitle = "Farklı uygulamalarda paylaş",
+                title = stringResource(R.string.feed_options_share),
+                subtitle = stringResource(R.string.feed_options_share_desc),
                 tint = Color.White,
                 onClick = {
                     val sendIntent = Intent().apply {
                         action = Intent.ACTION_SEND
-                        putExtra(Intent.EXTRA_TEXT, "Linker'da bu gönderiye göz at: https://linker.app/p/${link.linkId}\n\n${link.description ?: ""}")
+                        putExtra(Intent.EXTRA_TEXT, "Linker: https://linker.app/p/${link.linkId}\n\n${link.description ?: ""}")
                         type = "text/plain"
                     }
                     val shareIntent = Intent.createChooser(sendIntent, null)
@@ -127,8 +128,8 @@ fun FeedPostOptionsBottomSheet(
             // Report
             OptionRow(
                 icon = painterResource(R.drawable.ic_heart_outline),
-                title = "Şikayet Et",
-                subtitle = "Uygunsuz içeriği bildir",
+                title = stringResource(R.string.feed_options_report),
+                subtitle = stringResource(R.string.feed_options_report_desc),
                 tint = ErrorRed,
                 onClick = {
                     onReport()
@@ -139,12 +140,12 @@ fun FeedPostOptionsBottomSheet(
             // Hide user
             OptionRow(
                 icon = painterResource(R.drawable.ic_profile_outline),
-                title = "@${link.author.username} adlı kullanıcıyı gizle",
-                subtitle = "Bu kullanıcının paylaşımlarını gizle",
+                title = stringResource(R.string.feed_options_hide_user, link.author.username),
+                subtitle = stringResource(R.string.feed_options_hide_user_desc),
                 tint = ErrorRed.copy(alpha = 0.85f),
                 onClick = {
                     onHideUser()
-                    Toast.makeText(context, "@${link.author.username} gizlendi", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.feed_options_user_hidden_success, link.author.username), Toast.LENGTH_SHORT).show()
                     onDismiss()
                 }
             )

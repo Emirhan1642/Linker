@@ -28,8 +28,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
@@ -89,12 +92,29 @@ fun ChatMessageScreen(
 ) {
     var messageText by remember { mutableStateOf("") }
     val uiState by viewModel.messageState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val inputFocusRequester = remember { FocusRequester() }
     val haptic = LocalHapticFeedback.current
     val clipboardManager = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.startPresencePing()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                viewModel.stopPresencePing()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.stopPresencePing()
+        }
+    }
 
     // UI States
     var showContextMenu by remember { mutableStateOf(false) }
@@ -120,6 +140,13 @@ fun ChatMessageScreen(
     // Effects
     LaunchedEffect(chatId) {
         viewModel.openChat(chatId)
+    }
+
+    LaunchedEffect(uiState.sendError) {
+        uiState.sendError?.let { err ->
+            snackbarHostState.showSnackbar(err)
+            viewModel.clearSendError()
+        }
     }
 
     var isFirstLoad by remember { mutableStateOf(true) }
@@ -306,6 +333,7 @@ fun ChatMessageScreen(
                 .fillMaxSize()
                 .then(if (showContextMenu) Modifier.blur(14.dp) else Modifier),
             containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (!uiState.canSendMessages) {
                     Box(

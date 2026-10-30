@@ -37,6 +37,30 @@ data class BLEPacket(
     val encryptedPayload: ByteArray,         // Encrypted message content
     val checksum: Int                        // CRC32 checksum
 ) {
+    /**
+     * Copy this packet with updated routing parameters and automatically recalculate the CRC32 checksum.
+     * Essential for mesh packet forwarding to prevent checksum validation failures at next hops.
+     */
+    fun copyAndRecalculateChecksum(
+        ttl: Byte = this.ttl,
+        hopCount: Byte = this.hopCount,
+        fragmentIndex: Short = this.fragmentIndex,
+        totalFragments: Short = this.totalFragments,
+        encryptedPayload: ByteArray = this.encryptedPayload
+    ): BLEPacket {
+        return create(
+            version = this.version,
+            messageId = this.messageId,
+            senderId = this.senderId,
+            recipientId = this.recipientId,
+            ttl = ttl,
+            hopCount = hopCount,
+            fragmentIndex = fragmentIndex,
+            totalFragments = totalFragments,
+            encryptedPayload = encryptedPayload
+        )
+    }
+
     companion object {
         // Header size: version(1) + messageId(36) + senderId(36) + recipientId(36) 
         //              + ttl(1) + hopCount(1) + fragmentIndex(2) + totalFragments(2) 
@@ -88,19 +112,53 @@ data class BLEPacket(
          */
         private fun encodeIdToBytes(id: String): ByteArray {
             val bytes = id.toByteArray(Charsets.UTF_8)
-            return if (bytes.size >= 36) {
-                bytes.copyOf(36)
-            } else {
-                ByteArray(36).apply {
-                    System.arraycopy(bytes, 0, this, 0, bytes.size)
-                }
+            val result = ByteArray(36)
+            if (bytes.size <= 36) {
+                System.arraycopy(bytes, 0, result, 0, bytes.size)
+                return result
             }
+            // ID exceeds 36 bytes: find the largest prefix <= 36 bytes that does not split a multi-byte UTF-8 character.
+            // Walk backwards from index 35 to inspect the character boundary.
+            var safeLen = 36
+            var i = 35
+            // Count continuation bytes (0x80..0xBF)
+            while (i >= 0 && (bytes[i].toInt() and 0xC0) == 0x80) {
+                i--
+            }
+            if (i >= 0) {
+                val leadByte = bytes[i].toInt() and 0xFF
+                val expectedLen = when {
+                    leadByte and 0x80 == 0 -> 1
+                    leadByte and 0xE0 == 0xC0 -> 2
+                    leadByte and 0xF0 == 0xE0 -> 3
+                    leadByte and 0xF8 == 0xF0 -> 4
+                    else -> 1 // Malformed sequence
+                }
+                val actualContinuationCount = 35 - i
+                if (actualContinuationCount + 1 < expectedLen) {
+                    // Character was cut off by the 36-byte limit, exclude this entire character
+                    safeLen = i
+                }
+            } else {
+                safeLen = 0
+            }
+            System.arraycopy(bytes, 0, result, 0, safeLen)
+            return result
         }
 
         private fun decodeIdFromBytes(bytes: ByteArray): String {
             val zeroIndex = bytes.indexOf(0.toByte())
             val length = if (zeroIndex >= 0) zeroIndex else bytes.size
-            return String(bytes, 0, length, Charsets.UTF_8).trim()
+            if (length == 0) return ""
+            return try {
+                val decoder = Charsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPLACE)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPLACE)
+                val buffer = ByteBuffer.wrap(bytes, 0, length)
+                decoder.decode(buffer).toString().trim()
+            } catch (e: Exception) {
+                String(bytes, 0, length, Charsets.ISO_8859_1).trim()
+            }
         }
 
         fun serialize(packet: BLEPacket): ByteArray {
@@ -165,6 +223,13 @@ data class BLEPacket(
             val fragmentIndex = buffer.getShort()
             val totalFragments = buffer.getShort()
             val payloadLength = buffer.getShort()
+            
+            if (totalFragments <= 0) {
+                throw IllegalArgumentException("Invalid totalFragments: $totalFragments")
+            }
+            if (fragmentIndex < 0 || fragmentIndex >= totalFragments) {
+                throw IllegalArgumentException("Invalid fragmentIndex: $fragmentIndex for totalFragments: $totalFragments")
+            }
             
             // Read payload
             if (payloadLength < 0 || payloadLength > MAX_PAYLOAD_SIZE) {

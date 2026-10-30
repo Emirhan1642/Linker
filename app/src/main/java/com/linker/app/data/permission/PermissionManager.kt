@@ -1,4 +1,4 @@
-package com.linker.app.data.permission
+﻿package com.linker.app.data.permission
 
 import android.app.Activity
 

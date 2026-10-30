@@ -146,17 +146,46 @@ object PreferencesModule {
     fun provideEncryptedSharedPreferences(
         @ApplicationContext context: Context
     ): android.content.SharedPreferences {
-        val masterKey = androidx.security.crypto.MasterKey.Builder(context)
-            .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
-            .build()
-        
-        return androidx.security.crypto.EncryptedSharedPreferences.create(
-            context,
-            "linker_encrypted_prefs",
-            masterKey,
-            androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
+        val prefsFileName = "linker_encrypted_prefs"
+        return try {
+            val masterKey = androidx.security.crypto.MasterKey.Builder(context)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            
+            androidx.security.crypto.EncryptedSharedPreferences.create(
+                context,
+                prefsFileName,
+                masterKey,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("PreferencesModule", "EncryptedSharedPreferences corrupted, attempting recovery", e)
+            try {
+                val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$prefsFileName.xml")
+                if (prefsFile.exists()) prefsFile.delete()
+                val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+                keyStore.load(null)
+                keyStore.deleteEntry(androidx.security.crypto.MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            } catch (cleanupEx: Exception) {
+                android.util.Log.e("PreferencesModule", "Failed to cleanup corrupted keystore entry", cleanupEx)
+            }
+            try {
+                val masterKey = androidx.security.crypto.MasterKey.Builder(context)
+                    .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                androidx.security.crypto.EncryptedSharedPreferences.create(
+                    context,
+                    prefsFileName,
+                    masterKey,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (fallbackEx: Exception) {
+                android.util.Log.e("PreferencesModule", "Fallback to standard SharedPreferences due to unrecoverable Keystore failure", fallbackEx)
+                context.getSharedPreferences(prefsFileName, Context.MODE_PRIVATE)
+            }
+        }
     }
     
     /**

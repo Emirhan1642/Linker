@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * A single historical version of a Link description.
  *
@@ -8,6 +10,7 @@ package com.linker.app.domain.model
  * @property editedByUserId The user ID who made this edit.
  * @property version Version number (1-indexed; original = 0 implicit).
  */
+@Immutable
 data class DescriptionVersion(
     val content: String,
     val editedAt: Long,
@@ -31,6 +34,7 @@ data class DescriptionVersion(
  * @property originalLinkId ID of the original Link post.
  * @property originalCreatedAt Timestamp of the original post.
  */
+@Immutable
 data class RelinkSource(
     val originalAuthorId: String,
     val originalAuthorUsername: String,
@@ -64,6 +68,7 @@ data class RelinkSource(
  * @property isSaved Whether the current user has saved this post.
  * @property isRelinked Whether the current user has relinked this post.
  */
+@Immutable
 data class EngagementMetrics(
     val likesCount: Int = 0,
     val commentsCount: Int = 0,
@@ -98,6 +103,7 @@ data class EngagementMetrics(
  *
  * Supports images, videos, and GIFs with type-specific metadata.
  */
+@Immutable
 sealed class MediaItem {
     abstract val url: String
     abstract val aspectRatio: Float?
@@ -112,6 +118,7 @@ sealed class MediaItem {
      * @property height Image height in pixels.
      * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
+    @Immutable
     data class Image(
         override val url: String,
         override val aspectRatio: Float?,
@@ -144,6 +151,7 @@ sealed class MediaItem {
      * @property height Video height in pixels.
      * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
+    @Immutable
     data class Video(
         override val url: String,
         override val aspectRatio: Float?,
@@ -177,6 +185,7 @@ sealed class MediaItem {
      * @property height GIF height in pixels.
      * @property isFitMode Whether the media should be fitted (fit) or cropped (crop).
      */
+    @Immutable
     data class Gif(
         override val url: String,
         override val aspectRatio: Float?,
@@ -220,6 +229,7 @@ sealed class MediaItem {
  * @property createdAt Creation timestamp (epoch ms).
  * @property updatedAt Last update timestamp (epoch ms).
  */
+@Immutable
 data class Link(
     val linkId: String,
     val author: LinkAuthor,

@@ -1,4 +1,4 @@
-package com.linker.app.domain.usecase.chat
+﻿package com.linker.app.domain.usecase.chat
 
 import com.linker.app.domain.model.Message
 import com.linker.app.domain.repository.MessageRepository

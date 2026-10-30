@@ -1,4 +1,4 @@
-package com.linker.app.core.config
+﻿package com.linker.app.core.config
 
 import com.linker.app.BuildConfig
 import com.linker.app.core.security.SecurityLogger

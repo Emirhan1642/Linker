@@ -1,4 +1,4 @@
-package com.linker.app.core.util
+﻿package com.linker.app.core.util
 
 import com.linker.app.BuildConfig
 import com.linker.app.core.config.OfflineMessagingConfig

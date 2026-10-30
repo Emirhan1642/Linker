@@ -1,4 +1,4 @@
-package com.linker.app.core.util
+﻿package com.linker.app.core.util
 
 import android.util.Log
 import com.linker.app.BuildConfig

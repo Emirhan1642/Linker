@@ -79,7 +79,14 @@ class LinkDetailViewModel @Inject constructor(
             )
         )
         viewModelScope.launch {
-            linkRepository.toggleLike(currentLink.linkId)
+            val result = linkRepository.toggleLike(currentLink.linkId)
+            if (result is Result.Error) {
+                // Rollback optimistic update
+                _uiState.value = _uiState.value.copy(
+                    link = currentLink,
+                    error = result.message ?: "Failed to update like"
+                )
+            }
         }
     }
 
@@ -99,7 +106,14 @@ class LinkDetailViewModel @Inject constructor(
             )
         )
         viewModelScope.launch {
-            linkRepository.toggleSave(currentLink.linkId)
+            val result = linkRepository.toggleSave(currentLink.linkId)
+            if (result is Result.Error) {
+                // Rollback optimistic update
+                _uiState.value = _uiState.value.copy(
+                    link = currentLink,
+                    error = result.message ?: "Failed to update bookmark"
+                )
+            }
         }
     }
 
@@ -119,22 +133,39 @@ class LinkDetailViewModel @Inject constructor(
             )
         )
         viewModelScope.launch {
-            linkRepository.toggleRelink(currentLink.linkId)
+            val result = linkRepository.toggleRelink(currentLink.linkId)
+            if (result is Result.Error) {
+                // Rollback optimistic update
+                _uiState.value = _uiState.value.copy(
+                    link = currentLink,
+                    error = result.message ?: "Failed to update repost"
+                )
+            }
         }
     }
 
     fun reportLink(reason: ReportReason) {
         val linkId = currentLinkId ?: return
         viewModelScope.launch {
-            linkInteractionUseCases.reportLink(linkId, reason)
+            val result = linkInteractionUseCases.reportLink(linkId, reason)
+            if (result is Result.Error) {
+                _uiState.value = _uiState.value.copy(error = result.message ?: "Failed to report link")
+            }
         }
     }
 
     fun sendToDm(userId: String) {
         val linkId = currentLinkId ?: return
         viewModelScope.launch {
-            linkInteractionUseCases.sendLinkToDm(linkId, userId)
+            val result = linkInteractionUseCases.sendLinkToDm(linkId, userId)
+            if (result is Result.Error) {
+                _uiState.value = _uiState.value.copy(error = result.message ?: "Failed to send link")
+            }
         }
+    }
+
+    fun clearError() {
+        _uiState.value = _uiState.value.copy(error = null)
     }
 }
 

@@ -2,7 +2,16 @@ package com.linker.app.presentation.screens.note
 
 import android.content.Context
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateValue
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.ui.res.stringResource
+import com.linker.app.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -394,26 +403,30 @@ private fun LocationInfoCard(
 
 @Composable
 private fun LivePulseDot() {
-    var expanded by remember { mutableStateOf(false) }
-    val size by animateDpAsState(
-        targetValue = if (expanded) 10.dp else 7.dp,
-        animationSpec = tween(700),
+    val infiniteTransition = rememberInfiniteTransition(label = "pulseDotTransition")
+    val sizeFloat by infiniteTransition.animateFloat(
+        initialValue = 7f,
+        targetValue = 10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
         label = "pulseDot"
     )
-    LaunchedEffect(Unit) {
-        while (true) {
-            expanded = !expanded
-            kotlinx.coroutines.delay(700)
-        }
-    }
+
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Box(
             modifier = Modifier
-                .size(size)
+                .size(sizeFloat.dp)
                 .background(Color(0xFF4CAF50), CircleShape)
         )
         Spacer(modifier = Modifier.height(2.dp))
-        Text("Canlı", color = Color(0xFF4CAF50), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = stringResource(R.string.live_status),
+            color = Color(0xFF4CAF50),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 

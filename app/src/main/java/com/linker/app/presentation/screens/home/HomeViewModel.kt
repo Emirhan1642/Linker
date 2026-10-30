@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class HomeFeedUiState(
     val links: List<Link> = emptyList(),
     val followingLinks: List<Link> = emptyList(),
@@ -129,6 +131,10 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
     fun toggleLike(linkId: String) {
         _uiState.update { state ->
             val updateList = { list: List<com.linker.app.domain.model.Link> ->
@@ -151,7 +157,30 @@ class HomeViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            linkRepository.toggleLike(linkId)
+            val result = linkRepository.toggleLike(linkId)
+            if (result is Result.Error) {
+                _uiState.update { current ->
+                    val revertList = { list: List<com.linker.app.domain.model.Link> ->
+                        list.map { link ->
+                            if (link.linkId == linkId) {
+                                val revertedLiked = !link.engagement.isLiked
+                                val delta = if (revertedLiked) 1 else -1
+                                link.copy(
+                                    engagement = link.engagement.copy(
+                                        isLiked = revertedLiked,
+                                        likesCount = (link.engagement.likesCount + delta).coerceAtLeast(0)
+                                    )
+                                )
+                            } else link
+                        }
+                    }
+                    current.copy(
+                        links = revertList(current.links),
+                        followingLinks = revertList(current.followingLinks),
+                        error = result.message ?: "Failed to update like"
+                    )
+                }
+            }
         }
     }
 
@@ -177,7 +206,30 @@ class HomeViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            linkRepository.toggleSave(linkId)
+            val result = linkRepository.toggleSave(linkId)
+            if (result is Result.Error) {
+                _uiState.update { current ->
+                    val revertList = { list: List<com.linker.app.domain.model.Link> ->
+                        list.map { link ->
+                            if (link.linkId == linkId) {
+                                val revertedSaved = !link.engagement.isSaved
+                                val delta = if (revertedSaved) 1 else -1
+                                link.copy(
+                                    engagement = link.engagement.copy(
+                                        isSaved = revertedSaved,
+                                        savesCount = (link.engagement.savesCount + delta).coerceAtLeast(0)
+                                    )
+                                )
+                            } else link
+                        }
+                    }
+                    current.copy(
+                        links = revertList(current.links),
+                        followingLinks = revertList(current.followingLinks),
+                        error = result.message ?: "Failed to update bookmark"
+                    )
+                }
+            }
         }
     }
 
@@ -203,7 +255,30 @@ class HomeViewModel @Inject constructor(
             )
         }
         viewModelScope.launch {
-            linkRepository.toggleRelink(linkId)
+            val result = linkRepository.toggleRelink(linkId)
+            if (result is Result.Error) {
+                _uiState.update { current ->
+                    val revertList = { list: List<com.linker.app.domain.model.Link> ->
+                        list.map { link ->
+                            if (link.linkId == linkId) {
+                                val revertedRelinked = !link.engagement.isRelinked
+                                val delta = if (revertedRelinked) 1 else -1
+                                link.copy(
+                                    engagement = link.engagement.copy(
+                                        isRelinked = revertedRelinked,
+                                        relinksCount = (link.engagement.relinksCount + delta).coerceAtLeast(0)
+                                    )
+                                )
+                            } else link
+                        }
+                    }
+                    current.copy(
+                        links = revertList(current.links),
+                        followingLinks = revertList(current.followingLinks),
+                        error = result.message ?: "Failed to update repost"
+                    )
+                }
+            }
         }
     }
 

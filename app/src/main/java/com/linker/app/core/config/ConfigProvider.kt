@@ -1,4 +1,4 @@
-package com.linker.app.core.config
+﻿package com.linker.app.core.config
 
 /**
  * Configuration provider interface for runtime configuration updates.

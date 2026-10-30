@@ -22,7 +22,9 @@ object NotificationIdGenerator {
                 keyToIdMap.clear()
             }
             val hash = key.hashCode()
-            if (hash == Int.MIN_VALUE) 1 else abs(hash) and 0x7FFF_FFFE
+            val positiveHash = if (hash == Int.MIN_VALUE) 1 else abs(hash)
+            val id = positiveHash and 0x7FFFFFFF
+            if (id == 0) 1 else id
         }
     }
     

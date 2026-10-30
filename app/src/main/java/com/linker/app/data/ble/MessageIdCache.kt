@@ -1,4 +1,4 @@
-package com.linker.app.data.ble
+﻿package com.linker.app.data.ble
 
 import com.linker.app.core.util.SecureLogger
 import com.linker.app.data.local.dao.MessageIdCacheDao

@@ -37,7 +37,8 @@ class NoteRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth,
-    private val userDao: UserDao
+    private val userDao: UserDao,
+    private val noteDao: com.linker.app.data.local.dao.NoteDao
 ) : NoteRepository {
     private val notesCollection = firestore.collection("notes")
     private val lastNotePostTime = ConcurrentHashMap<String, Long>()
@@ -264,6 +265,11 @@ class NoteRepositoryImpl @Inject constructor(
 
     override suspend fun purgeExpiredNotes(): Result<Unit> = com.linker.app.core.util.safeCall {
         val now = System.currentTimeMillis()
+        try {
+            noteDao.deleteExpiredNotes(now)
+        } catch (e: Exception) {
+            android.util.Log.w("NoteRepository", "Failed to delete expired notes from Room: ${e.message}")
+        }
         val snapshot = notesCollection
             .whereLessThan("expiresAt", now)
             .get()

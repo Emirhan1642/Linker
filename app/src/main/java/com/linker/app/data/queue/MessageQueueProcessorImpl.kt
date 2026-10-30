@@ -37,6 +37,7 @@ data class QueueMetrics(
 class MessageQueueProcessorImpl @Inject constructor(
     private val messageQueueDao: MessageQueueDao,
     private val messageDao: MessageDao,
+    private val database: com.linker.app.data.local.LinkerDatabase,
     private val bleMeshManager: BLEMeshManager,
     private val encryptionManager: EncryptionManager,
     private val currentUserProvider: com.linker.app.domain.usecase.user.CurrentUserProvider,
@@ -364,19 +365,27 @@ class MessageQueueProcessorImpl @Inject constructor(
             totalProcessed++
             if (result.isSuccess) {
                 totalSucceeded++
-                val sent = message.copy(
+                val now = System.currentTimeMillis()
+                val atomicResult = database.updateQueueAndMessageStatusAtomic(
+                    queueId = message.queueId,
                     queueStatus = EntityQueueStatus.SENT,
-                    sentAt = System.currentTimeMillis()
+                    sentAt = now,
+                    messageId = message.messageId,
+                    messageStatus = EntityMessageStatus.SENT
                 )
-                messageQueueDao.updateQueueItem(sent)
-                
-                try {
-                    messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.SENT)
-                    Log.d(TAG, "Updated message ${message.messageId} status to SENT")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating message status: ${e.message}")
+                if (atomicResult.isFailure) {
+                    Log.w(TAG, "Atomic status update failed for message ${message.messageId}, falling back to individual updates")
+                    val sent = message.copy(
+                        queueStatus = EntityQueueStatus.SENT,
+                        sentAt = now
+                    )
+                    messageQueueDao.updateQueueItem(sent)
+                    try {
+                        messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.SENT)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating message status: ${e.message}")
+                    }
                 }
-                
                 Log.d(TAG, "Message ${message.messageId} sent successfully")
             } else {
                 totalFailed++
@@ -563,7 +572,19 @@ class MessageQueueProcessorImpl @Inject constructor(
                 retryCount = newRetryCount,
                 errorMessage = error?.message ?: "Unknown error"
             )
-            messageQueueDao.updateQueueItem(failed)
+            val atomicResult = database.markQueueAndMessageFailedAtomic(
+                queueId = message.queueId,
+                messageId = message.messageId,
+                errorMessage = error?.message ?: "Unknown error"
+            )
+            if (atomicResult.isFailure) {
+                messageQueueDao.updateQueueItem(failed)
+                try {
+                    messageDao.updateMessageStatus(message.messageId, EntityMessageStatus.FAILED)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating message status to FAILED: ${e.message}")
+                }
+            }
             Log.e(TAG, "Message ${message.messageId} failed after $newRetryCount attempts")
         } else {
             val pending = message.copy(

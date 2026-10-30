@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Lightweight message reference for replies.
  *
@@ -14,6 +16,7 @@ package com.linker.app.domain.model
  * @property messageType Type of the original message (TEXT, IMAGE, etc.).
  * @property createdAt Timestamp of the original message (epoch ms).
  */
+@Immutable
 data class MessageReference(
     val messageId: String,
     val senderId: String,
@@ -28,6 +31,7 @@ data class MessageReference(
  * 
  * Used to render a preview of the note being replied to.
  */
+@Immutable
 data class NoteReference(
     val noteId: String,
     val authorId: String,
@@ -59,6 +63,7 @@ data class NoteReference(
  * @property canDeleteMessages Whether members can delete others' messages.
  * @property canChangePermissions Whether members can modify these permissions.
  */
+@Immutable
 data class GroupPermissions(
     val canSendMessages: Boolean = true,
     val canSendMedia: Boolean = true,
@@ -149,6 +154,7 @@ data class GroupPermissions(
  * @property groupCreatedBy UID of the group creator (Firestore `createdBy`).
  * @property groupPermissions Type-safe group permissions.
  */
+@Immutable
 data class Chat(
     val chatId: String,
     val chatType: ChatType = ChatType.PRIVATE,

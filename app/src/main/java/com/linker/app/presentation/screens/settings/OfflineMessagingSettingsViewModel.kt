@@ -1,4 +1,4 @@
-package com.linker.app.presentation.screens.settings
+﻿package com.linker.app.presentation.screens.settings
 
 import android.app.Application
 import android.content.Intent

@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Domain model for Note (24-hour expiring status).
  *
@@ -9,6 +11,7 @@ package com.linker.app.domain.model
  *
  * This is a sealed class hierarchy for type-safe note handling.
  */
+@Immutable
 sealed class Note {
     abstract val noteId: String
     abstract val author: NoteAuthor
@@ -31,6 +34,7 @@ sealed class Note {
      * @property createdAt Creation timestamp (epoch ms).
      * @property expiresAt Expiration timestamp (epoch ms).
      */
+    @Immutable
     data class Text(
         override val noteId: String,
         override val author: NoteAuthor,
@@ -82,6 +86,7 @@ sealed class Note {
      * @property createdAt Creation timestamp (epoch ms).
      * @property expiresAt Expiration timestamp (epoch ms).
      */
+    @Immutable
     data class Music(
         override val noteId: String,
         override val author: NoteAuthor,
@@ -139,6 +144,7 @@ sealed class Note {
      * @property createdAt Creation timestamp (epoch ms).
      * @property expiresAt Expiration timestamp (epoch ms).
      */
+    @Immutable
     data class Countdown(
         override val noteId: String,
         override val author: NoteAuthor,
@@ -205,6 +211,7 @@ sealed class Note {
      * @property createdAt Creation timestamp (epoch ms).
      * @property expiresAt Expiration timestamp (epoch ms).
      */
+    @Immutable
     data class Location(
         override val noteId: String,
         override val author: NoteAuthor,
@@ -249,6 +256,7 @@ sealed class Note {
      * @property createdAt Creation timestamp (epoch ms).
      * @property expiresAt Expiration timestamp (epoch ms).
      */
+    @Immutable
     data class Gif(
         override val noteId: String,
         override val author: NoteAuthor,

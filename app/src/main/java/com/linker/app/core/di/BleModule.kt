@@ -1,4 +1,4 @@
-package com.linker.app.core.di
+﻿package com.linker.app.core.di
 
 import com.linker.app.core.config.OfflineMessagingConfig
 import com.linker.app.data.ble.BLEConnectionPool

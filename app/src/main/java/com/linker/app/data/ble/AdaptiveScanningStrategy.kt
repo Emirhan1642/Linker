@@ -177,10 +177,15 @@ class AdaptiveScanningStrategy @Inject constructor(
     }
     
     /**
-     * Update scan settings based on current conditions.
+     * Update scan settings based on current conditions only if the effective scan mode changed.
+     * Prevents excessive scanner restarts and protects against Android OS scan throttling.
      */
     private fun updateScanSettings() {
-        _scanSettings.value = calculateOptimalScanSettings()
+        val newSettings = calculateOptimalScanSettings()
+        if (_scanSettings.value.scanMode != newSettings.scanMode) {
+            logger.d("Scan mode changing from ${_scanSettings.value.scanMode} to ${newSettings.scanMode}")
+            _scanSettings.value = newSettings
+        }
     }
     
     /**

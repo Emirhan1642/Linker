@@ -22,10 +22,14 @@ interface MessageQueueDao {
     
     @Query("SELECT * FROM message_queue WHERE messageId = :messageId")
     suspend fun getQueueItemByMessageId(messageId: String): MessageQueueEntity?
+
+    @Query("SELECT * FROM message_queue WHERE chatId = :chatId AND queueStatus IN ('PENDING', 'FAILED') ORDER BY priority DESC, createdAt ASC")
+    suspend fun getPendingQueueItemsByChat(chatId: String): List<MessageQueueEntity>
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQueueItem(item: MessageQueueEntity)
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertQueueItems(items: List<MessageQueueEntity>)
     

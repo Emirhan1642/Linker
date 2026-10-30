@@ -30,6 +30,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.stringResource
+import com.linker.app.R
 import com.linker.app.domain.model.Comment
 import com.linker.app.presentation.components.LinkerAvatar
 import com.linker.app.presentation.components.StoryState
@@ -101,7 +103,7 @@ fun CommentSheet(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Yorumlar ($totalCommentsCount)",
+                    text = stringResource(R.string.comments_sheet_title, totalCommentsCount),
                     color = TextPrimary,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
@@ -109,7 +111,7 @@ fun CommentSheet(
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Kapat",
+                        contentDescription = stringResource(R.string.action_close),
                         tint = TextSecondary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -120,6 +122,39 @@ fun CommentSheet(
                 color = Color.White.copy(alpha = 0.08f),
                 modifier = Modifier.padding(bottom = 4.dp)
             )
+
+            AnimatedVisibility(
+                visible = uiState.error != null,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                uiState.error?.let { errText ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .background(ErrorRed.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = errText,
+                            color = ErrorRed,
+                            fontSize = 13.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "✕",
+                            color = ErrorRed,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { viewModel.clearError() }
+                        )
+                    }
+                }
+            }
 
             // Comments List (takes flexible remaining space above pinned input bar)
             Box(

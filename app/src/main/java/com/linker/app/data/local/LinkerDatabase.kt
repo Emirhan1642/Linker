@@ -94,6 +94,161 @@ abstract class LinkerDatabase : RoomDatabase() {
         }
     }
 
+    /**
+     * Atomically update queue status and message status (and optionally deliveryMethod).
+     */
+    suspend fun updateQueueAndMessageStatusAtomic(
+        queueId: String,
+        queueStatus: QueueStatus,
+        sentAt: Long?,
+        messageId: String,
+        messageStatus: MessageStatus,
+        deliveryMethod: DeliveryMethod? = null,
+        timeout: Long = 5000L
+    ): Result<Unit> {
+        require(queueId.isNotBlank()) { "queueId cannot be blank" }
+        require(messageId.isNotBlank()) { "messageId cannot be blank" }
+
+        return try {
+            withTimeout(timeout) {
+                withTransaction {
+                    val queueUpdated = messageQueueDao().updateQueueStatus(queueId, queueStatus, sentAt)
+                    messageDao().updateMessageStatus(messageId, messageStatus)
+                    if (deliveryMethod != null) {
+                        messageDao().updateDeliveryMethod(messageId, deliveryMethod)
+                    }
+
+                    if (queueUpdated == 0) {
+                        android.util.Log.w("LinkerDatabase", "Queue item ($queueId) not found during atomic status update")
+                    }
+                    android.util.Log.d("LinkerDatabase", "Atomic status update successful - Queue: $queueId, Message: $messageId, Status: $messageStatus")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: TimeoutCancellationException) {
+            android.util.Log.e("LinkerDatabase", "Transaction timeout: $queueId", e)
+            Result.failure(e)
+        } catch (e: Exception) {
+            android.util.Log.e("LinkerDatabase", "Transaction failed - Queue: $queueId, Message: $messageId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Atomically mark both queue item and message as FAILED when max retries are exceeded.
+     */
+    suspend fun markQueueAndMessageFailedAtomic(
+        queueId: String,
+        messageId: String,
+        errorMessage: String?,
+        timestamp: Long = System.currentTimeMillis(),
+        timeout: Long = 5000L
+    ): Result<Unit> {
+        return try {
+            withTimeout(timeout) {
+                withTransaction {
+                    messageQueueDao().updateStatus(queueId, QueueStatus.FAILED, errorMessage, timestamp)
+                    messageDao().updateMessageStatus(messageId, MessageStatus.FAILED, timestamp)
+                    android.util.Log.d("LinkerDatabase", "Atomic failure update successful - Queue: $queueId, Message: $messageId")
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("LinkerDatabase", "Atomic failure update failed - Queue: $queueId, Message: $messageId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Atomically save a message and update the corresponding chat's last message.
+     * Ensures parent chat entity exists to prevent foreign key constraint violations.
+     */
+    suspend fun saveMessageAndChatAtomic(
+        message: MessageEntity,
+        chatId: String,
+        displayText: String,
+        timestamp: Long,
+        incrementUnread: Boolean = false,
+        timeout: Long = 5000L
+    ): Result<Unit> {
+        return try {
+            withTimeout(timeout) {
+                withTransaction {
+                    val existingChat = chatDao().getChatById(chatId)
+                    if (existingChat == null) {
+                        chatDao().insertChat(
+                            ChatEntity(
+                                chatId = chatId,
+                                chatType = ChatType.PRIVATE,
+                                chatName = null,
+                                chatImageUrl = null,
+                                participantIds = listOf(message.senderId),
+                                lastMessageId = message.messageId,
+                                lastMessageText = displayText.take(200),
+                                lastMessageAt = timestamp,
+                                unreadCount = if (incrementUnread) 1 else 0,
+                                createdAt = timestamp,
+                                updatedAt = timestamp
+                            )
+                        )
+                    }
+                    messageDao().insertMessage(message)
+                    chatDao().updateLastMessage(chatId, message.messageId, displayText, timestamp, incrementUnread)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("LinkerDatabase", "Atomic saveMessageAndChat failed - Message: ${message.messageId}, Chat: $chatId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Atomically batch save messages and update the corresponding chat's last message.
+     * Prevents foreign key constraint violations and ensures transactional consistency.
+     */
+    suspend fun saveMessagesAndChatAtomic(
+        messages: List<MessageEntity>,
+        chatId: String,
+        lastMessage: MessageEntity? = null,
+        timeout: Long = 10000L
+    ): Result<Unit> {
+        if (messages.isEmpty()) return Result.success(Unit)
+        return try {
+            withTimeout(timeout) {
+                withTransaction {
+                    val existingChat = chatDao().getChatById(chatId)
+                    if (existingChat == null) {
+                        val senderId = messages.firstOrNull()?.senderId ?: ""
+                        chatDao().insertChat(
+                            ChatEntity(
+                                chatId = chatId,
+                                chatType = ChatType.PRIVATE,
+                                chatName = null,
+                                chatImageUrl = null,
+                                participantIds = if (senderId.isNotBlank()) listOf(senderId) else emptyList(),
+                                lastMessageId = lastMessage?.messageId,
+                                lastMessageText = lastMessage?.content?.take(200),
+                                lastMessageAt = lastMessage?.createdAt,
+                                createdAt = messages.minOfOrNull { it.createdAt } ?: System.currentTimeMillis(),
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                    messageDao().insertMessages(messages)
+                    if (lastMessage != null) {
+                        val displayText = lastMessage.content ?: "[Media]"
+                        chatDao().updateLastMessage(chatId, lastMessage.messageId, displayText, lastMessage.createdAt, incrementUnread = false)
+                    }
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.e("LinkerDatabase", "Atomic saveMessagesAndChat failed for chat: $chatId", e)
+            Result.failure(e)
+        }
+    }
+
     companion object {
         const val DATABASE_NAME = "linker_database"
 
@@ -225,6 +380,8 @@ abstract class LinkerDatabase : RoomDatabase() {
                 // Create indices for ble_nodes
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_lastSeen ON ble_nodes(lastSeen)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_isConnected ON ble_nodes(isConnected)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_ble_nodes_deviceAddress ON ble_nodes(deviceAddress)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_rssi ON ble_nodes(rssi)")
                 
                 // Create message_id_cache table
                 db.execSQL("""
@@ -237,6 +394,7 @@ abstract class LinkerDatabase : RoomDatabase() {
                 
                 // Create index for message_id_cache
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_message_id_cache_receivedAt ON message_id_cache(receivedAt)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_message_id_cache_sourceNodeId ON message_id_cache(sourceNodeId)")
             }
         }
         
@@ -339,7 +497,11 @@ abstract class LinkerDatabase : RoomDatabase() {
         val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Added lastSeen field for online presence
-                db.execSQL("ALTER TABLE users ADD COLUMN lastSeen INTEGER NOT NULL DEFAULT 0")
+                try {
+                    db.execSQL("ALTER TABLE users ADD COLUMN lastSeen INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "lastSeen column already exists: ${e.message}")
+                }
             }
         }
 
@@ -349,18 +511,30 @@ abstract class LinkerDatabase : RoomDatabase() {
                 try {
                     db.execSQL("ALTER TABLE messages ADD COLUMN replyToNoteJson TEXT")
                 } catch (e: Exception) {
-                    android.util.Log.d("LinkerDatabase", "replyToNoteJson column already exists")
+                    android.util.Log.d("LinkerDatabase", "replyToNoteJson column already exists: ${e.message}")
+                }
+                // Added isAiGenerated for AI tagged link posts (introduced in schema v14)
+                try {
+                    db.execSQL("ALTER TABLE links ADD COLUMN isAiGenerated INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "isAiGenerated column already exists: ${e.message}")
                 }
             }
         }
 
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                // Added isAiGenerated field for AI tagged link posts
+                // Added isAiGenerated field for AI tagged link posts (idempotent fallback)
                 try {
                     db.execSQL("ALTER TABLE links ADD COLUMN isAiGenerated INTEGER NOT NULL DEFAULT 0")
                 } catch (e: Exception) {
                     android.util.Log.d("LinkerDatabase", "isAiGenerated column already exists: ${e.message}")
+                }
+                // Added mediaFitModes field for link posts (introduced in schema v15)
+                try {
+                    db.execSQL("ALTER TABLE links ADD COLUMN mediaFitModes TEXT NOT NULL DEFAULT '[]'")
+                } catch (e: Exception) {
+                    android.util.Log.d("LinkerDatabase", "mediaFitModes column already exists: ${e.message}")
                 }
             }
         }
@@ -372,6 +546,15 @@ abstract class LinkerDatabase : RoomDatabase() {
                     db.execSQL("ALTER TABLE links ADD COLUMN mediaFitModes TEXT NOT NULL DEFAULT '[]'")
                 } catch (e: Exception) {
                     android.util.Log.d("LinkerDatabase", "mediaFitModes column already exists: ${e.message}")
+                }
+
+                // Ensure all entity indices match Room schema definitions for ble_nodes and message_id_cache
+                try {
+                    db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_ble_nodes_deviceAddress ON ble_nodes(deviceAddress)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_ble_nodes_rssi ON ble_nodes(rssi)")
+                    db.execSQL("CREATE INDEX IF NOT EXISTS index_message_id_cache_sourceNodeId ON message_id_cache(sourceNodeId)")
+                } catch (e: Exception) {
+                    android.util.Log.w("LinkerDatabase", "Index creation warning: ${e.message}")
                 }
             }
         }

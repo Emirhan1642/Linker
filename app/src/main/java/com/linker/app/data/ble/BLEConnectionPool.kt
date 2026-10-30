@@ -28,6 +28,13 @@ class BLEConnectionPool @Inject constructor() {
     private val logger = SecureLogger("BLEConnectionPool")
     private val poolLock = Any()
     
+    @Volatile
+    private var onEvictionListener: ((String) -> Unit)? = null
+    
+    fun setOnEvictionListener(listener: (String) -> Unit) {
+        onEvictionListener = listener
+    }
+    
     companion object {
         private const val TAG = "BLEConnectionPool"
         private const val MAX_CONNECTIONS = 7
@@ -199,6 +206,11 @@ class BLEConnectionPool @Inject constructor() {
         
         connsToClose.forEach { connectionInfo ->
             try {
+                connectionInfo.gatt.disconnect()
+            } catch (e: Exception) {
+                logger.w("Error disconnecting GATT connection in clear: ${e.message}")
+            }
+            try {
                 connectionInfo.gatt.close()
             } catch (e: Exception) {
                 logger.e("Error closing GATT connection", e)
@@ -241,7 +253,7 @@ class BLEConnectionPool @Inject constructor() {
      * 
      * @return Evicted ConnectionInfo, or null if pool is empty
      */
-    private fun evictLowestPriority(): ConnectionInfo? {
+    fun evictLowestPriorityConnection(): ConnectionInfo? {
         val evictedInfo = synchronized(poolLock) {
             if (connections.isEmpty()) {
                 return null
@@ -255,8 +267,9 @@ class BLEConnectionPool @Inject constructor() {
             removeConnectionWithoutClose(lowestPriority.deviceAddress)
         }
         
-        // Offload GATT close to background thread to avoid blocking
+        // Notify eviction listener and offload GATT close to background thread
         if (evictedInfo != null) {
+            onEvictionListener?.invoke(evictedInfo.deviceAddress)
             scope.launch(Dispatchers.IO) {
                 try {
                     evictedInfo.gatt.disconnect()
@@ -269,6 +282,8 @@ class BLEConnectionPool @Inject constructor() {
         
         return evictedInfo
     }
+
+    private fun evictLowestPriority(): ConnectionInfo? = evictLowestPriorityConnection()
     
     /**
      * Remove connection without closing GATT (for eviction).

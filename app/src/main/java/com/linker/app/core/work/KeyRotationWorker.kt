@@ -190,7 +190,12 @@ class KeyRotationWorker @AssistedInject constructor(
     }
     
     override suspend fun doWork(): Result {
-        return keyRotationMutex.withLock {
+        if (!keyRotationMutex.tryLock()) {
+            logger.w("Key rotation is already running. Skipping execution.")
+            return Result.success()
+        }
+
+        return try {
             logger.d("Starting key rotation", mapOf("attempt" to runAttemptCount))
             
             try {
@@ -199,7 +204,7 @@ class KeyRotationWorker @AssistedInject constructor(
                 }
                 
                 logger.d("Key rotation completed successfully")
-                return Result.success()
+                Result.success()
                 
             } catch (e: TimeoutCancellationException) {
                 logger.e("Key rotation timed out", e, mapOf(
@@ -207,7 +212,7 @@ class KeyRotationWorker @AssistedInject constructor(
                     "attempt" to runAttemptCount
                 ))
                 
-                return handleFailureAndRetry(e)
+                handleFailureAndRetry(e)
                 
             } catch (e: Exception) {
                 logger.e("Key rotation failed", e, mapOf(
@@ -222,25 +227,35 @@ class KeyRotationWorker @AssistedInject constructor(
                                 "attempt" to runAttemptCount + 1,
                                 "max_attempts" to MAX_RETRY_ATTEMPTS
                             ))
-                            return Result.retry()
+                            Result.retry()
+                        } else {
+                            handleFailureAndRetry(e)
                         }
                     }
                     is InvalidKeyException, is NoSuchAlgorithmException -> {
                         logger.e("Key rotation failed with crypto error - not retrying", e)
                         reportCriticalError("KeyRotationCryptoError", e)
-                        return Result.failure()
+                        Result.failure()
                     }
                     else -> {
                         if (runAttemptCount < 2) {
                             logger.d("Retrying key rotation", mapOf(
                                 "attempt" to runAttemptCount + 1
                             ))
-                            return Result.retry()
+                            Result.retry()
+                        } else {
+                            handleFailureAndRetry(e)
                         }
                     }
                 }
-                
-                return handleFailureAndRetry(e)
+            }
+        } finally {
+            if (keyRotationMutex.isLocked) {
+                try {
+                    keyRotationMutex.unlock()
+                } catch (e: Exception) {
+                    logger.w("Failed to unlock keyRotationMutex: ${e.message}")
+                }
             }
         }
     }

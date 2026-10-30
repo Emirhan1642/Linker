@@ -67,17 +67,40 @@ class AccountRepositoryImpl @Inject constructor(
 
     // ── EncryptedSharedPreferences ────────────────────────────────────────
 
-    private val encryptedPrefs = try {
+    private val encryptedPrefs = createEncryptedPrefsSafely(context)
+
+    private fun createEncryptedPrefsSafely(context: Context): android.content.SharedPreferences {
         val oldPolicy = android.os.StrictMode.allowThreadDiskReads()
         try {
-            buildEncryptedPrefs()
+            return buildEncryptedPrefs()
+        } catch (e: Exception) {
+            Log.e(TAG, "EncryptedSharedPreferences init failed, attempting recovery: ${e.message}", e)
+            try {
+                val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$PREFS_FILE.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.delete()
+                }
+                context.deleteSharedPreferences(PREFS_FILE)
+                try {
+                    val ks = KeyStore.getInstance(KEYSTORE_PROVIDER)
+                    ks.load(null)
+                    ks.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                } catch (ksEx: Exception) {
+                    Log.w(TAG, "Failed to delete corrupted master key alias", ksEx)
+                }
+            } catch (cleanupEx: Exception) {
+                Log.e(TAG, "Failed to cleanup corrupted prefs file", cleanupEx)
+            }
+
+            return try {
+                buildEncryptedPrefs()
+            } catch (secondEx: Exception) {
+                Log.e(TAG, "Fallback to standard SharedPreferences for $PREFS_FILE due to unrecoverable Keystore failure", secondEx)
+                context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+            }
         } finally {
             android.os.StrictMode.setThreadPolicy(oldPolicy)
         }
-    } catch (e: Exception) {
-        Log.e(TAG, "EncryptedSharedPreferences init failed, recreating: ${e.message}", e)
-        context.deleteSharedPreferences(PREFS_FILE)
-        buildEncryptedPrefs()
     }
 
     private fun buildEncryptedPrefs(): android.content.SharedPreferences {
@@ -356,10 +379,26 @@ class AccountRepositoryImpl @Inject constructor(
     }
 
     private fun getOrCreateKey(): SecretKey {
-        val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).also { it.load(null) }
-        if (ks.containsAlias(KEY_ALIAS)) {
-            return (ks.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
+        return try {
+            val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).also { it.load(null) }
+            if (ks.containsAlias(KEY_ALIAS)) {
+                val entry = ks.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
+                if (entry != null) {
+                    return entry.secretKey
+                }
+            }
+            generateAesKey()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get or create secret key for alias: $KEY_ALIAS, regenerating", e)
+            try {
+                val ks = KeyStore.getInstance(KEYSTORE_PROVIDER).also { it.load(null) }
+                ks.deleteEntry(KEY_ALIAS)
+            } catch (_: Exception) {}
+            generateAesKey()
         }
+    }
+
+    private fun generateAesKey(): SecretKey {
         Log.d(TAG, "Keystore: yeni anahtar oluşturuluyor — alias=$KEY_ALIAS")
         val kg = KeyGenerator.getInstance(
             android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
@@ -375,6 +414,7 @@ class AccountRepositoryImpl @Inject constructor(
                 .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)
                 .setRandomizedEncryptionRequired(true)
+                .setUserAuthenticationRequired(false)
                 .build()
         )
         return kg.generateKey()

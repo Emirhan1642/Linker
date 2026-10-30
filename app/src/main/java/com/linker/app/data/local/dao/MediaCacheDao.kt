@@ -35,6 +35,7 @@ interface MediaCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCache(cache: MediaCacheEntity)
     
+    @Transaction
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCaches(caches: List<MediaCacheEntity>)
     

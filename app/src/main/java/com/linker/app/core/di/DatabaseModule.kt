@@ -107,7 +107,7 @@ object DatabaseModule {
                     LinkerDatabase.MIGRATION_14_15,
                     LinkerDatabase.MIGRATION_15_16
                 )
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigrationOnDowngrade()
                 .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(object : androidx.room.RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
@@ -317,6 +317,13 @@ class DatabaseBackupManager(
             val currentBackup = java.io.File(dbFile.parentFile, "${dbFile.name}.before_restore")
             if (dbFile.exists()) {
                 dbFile.copyTo(currentBackup, overwrite = true)
+            }
+            
+            // Close database open helper to release all active SQLite file handles
+            try {
+                database.openHelper.close()
+            } catch (e: Exception) {
+                android.util.Log.w("DatabaseBackupManager", "OpenHelper close warning: ${e.message}")
             }
             
             // Restore from backup

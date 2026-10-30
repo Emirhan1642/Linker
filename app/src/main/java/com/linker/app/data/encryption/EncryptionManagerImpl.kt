@@ -103,8 +103,8 @@ class EncryptionManagerImpl @Inject constructor(
             // Create session cipher
             val sessionCipher = SessionCipher(protocolStore, recipientAddress)
 
-            // Encrypt message
-            val ciphertext = sessionCipher.encrypt(plaintext.toByteArray())
+            // Encrypt message using explicit UTF-8 encoding
+            val ciphertext = sessionCipher.encrypt(plaintext.toByteArray(Charsets.UTF_8))
 
             // Serialize the ciphertext
             val serialized = ciphertext.serialize()
@@ -137,7 +137,8 @@ class EncryptionManagerImpl @Inject constructor(
                 }
             }
 
-            val decrypted = String(plaintext)
+            // Decode plaintext using explicit UTF-8 charset to prevent byte corruption on multi-byte characters
+            val decrypted = String(plaintext, Charsets.UTF_8)
             Logger.d(TAG, "Message decrypted from $senderId")
             Result.success(decrypted)
         } catch (e: Exception) {
@@ -153,9 +154,10 @@ class EncryptionManagerImpl @Inject constructor(
     
     override suspend fun rotateKeys(): Unit = withContext(Dispatchers.IO) {
         try {
-            // Generate new signed pre-key
+            // Generate new signed pre-key with positive, overflow-safe ID
             val identityKeyPair = protocolStore.getIdentityKeyPair()
-            val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
+            val epochSeconds = System.currentTimeMillis() / 1000L
+            val signedPreKeyId = ((epochSeconds and 0x7FFFFFFFL).toInt()).let { if (it == 0) 1 else it }
 
             val signedPreKeyPair = ECKeyPair.generate()
             val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
@@ -163,8 +165,8 @@ class EncryptionManagerImpl @Inject constructor(
 
             protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKeyRecord)
 
-            // Generate new batch of pre-keys (continuing from current max ID)
-            generatePreKeys()
+            // Generate new batch of pre-keys (continuing from current max ID) without duplicate signed pre-key
+            generatePreKeys(generateSignedPreKey = false)
 
             Logger.d(TAG, "Keys rotated successfully")
         } catch (e: Exception) {
@@ -200,51 +202,51 @@ class EncryptionManagerImpl @Inject constructor(
     /**
      * Generate pre-keys for key exchange
      */
-    private fun generatePreKeys() {
+    private fun generatePreKeys(generateSignedPreKey: Boolean = true) {
         val identityKeyPair = protocolStore.getIdentityKeyPair()
 
-        // Determine starting ID by finding the current maximum stored pre-key ID.
-        // This prevents overwriting existing pre-keys on every rotation call.
+        // Determine available IDs by finding existing stored pre-key IDs.
+        // Wrap gracefully within positive 31-bit integer space (1..0x7FFFFFFE) avoiding ID exhaustion and collisions.
         val existingPreKeys = try {
             protocolStore.loadAllPreKeys()
         } catch (e: Exception) {
             emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
         }
-        var maxId = existingPreKeys.maxOfOrNull { record -> record.id } ?: 0
-        
-        if (maxId > Int.MAX_VALUE - PRE_KEY_COUNT) {
-            cleanupOldPreKeys()
-            val refreshedKeys = try {
-                protocolStore.loadAllPreKeys()
-            } catch (e: Exception) {
-                emptyList<org.signal.libsignal.protocol.state.PreKeyRecord>()
-            }
-            maxId = refreshedKeys.maxOfOrNull { record -> record.id } ?: 0
-            if (maxId > Int.MAX_VALUE - PRE_KEY_COUNT) {
-                Logger.e(TAG, "PreKey ID space exhausted even after cleanup. Cannot generate more pre-keys.")
-                return
-            }
-        }
-        
-        val startId = maxId + 1
+        val existingIds = existingPreKeys.map { it.id }.toSet()
+        val maxId = existingPreKeys.maxOfOrNull { record -> record.id } ?: 0
 
-        // Generate one-time pre-keys starting from the next available ID
-        for (i in 0 until PRE_KEY_COUNT) {
-            val id = startId + i
+        var candidateId = if (maxId >= 0x7FFFFFFF - PRE_KEY_COUNT) 1 else maxId + 1
+        val candidateIds = mutableListOf<Int>()
+        while (candidateIds.size < PRE_KEY_COUNT) {
+            if (candidateId <= 0 || candidateId >= 0x7FFFFFFF) {
+                candidateId = 1
+            }
+            if (candidateId !in existingIds) {
+                candidateIds.add(candidateId)
+            }
+            candidateId++
+        }
+
+        // Generate one-time pre-keys using strictly positive, non-colliding IDs
+        for (id in candidateIds) {
             val keyPair = ECKeyPair.generate()
             val preKeyRecord = PreKeyRecord(id, keyPair)
             protocolStore.storePreKey(id, preKeyRecord)
         }
 
-        // Generate signed pre-key with timestamp-based ID
-        val signedPreKeyId = (System.currentTimeMillis() / 1000).toInt()
-        val signedPreKeyPair = ECKeyPair.generate()
-        val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
-        val signedPreKey = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
+        if (generateSignedPreKey) {
+            // Generate signed pre-key with timestamp-based ID (strictly positive, overflow-safe across 64-bit epochs)
+            val epochSeconds = System.currentTimeMillis() / 1000L
+            val signedPreKeyId = ((epochSeconds and 0x7FFFFFFFL).toInt()).let { if (it == 0) 1 else it }
+            val signedPreKeyPair = ECKeyPair.generate()
+            val signature = identityKeyPair.privateKey.calculateSignature(signedPreKeyPair.publicKey.serialize())
+            val signedPreKey = SignedPreKeyRecord(signedPreKeyId, System.currentTimeMillis(), signedPreKeyPair, signature)
 
-        protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKey)
-        
-        Logger.d(TAG, "Generated $PRE_KEY_COUNT pre-keys (starting at ID $startId) and 1 signed pre-key")
+            protocolStore.storeSignedPreKey(signedPreKeyId, signedPreKey)
+            Logger.d(TAG, "Generated $PRE_KEY_COUNT pre-keys (IDs ${candidateIds.first()}..${candidateIds.last()}) and 1 signed pre-key")
+        } else {
+            Logger.d(TAG, "Generated $PRE_KEY_COUNT pre-keys (IDs ${candidateIds.first()}..${candidateIds.last()})")
+        }
     }
     
     /**
@@ -302,10 +304,11 @@ class EncryptionManagerImpl @Inject constructor(
         val signedPreKey = signedPreKeys.maxByOrNull { it.timestamp }
             ?: throw IllegalStateException("No signed pre-key available")
 
-        // Generate Kyber pre-key for this bundle with unique ID
-        val counterSeq = kyberKeyCounter.incrementAndGet() and 0xFFFF
-        val epochSeconds = (System.currentTimeMillis() / 1000).toInt()
-        val kyberPreKeyId = (epochSeconds shl 16) or counterSeq
+        // Generate Kyber pre-key for this bundle with unique ID (strictly positive, overflow-safe)
+        val counterSeq = (kyberKeyCounter.incrementAndGet() and 0xFFFF).let { if (it == 0) 1 else it }
+        val epochSeconds = System.currentTimeMillis() / 1000L
+        // Mask epochSeconds to 15 bits so ((epochSeconds and 0x7FFFL).toInt()) shl 16 never sets the sign bit (bit 31)
+        val kyberPreKeyId = ((((epochSeconds and 0x7FFFL).toInt()) shl 16) or counterSeq).let { if (it <= 0) 1 else it }
         val kyberKeyPair = KEMKeyPair.generate(KEMKeyType.KYBER_1024)
         val kyberSignature = identityKeyPair.privateKey.calculateSignature(kyberKeyPair.publicKey.serialize())
         val kyberPreKeyRecord = KyberPreKeyRecord(kyberPreKeyId, System.currentTimeMillis(), kyberKeyPair, kyberSignature)

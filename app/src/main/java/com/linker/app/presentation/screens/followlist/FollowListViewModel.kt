@@ -119,23 +119,75 @@ class FollowListViewModel @Inject constructor(
         }
     }
 
-    fun acceptRequest(fromUserId: String) = viewModelScope.launch {
-        userRepository.acceptFollowRequest(fromUserId); load()
+    fun clearError() = _uiState.update { it.copy(error = null) }
+
+    fun acceptRequest(fromUserId: String) {
+        val previousUsers = _uiState.value.users
+        _uiState.update { it.copy(users = it.users.filter { u -> u.userId != fromUserId }) }
+        viewModelScope.launch {
+            when (val res = userRepository.acceptFollowRequest(fromUserId)) {
+                is Result.Success -> {}
+                is Result.Error -> _uiState.update {
+                    it.copy(users = previousUsers, error = res.message ?: "Failed to accept request")
+                }
+                is Result.Loading -> {}
+            }
+        }
     }
 
-    fun declineRequest(fromUserId: String) = viewModelScope.launch {
-        userRepository.declineFollowRequest(fromUserId); load()
+    fun declineRequest(fromUserId: String) {
+        val previousUsers = _uiState.value.users
+        _uiState.update { it.copy(users = it.users.filter { u -> u.userId != fromUserId }) }
+        viewModelScope.launch {
+            when (val res = userRepository.declineFollowRequest(fromUserId)) {
+                is Result.Success -> {}
+                is Result.Error -> _uiState.update {
+                    it.copy(users = previousUsers, error = res.message ?: "Failed to decline request")
+                }
+                is Result.Loading -> {}
+            }
+        }
     }
 
-    fun cancelSentRequest(toUserId: String) = viewModelScope.launch {
-        userRepository.cancelFollowRequest(toUserId); load()
+    fun cancelSentRequest(toUserId: String) {
+        val previousUsers = _uiState.value.users
+        _uiState.update { it.copy(users = it.users.filter { u -> u.userId != toUserId }) }
+        viewModelScope.launch {
+            when (val res = userRepository.cancelFollowRequest(toUserId)) {
+                is Result.Success -> {}
+                is Result.Error -> _uiState.update {
+                    it.copy(users = previousUsers, error = res.message ?: "Failed to cancel request")
+                }
+                is Result.Loading -> {}
+            }
+        }
     }
 
-    fun removeFollower(userId: String) = viewModelScope.launch {
-        userRepository.removeFollower(userId); load()
+    fun removeFollower(userId: String) {
+        val previousUsers = _uiState.value.users
+        _uiState.update { it.copy(users = it.users.filter { u -> u.userId != userId }) }
+        viewModelScope.launch {
+            when (val res = userRepository.removeFollower(userId)) {
+                is Result.Success -> {}
+                is Result.Error -> _uiState.update {
+                    it.copy(users = previousUsers, error = res.message ?: "Failed to remove follower")
+                }
+                is Result.Loading -> {}
+            }
+        }
     }
 
-    fun unfollow(userId: String) = viewModelScope.launch {
-        userRepository.unfollowUser(userId); load()
+    fun unfollow(userId: String) {
+        val previousUsers = _uiState.value.users
+        _uiState.update { it.copy(users = it.users.filter { u -> u.userId != userId }) }
+        viewModelScope.launch {
+            when (val res = userRepository.unfollowUser(userId)) {
+                is Result.Success -> {}
+                is Result.Error -> _uiState.update {
+                    it.copy(users = previousUsers, error = res.message ?: "Failed to unfollow user")
+                }
+                is Result.Loading -> {}
+            }
+        }
     }
 }

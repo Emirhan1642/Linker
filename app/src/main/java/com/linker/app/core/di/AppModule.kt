@@ -1,4 +1,4 @@
-package com.linker.app.core.di
+﻿package com.linker.app.core.di
 
 import android.content.Context
 import com.google.firebase.FirebaseApp

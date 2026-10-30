@@ -1,4 +1,4 @@
-package com.linker.app.data.encryption
+﻿package com.linker.app.data.encryption
 
 sealed class EncryptionError(message: String, cause: Throwable? = null) : Exception(message, cause) {
     data class KeyNotFound(val userId: String) : EncryptionError("Encryption keys not found for user: $userId")

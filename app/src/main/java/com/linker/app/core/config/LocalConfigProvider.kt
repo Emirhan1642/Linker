@@ -1,4 +1,4 @@
-package com.linker.app.core.config
+﻿package com.linker.app.core.config
 
 /**
  * Local configuration provider for testing and development.

@@ -40,6 +40,7 @@ import kotlin.collections.forEach
 class StoryRepositoryImpl @Inject constructor(
     private val firestore: FirebaseFirestore,
     private val auth: FirebaseAuth,
+    private val storyDao: com.linker.app.data.local.dao.StoryDao,
     @dagger.hilt.android.qualifiers.ApplicationContext private val appContext: android.content.Context
 ) : StoryRepository {
 
@@ -51,6 +52,29 @@ class StoryRepositoryImpl @Inject constructor(
 
     private val storiesCollection = firestore.collection("stories")
     private val usersCollection = firestore.collection("users")
+
+    init {
+        scheduleExpiredStoriesCleanup()
+    }
+
+    private fun scheduleExpiredStoriesCleanup() {
+        val cleanupRequest = androidx.work.PeriodicWorkRequestBuilder<com.linker.app.core.work.ExpiredStoriesCleanupWorker>(
+            repeatInterval = 6,
+            repeatIntervalTimeUnit = java.util.concurrent.TimeUnit.HOURS
+        )
+            .setConstraints(
+                androidx.work.Constraints.Builder()
+                    .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+        
+        androidx.work.WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(
+            "expired_stories_cleanup",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            cleanupRequest
+        )
+    }
 
     override fun observeActiveUserStories(): Flow<Result<List<UserStories>>> = callbackFlow {
         val now = System.currentTimeMillis()
@@ -145,7 +169,9 @@ class StoryRepositoryImpl @Inject constructor(
                                         if (viewerDoc.exists()) {
                                             viewedStoriesCache.add(pair.first)
                                         }
-                                    } catch (_: Exception) {}
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("StoryRepo", "Failed to check viewer status for story ${pair.first}: ${e.message}")
+                                    }
                                 }
                             }
                             deferreds.awaitAll()
@@ -156,7 +182,8 @@ class StoryRepositoryImpl @Inject constructor(
                         val author = usersMap[data.authorId] ?: return@mapNotNull null
                         val mappedType = try {
                             StoryMediaType.valueOf(data.mediaType)
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            android.util.Log.w("StoryRepo", "Invalid StoryMediaType: ${data.mediaType}, defaulting to IMAGE", e)
                             StoryMediaType.IMAGE
                         }
                         val storyDuration = if (mappedType == StoryMediaType.VIDEO) {
@@ -300,7 +327,11 @@ class StoryRepositoryImpl @Inject constructor(
             )
             .build()
             
-        androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+        androidx.work.WorkManager.getInstance(appContext).enqueueUniqueWork(
+            "cloudinary_upload_STORY_$storyId",
+            androidx.work.ExistingWorkPolicy.KEEP,
+            workRequest
+        )
 
         Story(
             storyId = storyId,
@@ -352,7 +383,9 @@ class StoryRepositoryImpl @Inject constructor(
                     )
                 )
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.w("StoryRepo", "Failed to add viewer to local list: ${e.message}")
+        }
 
         try {
             val viewerRef = storiesCollection
@@ -389,6 +422,11 @@ class StoryRepositoryImpl @Inject constructor(
 
     override suspend fun purgeExpiredStories(): Result<Unit> = RetryUtil.retrySafeCall {
         val now = System.currentTimeMillis()
+        try {
+            storyDao.deleteExpiredStories(now)
+        } catch (e: Exception) {
+            android.util.Log.w("StoryRepository", "Failed to delete expired stories from Room: ${e.message}")
+        }
         val snapshot = storiesCollection
             .whereLessThan("expiresAt", now)
             .get()

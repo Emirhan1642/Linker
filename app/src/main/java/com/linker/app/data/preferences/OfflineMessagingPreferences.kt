@@ -1,4 +1,4 @@
-package com.linker.app.data.preferences
+﻿package com.linker.app.data.preferences
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

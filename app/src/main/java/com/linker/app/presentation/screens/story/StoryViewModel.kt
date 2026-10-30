@@ -77,6 +77,10 @@ class StoryViewModel @Inject constructor(
         }
     }
 
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
     fun likeStory(storyId: String) {
         viewModelScope.launch {
             // Optimistic update for both currentStories and allUserStories
@@ -92,11 +96,28 @@ class StoryViewModel @Inject constructor(
                     }
                 )
             }
-            likeStoryUseCase(storyId)
+            val result = likeStoryUseCase(storyId)
+            if (result is Result.Error) {
+                // Revert ONLY this story
+                _uiState.update { state ->
+                    state.copy(
+                        currentStories = state.currentStories.map { story ->
+                            if (story.storyId == storyId) story.toggleLike() else story
+                        },
+                        allUserStories = state.allUserStories.map { group ->
+                            group.copy(stories = group.stories.map { story ->
+                                if (story.storyId == storyId) story.toggleLike() else story
+                            })
+                        },
+                        error = result.message ?: "Failed to like story"
+                    )
+                }
+            }
         }
     }
 
     fun reactToStory(storyId: String, emoji: String?) {
+        val existingReaction = _uiState.value.currentStories.find { it.storyId == storyId }?.reactionEmoji
         viewModelScope.launch {
             // Optimistic update
             _uiState.update { state ->
@@ -111,13 +132,34 @@ class StoryViewModel @Inject constructor(
                     }
                 )
             }
-            reactToStoryUseCase(storyId, emoji)
+            val result = reactToStoryUseCase(storyId, emoji)
+            if (result is Result.Error) {
+                // Revert ONLY this story
+                _uiState.update { state ->
+                    state.copy(
+                        currentStories = state.currentStories.map { story ->
+                            if (story.storyId == storyId) story.withReaction(existingReaction) else story
+                        },
+                        allUserStories = state.allUserStories.map { group ->
+                            group.copy(stories = group.stories.map { story ->
+                                if (story.storyId == storyId) story.withReaction(existingReaction) else story
+                            })
+                        },
+                        error = result.message ?: "Failed to react to story"
+                    )
+                }
+            }
         }
     }
 
     fun replyToStory(storyId: String, content: String) {
         viewModelScope.launch {
-            storyRepository.replyToStory(storyId, content)
+            val result = storyRepository.replyToStory(storyId, content)
+            if (result is Result.Error) {
+                _uiState.update { state ->
+                    state.copy(error = result.message ?: "Failed to reply to story")
+                }
+            }
         }
     }
 

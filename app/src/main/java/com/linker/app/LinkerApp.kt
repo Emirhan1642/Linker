@@ -102,7 +102,7 @@ class LinkerApp : Application(), Configuration.Provider, coil3.SingletonImageLoa
                 languageManager.setLanguage(savedLang)
             }
         } catch (e: Exception) {
-            // ignore
+            android.util.Log.w("LinkerApp", "Failed to apply saved language during startup", e)
         }
 
         // Enable StrictMode in debug builds

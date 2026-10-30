@@ -1,4 +1,4 @@
-package com.linker.app.data.ble
+﻿package com.linker.app.data.ble
 
 import com.linker.app.core.util.SecureLogger as Log
 import com.linker.app.core.config.OfflineMessagingConfig

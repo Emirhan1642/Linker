@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Domain model for a Story (24-hour expiring media).
  *
@@ -22,6 +24,7 @@ package com.linker.app.domain.model
  * @property createdAt Creation timestamp (epoch ms).
  * @property expiresAt Expiration timestamp (epoch ms).
  */
+@Immutable
 data class Story(
     val storyId: String,
     val author: StoryAuthor,
@@ -175,6 +178,7 @@ enum class StoryReaction(val emoji: String) {
  * @property author Lightweight author reference for the story owner.
  * @property stories List of stories, typically ordered by creation time.
  */
+@Immutable
 data class UserStories(
     val author: StoryAuthor,
     val stories: List<Story>

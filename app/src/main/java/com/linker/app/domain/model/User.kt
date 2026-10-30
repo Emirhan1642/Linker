@@ -2,6 +2,7 @@ package com.linker.app.domain.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import androidx.compose.runtime.Immutable
 
 /**
  * User relationship state.
@@ -15,6 +16,7 @@ import kotlinx.serialization.Transient
  * @property followRequestSent Whether the current user has sent a follow request.
  */
 @Serializable
+@Immutable
 data class UserRelationship(
     val isFollowing: Boolean = false,
     val isFollowedBy: Boolean = false,
@@ -51,6 +53,7 @@ data class UserRelationship(
  * @property hideFollowLists Whether follow/follower lists are hidden.
  */
 @Serializable
+@Immutable
 data class UserPrivacy(
     val isPrivate: Boolean = false,
     val hideFollowLists: Boolean = false
@@ -70,6 +73,7 @@ data class UserPrivacy(
  * @property likesCount Total likes received across all posts.
  */
 @Serializable
+@Immutable
 data class UserMetrics(
     val followersCount: Int = 0,
     val followingCount: Int = 0,
@@ -125,6 +129,7 @@ data class UserMetrics(
  * @see followState
  */
 @Serializable
+@Immutable
 data class User(
     val userId: String = "",
     val username: String = "",

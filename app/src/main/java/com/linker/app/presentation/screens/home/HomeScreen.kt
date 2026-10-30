@@ -116,8 +116,17 @@ fun HomeScreen(
 
     var totalHorizontalDrag by remember { mutableFloatStateOf(0f) }
     var isAnyItemZooming by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearError()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Black,
         bottomBar = {
             AnimatedVisibility(
@@ -299,12 +308,11 @@ fun VideoPlayerView(
 
     // Progress ticker
     LaunchedEffect(exoPlayer, isPlaying, isAppInForeground) {
+        if (!isPlaying || !isAppInForeground) return@LaunchedEffect
         while (isActive) {
-            if (isPlaying && isAppInForeground) {
-                val current = exoPlayer.currentPosition.coerceAtLeast(0L)
-                val duration = exoPlayer.duration.coerceAtLeast(0L)
-                onProgressUpdate(current, duration)
-            }
+            val current = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val duration = exoPlayer.duration.coerceAtLeast(0L)
+            onProgressUpdate(current, duration)
             delay(100)
         }
     }

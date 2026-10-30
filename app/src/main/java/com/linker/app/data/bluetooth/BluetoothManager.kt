@@ -1,4 +1,4 @@
-package com.linker.app.data.bluetooth
+﻿package com.linker.app.data.bluetooth
 
 import android.Manifest
 import android.app.Activity

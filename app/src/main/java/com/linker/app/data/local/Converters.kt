@@ -177,11 +177,14 @@ class Converters {
     
     @TypeConverter
     fun toDeliveryMethod(value: String): DeliveryMethod {
+        if (value.equals("INTERNET", ignoreCase = true) || value.equals("ONLINE", ignoreCase = true)) {
+            return DeliveryMethod.ONLINE
+        }
         return try {
-            DeliveryMethod.valueOf(value)
+            DeliveryMethod.valueOf(value.uppercase())
         } catch (e: IllegalArgumentException) {
             logConversionError("DeliveryMethod", value, e)
-            DeliveryMethod.values().first()
+            DeliveryMethod.ONLINE
         }
     }
     

@@ -513,7 +513,9 @@ class UserCache @Inject constructor(
                 if (legacyFile.exists()) {
                     legacyFile.delete()
                 }
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                if (config.enableLogging) SecureLogger.w(TAG, "Failed to delete legacy cache file: ${e.message}")
+            }
         }
     }
 

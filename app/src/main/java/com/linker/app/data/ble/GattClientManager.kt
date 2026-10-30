@@ -30,7 +30,7 @@ class GattClientManager @Inject constructor(
         private const val TAG = "GattClientManager"
         private const val MAX_CONNECTIONS = 7 // Android BLE limit
         private const val CONNECTION_TIMEOUT = 5000L // 5 seconds per Requirement 1.4
-        private const val MTU_SIZE = 512
+        private const val MTU_SIZE = 517 // Request standard maximum BLE ATT MTU
     }
     
     private val connections = ConcurrentHashMap<String, BluetoothGatt>()
@@ -40,6 +40,26 @@ class GattClientManager @Inject constructor(
     
     // Track RSSI for connection pool priority
     private val rssiMap = ConcurrentHashMap<String, Int>()
+    
+    // Track negotiated MTU per device
+    private val negotiatedMtuMap = ConcurrentHashMap<String, Int>()
+    
+    private val _disconnectedDevices = kotlinx.coroutines.flow.MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 16)
+    val disconnectedDevices: kotlinx.coroutines.flow.SharedFlow<String> = _disconnectedDevices
+    
+    init {
+        connectionPool.setOnEvictionListener { evictedAddress ->
+            Log.d(TAG, "Evicted connection notification received for $evictedAddress")
+            connections.remove(evictedAddress)
+            rssiMap.remove(evictedAddress)
+            negotiatedMtuMap.remove(evictedAddress)
+            deviceWriteLocks.remove(evictedAddress)
+            pendingWrites.remove(evictedAddress)?.complete(false)
+            _disconnectedDevices.tryEmit(evictedAddress)
+        }
+    }
+    
+    fun getNegotiatedMtu(deviceAddress: String): Int = negotiatedMtuMap[deviceAddress] ?: 23
     
     /**
      * Connect to a BLE device
@@ -57,16 +77,30 @@ class GattClientManager @Inject constructor(
             return true
         }
         
-        // Check connection limit with pool
+        // Check connection limit with pool - proactively evict lowest priority connection if full
         connectionMutex.withLock {
-            if (connections.size >= MAX_CONNECTIONS && connectionPool.isFull()) {
-                Log.w(TAG, "Connection limit reached ($MAX_CONNECTIONS), cannot connect to $deviceAddress")
-                return false
+            if (connections.size >= MAX_CONNECTIONS || connectionPool.isFull()) {
+                Log.d(TAG, "Connection limit reached ($MAX_CONNECTIONS), attempting priority eviction")
+                val evicted = connectionPool.evictLowestPriorityConnection()
+                if (evicted != null) {
+                    val evictedAddress = evicted.deviceAddress
+                    Log.d(TAG, "Proactively evicted connection: $evictedAddress to connect to $deviceAddress")
+                    connections.remove(evictedAddress)
+                    rssiMap.remove(evictedAddress)
+                    negotiatedMtuMap.remove(evictedAddress)
+                    deviceWriteLocks.remove(evictedAddress)
+                    pendingWrites.remove(evictedAddress)?.complete(false)
+                    _disconnectedDevices.tryEmit(evictedAddress)
+                } else {
+                    Log.w(TAG, "Connection pool full and no connection could be evicted")
+                    return false
+                }
             }
         }
         
         // Store RSSI for connection pool
         rssiMap[deviceAddress] = rssi
+        var activeGattRef: BluetoothGatt? = null
         
         return try {
             withTimeout(CONNECTION_TIMEOUT) {
@@ -77,9 +111,16 @@ class GattClientManager @Inject constructor(
                     // Setup cancellation handler
                     continuation.invokeOnCancellation {
                         Log.d(TAG, "Connection cancelled for $deviceAddress")
-                        gattConnection?.disconnect()
-                        gattConnection?.close()
+                        try {
+                            gattConnection?.disconnect()
+                            gattConnection?.close()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error closing GATT on cancellation: ${e.message}")
+                        }
                         connections.remove(deviceAddress)
+                        connectionPool.removeConnection(deviceAddress)
+                        rssiMap.remove(deviceAddress)
+                        pendingWrites.remove(deviceAddress)?.complete(false)
                     }
                     
                     // Helper function to safely resume continuation
@@ -118,8 +159,14 @@ class GattClientManager @Inject constructor(
                                             gatt?.requestMtu(MTU_SIZE)
                                         } else {
                                             Log.e(TAG, "Connection state changed to CONNECTED but status=$status")
-                                            gatt?.disconnect()
-                                            gatt?.close()
+                                            try { gatt?.disconnect() } catch (e: Exception) {}
+                                            try { gatt?.close() } catch (e: Exception) {}
+                                            connections.remove(deviceAddress)
+                                            connectionPool.removeConnection(deviceAddress)
+                                            rssiMap.remove(deviceAddress)
+                                            negotiatedMtuMap.remove(deviceAddress)
+                                            pendingWrites.remove(deviceAddress)?.complete(false)
+                                            _disconnectedDevices.tryEmit(deviceAddress)
                                             resumeContinuationIfActive(false)
                                         }
                                     }
@@ -128,7 +175,12 @@ class GattClientManager @Inject constructor(
                                         connections.remove(deviceAddress)
                                         connectionPool.removeConnection(deviceAddress)
                                         rssiMap.remove(deviceAddress)
-                                        gatt?.close()
+                                        negotiatedMtuMap.remove(deviceAddress)
+                                        pendingWrites.remove(deviceAddress)?.complete(false)
+                                        deviceWriteLocks.remove(deviceAddress)
+                                        _disconnectedDevices.tryEmit(deviceAddress)
+                                        try { gatt?.disconnect() } catch (e: Exception) {}
+                                        try { gatt?.close() } catch (e: Exception) {}
                                         resumeContinuationIfActive(false)
                                     }
                                 }
@@ -138,8 +190,10 @@ class GattClientManager @Inject constructor(
                                 Log.d(TAG, "onMtuChanged - device=$deviceAddress, mtu=$mtu, status=$status")
                                 
                                 if (status == BluetoothGatt.GATT_SUCCESS) {
+                                    negotiatedMtuMap[deviceAddress] = mtu
                                     Log.d(TAG, "MTU changed to $mtu for $deviceAddress, discovering services")
                                 } else {
+                                    negotiatedMtuMap[deviceAddress] = 23
                                     Log.w(TAG, "MTU change failed for $deviceAddress: $status, still attempting service discovery")
                                 }
                                 
@@ -194,6 +248,7 @@ class GattClientManager @Inject constructor(
                         // Connect to GATT server
                         Log.d(TAG, "Initiating GATT connection to $deviceAddress")
                         gattConnection = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                        activeGattRef = gattConnection
                         
                         if (gattConnection == null) {
                             Log.e(TAG, "connectGatt() returned null for $deviceAddress")
@@ -213,7 +268,13 @@ class GattClientManager @Inject constructor(
             }
         } catch (e: TimeoutCancellationException) {
             Log.e(TAG, "Connection timeout for $deviceAddress after ${CONNECTION_TIMEOUT}ms")
-            // Clean up any partial connection
+            // Clean up any partial connection - both activeGattRef and stored connection
+            try {
+                activeGattRef?.disconnect()
+                activeGattRef?.close()
+            } catch (ex: Exception) {
+                Log.e(TAG, "Error cleaning up activeGattRef for $deviceAddress", ex)
+            }
             connections.remove(deviceAddress)?.let { gatt ->
                 try {
                     gatt.disconnect()
@@ -224,6 +285,9 @@ class GattClientManager @Inject constructor(
                     Log.e(TAG, "Error cleaning up timed out connection for $deviceAddress", ex)
                 }
             }
+            connectionPool.removeConnection(deviceAddress)
+            rssiMap.remove(deviceAddress)
+            pendingWrites.remove(deviceAddress)?.complete(false)
             false
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error connecting to $deviceAddress", e)
@@ -389,6 +453,10 @@ class GattClientManager @Inject constructor(
             
             connectionPool.removeConnection(deviceAddress)
             rssiMap.remove(deviceAddress)
+            negotiatedMtuMap.remove(deviceAddress)
+            pendingWrites.remove(deviceAddress)?.complete(false)
+            deviceWriteLocks.remove(deviceAddress)
+            _disconnectedDevices.tryEmit(deviceAddress)
             
             Log.d(TAG, "Disconnected from $deviceAddress")
         } catch (e: Exception) {
@@ -403,8 +471,12 @@ class GattClientManager @Inject constructor(
         connections.keys.toList().forEach { deviceAddress ->
             disconnect(deviceAddress)
         }
+        pendingWrites.values.forEach { it.complete(false) }
+        pendingWrites.clear()
+        deviceWriteLocks.clear()
         connectionPool.clear()
         rssiMap.clear()
+        negotiatedMtuMap.clear()
     }
     
     /**

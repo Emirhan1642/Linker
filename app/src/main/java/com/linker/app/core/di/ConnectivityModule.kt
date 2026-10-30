@@ -1,4 +1,4 @@
-package com.linker.app.core.di
+﻿package com.linker.app.core.di
 
 import com.linker.app.data.connectivity.ConnectivityMonitor
 import com.linker.app.data.connectivity.ConnectivityMonitorImpl

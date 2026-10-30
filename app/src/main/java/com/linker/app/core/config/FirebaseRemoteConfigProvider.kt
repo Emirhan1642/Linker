@@ -1,4 +1,4 @@
-package com.linker.app.core.config
+﻿package com.linker.app.core.config
 
 import android.util.Log
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig

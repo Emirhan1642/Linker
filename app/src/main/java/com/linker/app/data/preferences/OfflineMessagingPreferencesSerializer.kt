@@ -1,4 +1,4 @@
-package com.linker.app.data.preferences
+﻿package com.linker.app.data.preferences
 
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.Serializer

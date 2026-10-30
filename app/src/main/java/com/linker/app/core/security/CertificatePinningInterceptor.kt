@@ -190,10 +190,15 @@ class CertificatePinningInterceptor @Inject constructor(
         private fun buildCertificatePinner(): CertificatePinner {
             return CertificatePinner.Builder()
                 .add("*.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GLOBALSIGN_ROOT_R2)
+                .add("googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GLOBALSIGN_ROOT_R2)
                 .add("*.google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4)
+                .add("google.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4)
                 .add("firestore.googleapis.com", CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4)
                 .add("*.supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA, CertificatePins.SUPABASE_EDGE_CERT, CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GTS_WE1, CertificatePins.GLOBALSIGN_ROOT_R2)
+                .add("supabase.co", CertificatePins.SUPABASE_ROOT_CA, CertificatePins.SUPABASE_BACKUP_CA, CertificatePins.SUPABASE_EDGE_CERT, CertificatePins.GTS_ROOT_R1, CertificatePins.GTS_ROOT_R2, CertificatePins.GTS_ROOT_R4, CertificatePins.GTS_WE1, CertificatePins.GLOBALSIGN_ROOT_R2)
                 .add("*.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
+                .add("cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
+                .add("api.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .add("res.cloudinary.com", CertificatePins.CLOUDINARY_ROOT_CA, CertificatePins.CLOUDINARY_BACKUP_CA)
                 .build()
         }
@@ -246,12 +251,12 @@ class CertificatePinningInterceptor @Inject constructor(
     }
     
     private fun shouldPin(host: String): Boolean {
-        return host.endsWith(".googleapis.com") ||
-                host.endsWith(".google.com") ||
+        return host.endsWith(".googleapis.com") || host == "googleapis.com" ||
+                host.endsWith(".google.com") || host == "google.com" ||
                 host == "firestore.googleapis.com" ||
-                host.endsWith(".supabase.co") ||
-                host.endsWith(".cloudinary.com") ||
-                host == "res.cloudinary.com"
+                host.endsWith(".supabase.co") || host == "supabase.co" ||
+                host.endsWith(".cloudinary.com") || host == "cloudinary.com" ||
+                host == "res.cloudinary.com" || host == "api.cloudinary.com"
     }
 }
 

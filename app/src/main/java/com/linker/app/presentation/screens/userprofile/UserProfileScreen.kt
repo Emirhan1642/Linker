@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linker.app.R
 import com.linker.app.core.util.FormatUtil.formatStat
 import com.linker.app.domain.model.FollowState
@@ -50,7 +51,7 @@ fun UserProfileScreen(
     onNavigateToFollowing: (String) -> Unit = {},
     viewModel: UserProfileViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showFullScreenAvatar by remember { mutableStateOf(false) }
     val context = LocalContext.current

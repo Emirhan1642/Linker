@@ -119,7 +119,8 @@ fun GlassIconButton(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
     iconSize: Dp = 24.dp,
-    tint: Color = TextPrimary
+    tint: Color = TextPrimary,
+    contentDescription: String? = null
 ) {
     Box(
         modifier = modifier
@@ -132,7 +133,7 @@ fun GlassIconButton(
     ) {
         Icon(
             painter = painterResource(id = iconRes),
-            contentDescription = null,
+            contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier.size(iconSize)
         )

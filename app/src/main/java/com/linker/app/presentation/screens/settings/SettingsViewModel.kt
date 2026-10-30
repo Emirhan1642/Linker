@@ -28,6 +28,7 @@ enum class SettingField {
     AUTO_PLAY_VIDEOS
 }
 
+@androidx.compose.runtime.Immutable
 data class SettingsUiState(
     val isPrivateAccount: Boolean = false,
     val hideFollowLists: Boolean = false,

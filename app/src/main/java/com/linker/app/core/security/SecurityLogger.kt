@@ -1,4 +1,4 @@
-package com.linker.app.core.security
+﻿package com.linker.app.core.security
 
 import android.os.Build
 import android.util.Log

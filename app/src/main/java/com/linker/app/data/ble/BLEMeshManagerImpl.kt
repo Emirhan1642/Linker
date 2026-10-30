@@ -54,6 +54,15 @@ class BLEMeshManagerImpl @Inject constructor(
     private val routingTableMutex = kotlinx.coroutines.sync.Mutex()
     
     private var isScanning = false
+    private val scanLock = Any()
+    private var lastScanStartTime = 0L
+    private val MIN_SCAN_RESTART_INTERVAL_MS = 6000L // 6s debounce/cooldown to protect against Android OS scan throttling (max 5 per 30s)
+    private val scanStartTimestamps = ArrayDeque<Long>()
+    private val SCAN_WINDOW_MS = 30_000L
+    private val MAX_SCANS_PER_WINDOW = 4 // Keep strictly under Android's 5 scans per 30s hard limit
+    private var pendingScanJob: Job? = null
+    @Volatile
+    private var shouldBeScanning = false
     private var isAdvertising = false
     private val packetFragmenter = PacketFragmenter()
     
@@ -168,21 +177,49 @@ class BLEMeshManagerImpl @Inject constructor(
             }
         }
         
-        // Observe adaptive scanning settings
+        // Listen to disconnections from GATT client
         coroutineScope.launch {
-            adaptiveScanningStrategy.scanSettings.collect { settings ->
-                // Restart scanning with new settings if currently scanning
-                if (isScanning) {
-                    stopScanning()
-                    startScanning()
+            gattClientManager.disconnectedDevices.collect { deviceAddress ->
+                Log.d(TAG, "GATT client disconnected from $deviceAddress, updating connection status")
+                withContext(Dispatchers.IO) {
+                    bleNodeDao.updateConnectionStatusByAddress(deviceAddress, false, System.currentTimeMillis())
                 }
+                updateConnectedPeers()
+                updateMeshStatus()
             }
+        }
+        
+        // Listen to disconnections from GATT server
+        coroutineScope.launch {
+            gattServerManager.incomingDisconnections.collect { deviceAddress ->
+                Log.d(TAG, "GATT server connection closed from $deviceAddress")
+                incomingConnections.remove(deviceAddress)
+            }
+        }
+        
+        // Observe adaptive scanning settings with distinctUntilChanged and debounce to protect against OS scan throttling
+        coroutineScope.launch {
+            adaptiveScanningStrategy.scanSettings
+                .distinctUntilChanged { old, new -> old.scanMode == new.scanMode }
+                .drop(1) // Skip initial emission already handled by startScanning
+                .debounce(MIN_SCAN_RESTART_INTERVAL_MS)
+                .collect { settings ->
+                    // Restart scanning with new settings if currently scanning
+                    if (isScanning) {
+                        Log.d(TAG, "Adaptive scan mode changed to ${settings.scanMode}, safely restarting scanner")
+                        stopScanning()
+                        startScanning()
+                    }
+                }
         }
         
         Log.d(TAG, "BLE Mesh Manager initialized")
     }
     
     override fun startMeshNetwork() {
+        // Start monitoring battery and screen state for adaptive scanning
+        adaptiveScanningStrategy.startMonitoring()
+        
         // Start GATT server
         if (!gattServerManager.startServer()) {
             Log.e(TAG, "Failed to start GATT server")
@@ -227,6 +264,7 @@ class BLEMeshManagerImpl @Inject constructor(
     override fun stopMeshNetwork() {
         stopScanning()
         stopAdvertising()
+        adaptiveScanningStrategy.stopMonitoring()
         gattServerManager.stopServer()
         gattClientManager.disconnectAll()
         
@@ -249,6 +287,7 @@ class BLEMeshManagerImpl @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping during shutdown", e)
         }
+        adaptiveScanningStrategy.stopMonitoring()
         gattServerManager.stopServer()
         gattClientManager.disconnectAll()
         fragmentManager.shutdown()
@@ -257,23 +296,80 @@ class BLEMeshManagerImpl @Inject constructor(
     }
     
     override fun startScanning() {
-        if (bleScanner == null) {
-            Log.e(TAG, "BLE scanner not available")
-            return
+        synchronized(scanLock) {
+            shouldBeScanning = true
+            pendingScanJob?.cancel()
+            pendingScanJob = null
+            
+            if (isScanning) {
+                Log.d(TAG, "Scanning already in progress, skipping startScan request")
+                return
+            }
+            if (bleScanner == null) {
+                Log.e(TAG, "BLE scanner not available")
+                return
+            }
+            
+            val now = System.currentTimeMillis()
+            // Evict scan timestamps older than 30s sliding window
+            while (scanStartTimestamps.isNotEmpty() && (now - scanStartTimestamps.first() > SCAN_WINDOW_MS)) {
+                scanStartTimestamps.removeFirst()
+            }
+            
+            // Limit to max 4 scans per 30-second window to strictly avoid Android OS scan throttling (max 5 per 30s)
+            if (scanStartTimestamps.size >= MAX_SCANS_PER_WINDOW) {
+                val oldest = scanStartTimestamps.first()
+                val waitTime = (SCAN_WINDOW_MS - (now - oldest)) + 500L
+                Log.w(TAG, "Scan start throttled by sliding 30s window (already ${scanStartTimestamps.size} scans). Delaying for ${waitTime}ms")
+                pendingScanJob = coroutineScope.launch {
+                    delay(waitTime)
+                    synchronized(scanLock) {
+                        if (shouldBeScanning && !isScanning) {
+                            startScanningInternal()
+                        }
+                    }
+                }
+                return
+            }
+            
+            // Enforce minimum interval between consecutive starts
+            val timeSinceLastStart = now - lastScanStartTime
+            if (timeSinceLastStart < MIN_SCAN_RESTART_INTERVAL_MS) {
+                val waitTime = MIN_SCAN_RESTART_INTERVAL_MS - timeSinceLastStart
+                Log.w(TAG, "Scan start throttled (last started ${timeSinceLastStart}ms ago, cooldown ${MIN_SCAN_RESTART_INTERVAL_MS}ms). Scheduling in ${waitTime}ms")
+                pendingScanJob = coroutineScope.launch {
+                    delay(waitTime)
+                    synchronized(scanLock) {
+                        if (shouldBeScanning && !isScanning) {
+                            startScanningInternal()
+                        }
+                    }
+                }
+                return
+            }
+            
+            startScanningInternal()
         }
+    }
+    
+    private fun startScanningInternal() {
+        if (!shouldBeScanning || isScanning) return
+        val scanner = bleScanner ?: return
         
         try {
             val scanSettings = adaptiveScanningStrategy.scanSettings.value
-            
             val scanFilter = ScanFilter.Builder()
                 .setServiceUuid(ParcelUuid(GattServerManager.SERVICE_UUID))
                 .build()
             
-            bleScanner?.startScan(listOf(scanFilter), scanSettings, scanCallback)
+            scanner.startScan(listOf(scanFilter), scanSettings, scanCallback)
             
+            val now = System.currentTimeMillis()
+            lastScanStartTime = now
+            scanStartTimestamps.addLast(now)
             isScanning = true
             updateMeshStatus()
-            Log.d(TAG, "Scanning started")
+            Log.d(TAG, "Scanning started successfully (mode: ${scanSettings.scanMode})")
         } catch (e: SecurityException) {
             Log.e(TAG, "Security exception starting scan", e)
             _meshStatus.value = MeshStatus.Error("Permission denied")
@@ -285,13 +381,23 @@ class BLEMeshManagerImpl @Inject constructor(
     
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     override fun stopScanning() {
-        try {
-            bleScanner?.stopScan(scanCallback)
-            isScanning = false
-            updateMeshStatus()
-            Log.d(TAG, "Scanning stopped")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping scan", e)
+        synchronized(scanLock) {
+            shouldBeScanning = false
+            pendingScanJob?.cancel()
+            pendingScanJob = null
+            
+            if (!isScanning) {
+                Log.d(TAG, "Scanning already stopped")
+                return
+            }
+            try {
+                bleScanner?.stopScan(scanCallback)
+                isScanning = false
+                updateMeshStatus()
+                Log.d(TAG, "Scanning stopped")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping scan", e)
+            }
         }
     }
     
@@ -372,9 +478,9 @@ class BLEMeshManagerImpl @Inject constructor(
                                 (testPayload[i].toInt() xor keyStream[i % keyStream.size].toInt()).toByte()
                             }
                             
-                            // Use UUID for message ID to prevent collisions
+                            // Use UUID for message ID to prevent collisions (truncate to 36 chars max)
                             val testPacket = BLEPacket.create(
-                                messageId = "test-${java.util.UUID.randomUUID()}",
+                                messageId = "test-${java.util.UUID.randomUUID().toString().replace("-", "").take(31)}",
                                 senderId = currentUserId,
                                 recipientId = deviceAddress, // Use MAC address as temporary recipient
                                 ttl = 1,
@@ -383,7 +489,7 @@ class BLEMeshManagerImpl @Inject constructor(
                             )
                             
                             val data = BLEPacket.serialize(testPacket)
-                            val writeSuccess = gattClientManager.writeCharacteristic(deviceAddress, data)
+                            val writeSuccess = gattClientManager.writeCharacteristicWithRetry(deviceAddress, data)
                             
                             if (writeSuccess) {
                                 Log.d(TAG, "Test packet sent successfully to $deviceAddress")
@@ -413,8 +519,28 @@ class BLEMeshManagerImpl @Inject constructor(
     
     override suspend fun sendMessage(packet: BLEPacket): Result<Unit> {
         return try {
+            // If the payload exceeds single packet capacity and isn't already fragmented, fragment it first
+            if (packet.encryptedPayload.size > BLEPacket.MAX_PAYLOAD_SIZE && packet.totalFragments <= 1) {
+                Log.d(TAG, "Payload size (${packet.encryptedPayload.size} bytes) exceeds MTU capacity, fragmenting message ${packet.messageId}")
+                val fragments = packetFragmenter.fragment(
+                    messageId = packet.messageId,
+                    senderId = packet.senderId,
+                    recipientId = packet.recipientId,
+                    ttl = packet.ttl,
+                    encryptedPayload = packet.encryptedPayload,
+                    hopCount = packet.hopCount
+                )
+                var allSuccessful = true
+                for (fragment in fragments) {
+                    val res = sendMessage(fragment)
+                    if (res.isFailure) allSuccessful = false
+                }
+                return if (allSuccessful) Result.success(Unit) else Result.failure(Exception("Failed to send all fragments for message ${packet.messageId}"))
+            }
+
             // Get route to recipient
             val route = routingTable.getRoute(packet.recipientId)
+            val data = BLEPacket.serialize(packet)
             
             if (route == null) {
                 Log.w(TAG, "No direct route to recipient ${packet.recipientId} - attempting flooding fallback to connected peers")
@@ -422,10 +548,9 @@ class BLEMeshManagerImpl @Inject constructor(
                 if (connectedDevices.isEmpty()) {
                     return Result.failure(Exception("No route to recipient ${packet.recipientId} and no connected peers"))
                 }
-                val data = BLEPacket.serialize(packet)
                 var anySent = false
                 for (deviceAddr in connectedDevices) {
-                    val success = gattClientManager.writeCharacteristic(deviceAddr, data)
+                    val success = gattClientManager.writeCharacteristicWithRetry(deviceAddr, data)
                     if (success) anySent = true
                 }
                 return if (anySent) Result.success(Unit) else Result.failure(Exception("Failed to send packet to any connected peer"))
@@ -433,19 +558,41 @@ class BLEMeshManagerImpl @Inject constructor(
             
             Log.d(TAG, "Found route to ${packet.recipientId} via ${route.deviceAddress} (quality: ${route.routeQuality}, hops: ${route.hopCount})")
             
-            // Serialize packet
-            val data = BLEPacket.serialize(packet)
-            
-            // Send to next hop
+            // If not connected to route.deviceAddress, attempt connection before sending
+            if (!gattClientManager.isConnected(route.deviceAddress)) {
+                Log.d(TAG, "Not currently connected to ${route.deviceAddress}, attempting connection before sending")
+                val device = bluetoothAdapter?.getRemoteDevice(route.deviceAddress)
+                if (device != null) {
+                    gattClientManager.connectToDevice(device, route.rssi)
+                }
+            }
+
+            // Send to next hop with retry
             Log.d(TAG, "Writing characteristic to ${route.deviceAddress} (packet size: ${data.size} bytes)")
-            val success = gattClientManager.writeCharacteristic(route.deviceAddress, data)
+            val success = gattClientManager.writeCharacteristicWithRetry(route.deviceAddress, data)
             
             if (success) {
                 Log.d(TAG, "Message ${packet.messageId} sent successfully to ${route.deviceAddress}")
                 Result.success(Unit)
             } else {
-                Log.e(TAG, "Failed to send message ${packet.messageId} to ${route.deviceAddress}")
-                Result.failure(Exception("Write failed to ${route.deviceAddress}"))
+                Log.w(TAG, "Direct write failed to ${route.deviceAddress} for message ${packet.messageId}, invalidating route and attempting fallback")
+                routingTable.removeRoute(packet.recipientId)
+                
+                // Fallback to flooding other connected peers
+                val otherPeers = gattClientManager.getConnectedDevices().filter { it != route.deviceAddress }
+                var anySent = false
+                for (peerAddr in otherPeers) {
+                    if (gattClientManager.writeCharacteristicWithRetry(peerAddr, data)) {
+                        anySent = true
+                    }
+                }
+                if (anySent) {
+                    Log.d(TAG, "Message ${packet.messageId} sent via flooding fallback")
+                    Result.success(Unit)
+                } else {
+                    Log.e(TAG, "Failed to send message ${packet.messageId} to ${route.deviceAddress} or any fallback peer")
+                    Result.failure(Exception("Write failed to ${route.deviceAddress} and all fallback peers"))
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error sending message ${packet.messageId}", e)
@@ -463,24 +610,25 @@ class BLEMeshManagerImpl @Inject constructor(
         val newTtl = (packet.ttl - 1).toByte()
         val newHopCount = (packet.hopCount + 1).toByte()
 
-        // If the payload exceeds single packet capacity, re-fragment it
+        // If the payload exceeds single packet capacity, re-fragment it with recalculated checksums and proper hopCount
         return if (packet.encryptedPayload.size > BLEPacket.MAX_PAYLOAD_SIZE) {
             val fragments = packetFragmenter.fragment(
                 messageId = packet.messageId,
                 senderId = packet.senderId,
                 recipientId = packet.recipientId,
                 ttl = newTtl,
-                encryptedPayload = packet.encryptedPayload
+                encryptedPayload = packet.encryptedPayload,
+                hopCount = newHopCount
             )
             var allSuccessful = true
             for (fragment in fragments) {
-                val fragmentToSend = fragment.copy(hopCount = newHopCount)
-                val res = sendMessage(fragmentToSend)
+                val res = sendMessage(fragment)
                 if (res.isFailure) allSuccessful = false
             }
             if (allSuccessful) Result.success(Unit) else Result.failure(Exception("Failed to forward all fragments"))
         } else {
-            val forwardedPacket = packet.copy(
+            // Use copyAndRecalculateChecksum to update CRC32 checksum for new TTL and hopCount
+            val forwardedPacket = packet.copyAndRecalculateChecksum(
                 ttl = newTtl,
                 hopCount = newHopCount
             )
@@ -666,6 +814,13 @@ class BLEMeshManagerImpl @Inject constructor(
             try {
                 // Use mutex to ensure atomic update of userIdToMacAddress and routing table
                 routingTableMutex.withLock {
+                    val oldMac = userIdToMacAddress[packet.senderId]
+                    if (oldMac != null && oldMac != senderMacAddress) {
+                        Log.d(TAG, "RPA address rotation detected for sender ${packet.senderId}: $oldMac -> $senderMacAddress")
+                        // Safely disconnect from old stale MAC address
+                        gattClientManager.disconnect(oldMac)
+                    }
+                    
                     // Map sender user ID to MAC address for future routing
                     userIdToMacAddress[packet.senderId] = senderMacAddress
                     Log.d(TAG, "Mapped sender ${packet.senderId} to MAC address $senderMacAddress")
@@ -688,32 +843,27 @@ class BLEMeshManagerImpl @Inject constructor(
                     Log.d(TAG, "Route updated for sender ${packet.senderId} via $senderMacAddress with RSSI $actualRssi")
                 }
                 
-                // If this is a test packet, establish an outgoing connection to enable bidirectional communication
-                if (isTestPacket) {
+                // Ensure bidirectional communication: establish an outgoing connection to senderMacAddress if not already connected
+                if (!gattClientManager.isConnected(senderMacAddress)) {
                     Log.d(TAG, "Initiating outgoing connection to $senderMacAddress for bidirectional messaging")
-                    try {
-                        val bluetoothAdapter = bluetoothAdapter
-                        if (bluetoothAdapter != null) {
-                            val device = bluetoothAdapter.getRemoteDevice(senderMacAddress)
-                            
-                            // Check if not already connected
-                            if (!gattClientManager.isConnected(senderMacAddress)) {
-                                // Get RSSI from routing table if available
+                    coroutineScope.launch {
+                        try {
+                            val adapter = bluetoothAdapter
+                            if (adapter != null) {
+                                val device = adapter.getRemoteDevice(senderMacAddress)
                                 val route = routingTable.getRoute(packet.senderId)
                                 val rssi = route?.rssi ?: -60
-                                
                                 val connected = gattClientManager.connectToDevice(device, rssi)
                                 if (connected) {
                                     Log.d(TAG, "Successfully established outgoing connection to $senderMacAddress")
+                                    updateConnectedPeers()
                                 } else {
                                     Log.w(TAG, "Failed to establish outgoing connection to $senderMacAddress")
                                 }
-                            } else {
-                                Log.d(TAG, "Already have outgoing connection to $senderMacAddress")
                             }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error establishing outgoing connection to $senderMacAddress", e)
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error establishing outgoing connection to $senderMacAddress", e)
                     }
                 }
             } catch (e: Exception) {
@@ -726,45 +876,46 @@ class BLEMeshManagerImpl @Inject constructor(
                 return
             }
             
-            // Handle fragmentation
-            val completePayload = if (packet.totalFragments > 1) {
-                // This is a fragmented message
-                val reassembledPayload = fragmentManager.addFragment(packet)
-                
-                if (reassembledPayload == null) {
-                    // Waiting for more fragments
-                    Log.d(TAG, "Received fragment ${packet.fragmentIndex + 1}/${packet.totalFragments} for ${packet.messageId}")
-                    return
-                }
-                
-                // All fragments received, create complete packet with reassembled payload
-                packet.copy(encryptedPayload = reassembledPayload)
-            } else {
-                // Single packet message
-                packet
-            }
-            
-            // Get current user ID
-            val currentUserId = currentUserProviderLazy.get().getCurrentUserId()
-            
             // Check if packet is for us
-            val isForUs = currentUserId != null && completePayload.recipientId == currentUserId
+            val currentUserId = currentUserProviderLazy.get().getCurrentUserId()
+            val isForUs = currentUserId != null && packet.recipientId == currentUserId
             
             if (isForUs) {
-                // Deliver locally
-                messageReceivedCallback?.invoke(completePayload)
-                Log.d(TAG, "Packet ${completePayload.messageId} delivered locally to $currentUserId")
-            } else if (completePayload.ttl > 0) {
-                // Forward to next hop if TTL allows
-                val result = forwardMessage(completePayload)
-                if (result.isSuccess) {
-                    Log.d(TAG, "Packet ${completePayload.messageId} forwarded (TTL: ${completePayload.ttl}, Hops: ${completePayload.hopCount})")
+                // Deliver locally (handle fragmentation if needed)
+                if (packet.totalFragments > 1) {
+                    val reassembledPayload = fragmentManager.addFragment(packet)
+                    if (reassembledPayload == null) {
+                        Log.d(TAG, "Received fragment ${packet.fragmentIndex + 1}/${packet.totalFragments} for ${packet.messageId}")
+                        return
+                    }
+                    val completePacket = BLEPacket.create(
+                        version = packet.version,
+                        messageId = packet.messageId,
+                        senderId = packet.senderId,
+                        recipientId = packet.recipientId,
+                        ttl = packet.ttl,
+                        hopCount = packet.hopCount,
+                        fragmentIndex = 0,
+                        totalFragments = 1,
+                        encryptedPayload = reassembledPayload
+                    )
+                    messageReceivedCallback?.invoke(completePacket)
+                    Log.d(TAG, "Fragmented packet ${packet.messageId} reassembled and delivered locally to $currentUserId")
                 } else {
-                    Log.w(TAG, "Failed to forward packet ${completePayload.messageId}: ${result.exceptionOrNull()?.message}")
+                    messageReceivedCallback?.invoke(packet)
+                    Log.d(TAG, "Packet ${packet.messageId} delivered locally to $currentUserId")
+                }
+            } else if (packet.ttl > 0) {
+                // Forward packet/fragment directly without reassembly at intermediate hops
+                val result = forwardMessage(packet)
+                if (result.isSuccess) {
+                    Log.d(TAG, "Packet ${packet.messageId} (frag ${packet.fragmentIndex + 1}/${packet.totalFragments}) forwarded (TTL: ${packet.ttl}, Hops: ${packet.hopCount})")
+                } else {
+                    Log.w(TAG, "Failed to forward packet ${packet.messageId}: ${result.exceptionOrNull()?.message}")
                 }
             } else {
                 // TTL exhausted, drop packet
-                Log.w(TAG, "Packet ${completePayload.messageId} dropped: TTL exhausted")
+                Log.w(TAG, "Packet ${packet.messageId} dropped: TTL exhausted")
             }
         }
     

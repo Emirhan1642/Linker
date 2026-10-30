@@ -462,4 +462,32 @@
     <string name="notification_sender_you">You</string>
     <string name="notification_new_message">New message</string>
 
+    <!-- Additional UI Strings -->
+    <string name="live_status">Live</string>
+    <string name="action_more_options">More options</string>
+    <string name="error_loading_post">Failed to load post</string>
+    <string name="story_delete_title">Delete Story</string>
+    <string name="story_delete_confirmation">Are you sure you want to delete this story?</string>
+    <string name="feed_options_title">Post Options</string>
+    <string name="feed_options_not_interested">Not Interested</string>
+    <string name="feed_options_not_interested_desc">Show fewer posts like this</string>
+    <string name="feed_options_hide_user">Hide @%1$s</string>
+    <string name="feed_options_hide_user_desc">Hide posts from this user</string>
+    <string name="feed_options_hidden_success">Post hidden from feed</string>
+    <string name="feed_options_user_hidden_success">@%1$s hidden</string>
+    <string name="feed_options_link_copied">Link copied to clipboard!</string>
+    <string name="feed_options_save_remove">Remove from Saved</string>
+    <string name="feed_options_save_add">Save</string>
+    <string name="feed_options_save_desc">Add to your collections</string>
+    <string name="feed_options_copy_link">Copy Link</string>
+    <string name="feed_options_copy_link_desc">Copy post link to clipboard</string>
+    <string name="feed_options_share">Share...</string>
+    <string name="feed_options_share_desc">Share on other apps</string>
+    <string name="feed_options_report">Report</string>
+    <string name="feed_options_report_desc">Report inappropriate content</string>
+    <string name="user_action_mute">Mute User</string>
+    <string name="user_action_block">Block User</string>
+    <string name="user_action_report">Report</string>
+    <string name="comments_sheet_title">Comments (%1$d)</string>
+
 </resources>

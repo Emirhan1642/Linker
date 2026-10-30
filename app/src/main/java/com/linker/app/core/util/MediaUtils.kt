@@ -29,7 +29,9 @@ object MediaUtils {
             if (mimeType?.startsWith("video/", ignoreCase = true) == true) {
                 return true
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.w("MediaUtils", "Failed to resolve MIME type for $uri", e)
+        }
 
         val path = uri.toString().lowercase()
         return path.endsWith(".mp4") || path.endsWith(".mov") || path.endsWith(".mkv") ||
@@ -182,7 +184,9 @@ object MediaUtils {
         } finally {
             try {
                 retriever?.release()
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                android.util.Log.w("MediaUtils", "Failed to release MediaMetadataRetriever", e)
+            }
         }
     }
 }

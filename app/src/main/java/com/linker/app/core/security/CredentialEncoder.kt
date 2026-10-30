@@ -30,15 +30,30 @@ class CredentialEncoder @Inject constructor() {
         private const val MAX_ATTEMPTS = 30
     }
 
-    private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    private val keyStore: KeyStore = try {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    } catch (e: Exception) {
+        SecurityLogger.logEvent(
+            SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+            "Failed to initialize AndroidKeyStore: ${e.message}"
+        )
+        KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null) }
+    }
 
     init {
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            generateKey()
+        try {
+            if (!keyStore.containsAlias(KEY_ALIAS)) {
+                generateKey()
+            }
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Failed to check or generate initial key: ${e.message}"
+            )
         }
     }
 
-    private fun generateKey() {
+    private fun generateKey(): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         val spec = KeyGenParameterSpec.Builder(
             KEY_ALIAS,
@@ -46,13 +61,30 @@ class CredentialEncoder @Inject constructor() {
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setUserAuthenticationRequired(false)
             .build()
         keyGenerator.init(spec)
-        keyGenerator.generateKey()
+        return keyGenerator.generateKey()
     }
 
     private fun getSecretKey(): SecretKey {
-        return keyStore.getKey(KEY_ALIAS, null) as SecretKey
+        return try {
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                (keyStore.getKey(KEY_ALIAS, null) as? SecretKey) ?: generateKey()
+            } else {
+                generateKey()
+            }
+        } catch (e: Exception) {
+            SecurityLogger.logEvent(
+                SecurityLogger.EventType.SECURITY_CHECK_FAILED,
+                "Secret key retrieval failed for $KEY_ALIAS, regenerating: ${e.message}"
+            )
+            try {
+                keyStore.deleteEntry(KEY_ALIAS)
+            } catch (_: Exception) {}
+            generateKey()
+        }
     }
 
     private fun checkRateLimit() {

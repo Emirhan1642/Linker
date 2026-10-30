@@ -26,6 +26,10 @@ import com.linker.app.presentation.animation.bouncyClick
 import com.linker.app.presentation.animation.MusicVisualizerView
 import com.linker.app.presentation.theme.*
 import coil3.request.crossfade
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.Lifecycle
+import kotlinx.coroutines.isActive
 import java.util.concurrent.TimeUnit
 
 @Composable
@@ -117,12 +121,15 @@ fun NoteCard(
                     is Note.Countdown -> {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             var remainingStr by remember { mutableStateOf(getRemainingTime(note.countdownTargetTime)) }
-                            LaunchedEffect(note.countdownTargetTime) {
-                                while(true) {
-                                    val rem = getRemainingTime(note.countdownTargetTime)
-                                    remainingStr = rem
-                                    if (rem == "00:00") break
-                                    kotlinx.coroutines.delay(10_000)
+                            val lifecycleOwner = LocalLifecycleOwner.current
+                            LaunchedEffect(note.countdownTargetTime, lifecycleOwner) {
+                                lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                                    while (isActive) {
+                                        val rem = getRemainingTime(note.countdownTargetTime)
+                                        remainingStr = rem
+                                        if (rem == "00:00") break
+                                        kotlinx.coroutines.delay(10_000)
+                                    }
                                 }
                             }
                             PillBadge(

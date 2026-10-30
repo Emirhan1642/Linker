@@ -85,10 +85,6 @@ object NetworkModule {
 
         // ✅ RELIABILITY: Retry interceptor with exponential backoff
         builder.addInterceptor(RetryInterceptor(maxRetries = 3))
-        
-        // ✅ SECURITY: Encryption interceptor for sensitive data
-        // Note: Only encrypts specific sensitive fields, not entire payload
-        // builder.addInterceptor(EncryptionInterceptor(securityManager))
 
         // ✅ FIX: Only add logging interceptor in debug builds
         if (BuildConfig.DEBUG) {
@@ -113,15 +109,23 @@ object NetworkModule {
     ): Retrofit {
         // Priority 1: BuildConfig (compile-time, from local.properties) — always available
         // Priority 2: SecurityManager encrypted prefs — populated after first Remote Config fetch
-        val baseUrl = when {
+        // Priority 3: Fallback safe URL to ensure offline-first initialization never crashes Hilt
+        val rawBaseUrl = when {
             BuildConfig.SUPABASE_URL.isNotEmpty() -> BuildConfig.SUPABASE_URL
             else -> when (val result = securityManager.getSupabaseUrl()) {
                 is com.linker.app.core.security.ConfigResult.Success -> result.value
                 is com.linker.app.core.security.ConfigResult.Error -> {
-                    android.util.Log.e("NetworkModule", "Supabase URL unavailable: ${result.message}")
-                    throw IllegalStateException("Supabase URL not configured. Add supabase.url to local.properties")
+                    android.util.Log.w("NetworkModule", "Supabase URL unavailable: ${result.message}. Using offline fallback.")
+                    "https://offline-placeholder.supabase.co"
                 }
             }
+        }
+
+        // Retrofit strictly requires base URLs to be valid HTTP/HTTPS and end with a trailing slash ('/')
+        val safeBaseUrl = if (rawBaseUrl.startsWith("http://") || rawBaseUrl.startsWith("https://")) {
+            if (rawBaseUrl.endsWith("/")) rawBaseUrl else "$rawBaseUrl/"
+        } else {
+            "https://offline-placeholder.supabase.co/"
         }
 
         val clientWithAuth = okHttpClient.newBuilder()
@@ -129,7 +133,7 @@ object NetworkModule {
             .build()
 
         return Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl(safeBaseUrl)
             .client(clientWithAuth)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
@@ -150,14 +154,16 @@ object NetworkModule {
             else -> when (val result = securityManager.getCloudinaryCloudName()) {
                 is com.linker.app.core.security.ConfigResult.Success -> result.value
                 is com.linker.app.core.security.ConfigResult.Error -> {
-                    android.util.Log.e("NetworkModule", "Cloudinary cloud name unavailable: ${result.message}")
-                    throw IllegalStateException("Cloudinary cloud name not configured. Add cloudinary.cloudName to local.properties")
+                    android.util.Log.w("NetworkModule", "Cloudinary cloud name unavailable: ${result.message}. Using offline fallback.")
+                    "offline-placeholder"
                 }
             }
         }
 
+        val safeCloudName = if (cloudName.isBlank()) "offline-placeholder" else cloudName.trim().trim('/')
+
         return Retrofit.Builder()
-            .baseUrl("https://api.cloudinary.com/v1_1/${cloudName}/")
+            .baseUrl("https://api.cloudinary.com/v1_1/${safeCloudName}/")
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
@@ -219,133 +225,54 @@ private class RetryInterceptor(
                 // Server error - retry with backoff
                 if (attempt < actualMaxRetries) {
                     val delayMs = calculateBackoffDelay(attempt)
-                    android.util.Log.w(
-                        "RetryInterceptor",
-                        "Request failed with ${response.code}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)"
-                    )
+                    android.util.Log.w("RetryInterceptor", "Request failed with ${response.code}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)")
                     Thread.sleep(delayMs)
                 }
-                
             } catch (e: IOException) {
                 exception = e
                 
-                // Network error - retry with backoff
+                // Network failure - retry with backoff
                 if (attempt < actualMaxRetries) {
                     val delayMs = calculateBackoffDelay(attempt)
-                    android.util.Log.w(
-                        "RetryInterceptor",
-                        "Network error: ${e.message}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)"
-                    )
+                    android.util.Log.w("RetryInterceptor", "Network error: ${e.message}, retrying in ${delayMs}ms (attempt ${attempt + 1}/$actualMaxRetries)")
                     Thread.sleep(delayMs)
-                } else {
-                    // Max retries reached, throw exception
-                    throw e
                 }
             }
         }
         
-        // Return last response or throw exception
-        return response ?: throw (exception ?: IOException("Unknown error"))
+        // All retries failed
+        if (response != null) {
+            return response
+        }
+        
+        throw exception ?: IOException("Request failed after $actualMaxRetries retries")
     }
     
     /**
      * Check if HTTP status code is retryable
      * 
-     * Retryable: 5xx server errors
-     * Not retryable: 4xx client errors, 2xx success, 3xx redirects
+     * Retryable:
+     * - 500 Internal Server Error
+     * - 502 Bad Gateway
+     * - 503 Service Unavailable
+     * - 504 Gateway Timeout
+     * - 408 Request Timeout
+     * - 429 Too Many Requests
      */
     private fun isRetryableStatusCode(code: Int): Boolean {
-        return code in 500..599
+        return code in 500..599 || code == 408 || code == 429
     }
     
     /**
      * Calculate exponential backoff delay
      * 
-     * Delay = 1000ms * 2^attempt
+     * Formula: 1000 * 2^attempt
      * - Attempt 0: 1000ms (1s)
      * - Attempt 1: 2000ms (2s)
      * - Attempt 2: 4000ms (4s)
      */
     private fun calculateBackoffDelay(attempt: Int): Long {
-        return 1000L * (1 shl attempt) // 2^attempt seconds
-    }
-}
-
-/**
- * Encryption Interceptor for Sensitive Data
- * 
- * Encrypts sensitive fields in request/response bodies.
- * 
- * SECURITY:
- * - Only encrypts marked sensitive fields
- * - Uses AES-256-GCM encryption
- * - Adds encryption metadata to headers
- * 
- * USAGE:
- * Mark fields as sensitive in your data classes:
- * ```kotlin
- * data class UserData(
- *     val id: String,
- *     @Sensitive val password: String,
- *     @Sensitive val apiKey: String
- * )
- * ```
- * 
- * NOTE: Currently disabled. Enable by uncommenting in provideOkHttpClient()
- * and implementing field-level encryption logic.
- */
-private class EncryptionInterceptor(
-    private val securityManager: SecurityManager
-) : Interceptor {
-    
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        
-        // TODO: Implement request body encryption for sensitive fields
-        // 1. Parse request body JSON
-        // 2. Identify @Sensitive annotated fields
-        // 3. Encrypt those fields
-        // 4. Rebuild request with encrypted data
-        // 5. Add encryption metadata to headers
-        
-        val response = chain.proceed(request)
-        
-        // TODO: Implement response body decryption
-        // 1. Check for encryption metadata in headers
-        // 2. Parse response body JSON
-        // 3. Decrypt encrypted fields
-        // 4. Rebuild response with decrypted data
-        
-        return response
-    }
-    
-    /**
-     * Encrypt sensitive field value
-     * 
-     * @param value Plain text value
-     * @return Encrypted value (base64 encoded)
-     */
-    private fun encryptField(value: String): String {
-        // TODO: Implement AES-256-GCM encryption
-        // 1. Generate random IV
-        // 2. Encrypt with AES-256-GCM
-        // 3. Combine IV + ciphertext
-        // 4. Base64 encode
-        return value // Placeholder
-    }
-    
-    /**
-     * Decrypt sensitive field value
-     * 
-     * @param encryptedValue Encrypted value (base64 encoded)
-     * @return Plain text value
-     */
-    private fun decryptField(encryptedValue: String): String {
-        // TODO: Implement AES-256-GCM decryption
-        // 1. Base64 decode
-        // 2. Extract IV and ciphertext
-        // 3. Decrypt with AES-256-GCM
-        // 4. Return plain text
-        return encryptedValue // Placeholder
+        val safeAttempt = attempt.coerceIn(0, 30)
+        return (1000L * (1L shl safeAttempt)).coerceAtMost(60_000L) // Safe clamped exponential backoff (max 60s)
     }
 }

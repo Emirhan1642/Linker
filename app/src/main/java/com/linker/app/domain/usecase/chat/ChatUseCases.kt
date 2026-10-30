@@ -51,8 +51,8 @@ class SendMessageUseCase @Inject constructor(private val messageRepository: Mess
     }
     
     private fun sanitizeContent(content: String): String {
-        var sanitized = content.replace(Regex("<[^>]*>"), "")
-        sanitized = sanitized.replace(Regex("(?i)<script[^>]*>.*?</script>"), "")
+        var sanitized = content.replace(Regex("(?is)<script[^>]*>.*?</script>"), "")
+        sanitized = sanitized.replace(Regex("<[^>]*>"), "")
         return sanitized.trim()
     }
 }
@@ -83,7 +83,7 @@ class EditMessageUseCase @Inject constructor(private val messageRepository: Mess
         if (messageId.isBlank()) return Result.Error("Message ID cannot be empty")
         val trimmed = newContent.trim()
         if (trimmed.isBlank() || trimmed.length > 5000) return Result.Error("Invalid content")
-        val sanitized = trimmed.replace(Regex("<[^>]*>"), "").replace(Regex("(?i)<script[^>]*>.*?</script>"), "").trim()
+        val sanitized = trimmed.replace(Regex("(?is)<script[^>]*>.*?</script>"), "").replace(Regex("<[^>]*>"), "").trim()
         return messageRepository.editMessage(messageId, sanitized)
     }
 }

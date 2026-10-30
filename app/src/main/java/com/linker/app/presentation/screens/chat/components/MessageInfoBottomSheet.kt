@@ -1,4 +1,4 @@
-package com.linker.app.presentation.screens.chat.components
+﻿package com.linker.app.presentation.screens.chat.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

@@ -33,8 +33,8 @@ class MessageQueueWorker @AssistedInject constructor(
         
         // Prevent concurrent overlapping executions
         if (!workerMutex.tryLock()) {
-            SecureLogger.w(TAG, "MessageQueueWorker is already running. Skipping execution.")
-            return Result.success()
+            SecureLogger.w(TAG, "MessageQueueWorker is already running. Rescheduling execution.")
+            return Result.retry()
         }
 
         return try {
@@ -94,8 +94,14 @@ class MessageQueueWorker @AssistedInject constructor(
             SecureLogger.e(TAG, "Unexpected error in MessageQueueWorker: ${e.message}", e)
             Result.retry()
         } finally {
-            workerMutex.unlock()
-            SecureLogger.d(TAG, "MessageQueueWorker lock released.")
+            if (workerMutex.isLocked) {
+                try {
+                    workerMutex.unlock()
+                    SecureLogger.d(TAG, "MessageQueueWorker lock released.")
+                } catch (e: Exception) {
+                    SecureLogger.w(TAG, "Failed to release workerMutex: ${e.message}")
+                }
+            }
         }
     }
 

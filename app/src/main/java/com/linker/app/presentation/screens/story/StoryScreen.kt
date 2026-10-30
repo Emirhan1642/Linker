@@ -28,12 +28,14 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -58,8 +60,28 @@ fun StoryScreen(
     onUserTap: (userId: String) -> Unit,
     viewModel: StoryViewModel = hiltViewModel()
 ) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var isScreenResumed by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            isScreenResumed = event.targetState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearError()
+        }
+    }
 
     val displayStories = if (uiState.allUserStories.isNotEmpty()) uiState.allUserStories else allUserStories
 
@@ -126,10 +148,11 @@ fun StoryScreen(
         }
 
         val isCurrentPageActive = groupPagerState.currentPage == groupIndex
-        val isEffectivelyPaused = isHolding || showReplyInput || showMenu || showDeleteDialog || showViewersSheet || showReportSheet || isStoryZooming || !isCurrentPageActive
+        val isEffectivelyPaused = isHolding || showReplyInput || showMenu || showDeleteDialog || showViewersSheet || showReportSheet || isStoryZooming || !isCurrentPageActive || !isScreenResumed
 
         // Auto-advance timer per story (strictly active page only)
         LaunchedEffect(currentStoryIndex, isEffectivelyPaused, isCurrentPageActive) {
+            if (!isCurrentPageActive || isEffectivelyPaused) return@LaunchedEffect
             val story = stories.getOrNull(currentStoryIndex) ?: return@LaunchedEffect
             val durationSeconds = story.getDisplayDuration().coerceAtLeast(1)
             val durationMs = durationSeconds.toLong() * 1000L
@@ -137,12 +160,8 @@ fun StoryScreen(
             val interval = 50L
             val totalSteps = maxOf(1f, durationMs.toFloat() / interval.toFloat())
             while (currentProgress < 1f) {
-                if (!isEffectivelyPaused) {
-                    delay(interval)
-                    currentProgress = (currentProgress + (1f / totalSteps)).coerceIn(0f, 1f)
-                } else {
-                    delay(100L)
-                }
+                delay(interval)
+                currentProgress = (currentProgress + (1f / totalSteps)).coerceIn(0f, 1f)
             }
 
             if (isCurrentPageActive && currentProgress >= 1f) {
@@ -177,8 +196,8 @@ fun StoryScreen(
                 onDismissRequest = { 
                     showDeleteDialog = false
                 },
-                title = { Text("Hikayeyi Sil", color = com.linker.app.presentation.theme.TextPrimary, fontWeight = FontWeight.Bold) },
-                text = { Text("Bu hikayeyi silmek istediğinize emin misiniz?", color = com.linker.app.presentation.theme.TextSecondary) },
+                title = { Text(context.getString(R.string.story_delete_title), color = com.linker.app.presentation.theme.TextPrimary, fontWeight = FontWeight.Bold) },
+                text = { Text(context.getString(R.string.story_delete_confirmation), color = com.linker.app.presentation.theme.TextSecondary) },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -192,7 +211,7 @@ fun StoryScreen(
                             }
                         }
                     ) {
-                        Text("Sil", color = com.linker.app.presentation.theme.ErrorRed, fontWeight = FontWeight.Bold)
+                        Text(context.getString(R.string.action_delete), color = com.linker.app.presentation.theme.ErrorRed, fontWeight = FontWeight.Bold)
                     }
                 },
                 dismissButton = {
@@ -201,7 +220,7 @@ fun StoryScreen(
                             showDeleteDialog = false
                         }
                     ) {
-                        Text("İptal", color = com.linker.app.presentation.theme.TextSecondary)
+                        Text(context.getString(R.string.action_cancel), color = com.linker.app.presentation.theme.TextSecondary)
                     }
                 },
                 containerColor = com.linker.app.presentation.theme.DarkGray,
@@ -551,7 +570,7 @@ fun StoryScreen(
                     // Reply input + like button / or Viewers Bar on own story
                     if (isOwnStory) {
                         // Own Story Viewers Peek Bar
-                        val storyViewersList by viewModel.storyViewers.collectAsState()
+                        val storyViewersList by viewModel.storyViewers.collectAsStateWithLifecycle()
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -722,8 +741,8 @@ fun StoryScreen(
 
             // Viewers Bottom Sheet
             if (showViewersSheet && currentStory != null) {
-                val storyViewersList by viewModel.storyViewers.collectAsState()
-                val isLoadingViewers by viewModel.isLoadingViewers.collectAsState()
+                val storyViewersList by viewModel.storyViewers.collectAsStateWithLifecycle()
+                val isLoadingViewers by viewModel.isLoadingViewers.collectAsStateWithLifecycle()
                 StoryViewersBottomSheet(
                     viewers = storyViewersList,
                     isLoading = isLoadingViewers,
@@ -745,6 +764,14 @@ fun StoryScreen(
                     }
                 )
             }
+
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp)
+            )
         }
     }
 }

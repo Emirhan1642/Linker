@@ -1,4 +1,4 @@
-package com.linker.app.core.util
+﻿package com.linker.app.core.util
 
 import javax.inject.Inject
 import javax.inject.Singleton

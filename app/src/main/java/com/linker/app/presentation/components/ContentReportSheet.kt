@@ -23,6 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -109,8 +110,9 @@ fun ContentReportSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            val reasons = remember { ReportReason.entries.toList() }
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ReportReason.values().toList()) { reason ->
+                items(reasons, key = { it.name }) { reason ->
                     ReportReasonItem(
                         reason = reason,
                         onClick = { onSubmit(reason) }

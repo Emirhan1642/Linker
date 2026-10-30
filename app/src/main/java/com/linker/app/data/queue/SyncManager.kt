@@ -434,7 +434,7 @@ class SyncManagerImpl @Inject constructor(
                 sentAt = sentAt,
                 messageId = messageId,
                 deliveryMethod = deliveryMethod
-            )
+            ).getOrThrow()
         } catch (e: Exception) {
             Log.e(TAG, "Database transaction failed for message $messageId", e)
             throw e

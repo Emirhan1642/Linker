@@ -462,4 +462,32 @@
     <string name="notification_sender_you">Siz</string>
     <string name="notification_new_message">Yeni mesaj</string>
 
+    <!-- Additional UI Strings -->
+    <string name="live_status">Canlı</string>
+    <string name="action_more_options">Daha fazla seçenek</string>
+    <string name="error_loading_post">Gönderi yüklenemedi</string>
+    <string name="story_delete_title">Hikayeyi Sil</string>
+    <string name="story_delete_confirmation">Bu hikayeyi silmek istediğinize emin misiniz?</string>
+    <string name="feed_options_title">Gönderi Seçenekleri</string>
+    <string name="feed_options_not_interested">İlgilenmiyorum</string>
+    <string name="feed_options_not_interested_desc">Buna benzer gönderileri daha az göster</string>
+    <string name="feed_options_hide_user">@%1$s adlı kullanıcıyı gizle</string>
+    <string name="feed_options_hide_user_desc">Bu kullanıcının paylaşımlarını gizle</string>
+    <string name="feed_options_hidden_success">Gönderi akıştan gizlendi</string>
+    <string name="feed_options_user_hidden_success">@%1$s gizlendi</string>
+    <string name="feed_options_link_copied">Bağlantı panoya kopyalandı!</string>
+    <string name="feed_options_save_remove">Kaydedilenlerden Çıkar</string>
+    <string name="feed_options_save_add">Kaydet</string>
+    <string name="feed_options_save_desc">Koleksiyonlarınıza ekleyin</string>
+    <string name="feed_options_copy_link">Bağlantıyı Kopyala</string>
+    <string name="feed_options_copy_link_desc">Gönderi linkini panoya kopyala</string>
+    <string name="feed_options_share">Paylaş...</string>
+    <string name="feed_options_share_desc">Farklı uygulamalarda paylaş</string>
+    <string name="feed_options_report">Şikayet Et</string>
+    <string name="feed_options_report_desc">Uygunsuz içeriği bildir</string>
+    <string name="user_action_mute">Kullanıcıyı Sustur</string>
+    <string name="user_action_block">Kullanıcıyı Engelle</string>
+    <string name="user_action_report">Şikayet Et</string>
+    <string name="comments_sheet_title">Yorumlar (%1$d)</string>
+
 </resources>

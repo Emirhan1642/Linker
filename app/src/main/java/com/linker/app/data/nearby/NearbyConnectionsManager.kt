@@ -406,7 +406,8 @@ class NearbyConnectionsManagerImpl @Inject constructor(
             return Result.failure(IllegalArgumentException("Data cannot be empty"))
         }
         if (data.size > 32 * 1024) {
-            android.util.Log.w(TAG, "Data size ${data.size} exceeds recommended limit (32KB)")
+            android.util.Log.e(TAG, "Data size ${data.size} exceeds Nearby Connections BYTES limit of 32768 bytes")
+            return Result.failure(NearbyConnectionException.TransferFailedException("Payload size (${data.size} bytes) exceeds Google Nearby 32KB byte payload limit"))
         }
         
         return suspendCancellableCoroutine { continuation ->
@@ -447,7 +448,7 @@ class NearbyConnectionsManagerImpl @Inject constructor(
                 stopAdvertising()
                 
                 connectedEndpoints.toList().forEach { endpointId ->
-                    try { disconnectFromEndpoint(endpointId) } catch (e: Exception) {}
+                    try { disconnectFromEndpoint(endpointId) } catch (e: Exception) { android.util.Log.w(TAG, "Failed to disconnect endpoint: $endpointId", e) }
                 }
                 
                 discoveredEndpoints.clear()

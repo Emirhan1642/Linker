@@ -26,17 +26,7 @@ sealed class ConfigResult<out T> {
 class SecurityManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
-
-    private val encryptedPrefs = EncryptedSharedPreferences.create(
-        context,
-        "linker_secure_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val encryptedPrefs: android.content.SharedPreferences = createEncryptedPrefsSafely(context)
 
     private val remoteConfig = Firebase.remoteConfig.apply {
         setConfigSettingsAsync(remoteConfigSettings {
@@ -77,7 +67,7 @@ class SecurityManager @Inject constructor(
         }
     }
 
-    private fun validateSupabaseUrl(url: String): Boolean = url.matches(Regex("^https://[a-z0-9-]+\\.supabase\\.co\$")) || url.isEmpty()
+    private fun validateSupabaseUrl(url: String): Boolean = url.matches(Regex("^https://[a-zA-Z0-9_.-]+\\.supabase\\.co/?\$")) || url.isEmpty()
     
     // In production we would strictly validate. We allow empty for remote config defaults.
     private fun validateSupabaseKey(key: String): Boolean = key.length > 50 || key.isEmpty()
@@ -130,6 +120,14 @@ class SecurityManager @Inject constructor(
         }
         return try {
             val storedHash = encryptedPrefs.getString(KEY_INTEGRITY_HASH, null)
+            if (storedHash == null) {
+                // If keys are not initialized yet, this is clean initial state, not tampering
+                if (!areKeysInitialized()) {
+                    isIntegrityVerified = true
+                    lastIntegrityCheckTimestamp = now
+                    return true
+                }
+            }
             val calculatedHash = calculateIntegrityHash()
             val isValid = storedHash != null && storedHash == calculatedHash
             if (!isValid) {
@@ -422,6 +420,52 @@ class SecurityManager @Inject constructor(
     }
 
     companion object {
+        private const val PREFS_FILE = "linker_secure_prefs"
+
+        private fun createEncryptedPrefsSafely(context: Context): android.content.SharedPreferences {
+            return try {
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_FILE,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("SecurityManager", "EncryptedSharedPreferences corrupted, attempting recovery", e)
+                try {
+                    val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$PREFS_FILE.xml")
+                    if (prefsFile.exists()) {
+                        prefsFile.delete()
+                    }
+                    val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+                    keyStore.load(null)
+                    keyStore.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                } catch (cleanupEx: Exception) {
+                    android.util.Log.e("SecurityManager", "Failed to cleanup corrupted keystore entry", cleanupEx)
+                }
+
+                try {
+                    val masterKey = MasterKey.Builder(context)
+                        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                        .build()
+                    EncryptedSharedPreferences.create(
+                        context,
+                        PREFS_FILE,
+                        masterKey,
+                        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                    )
+                } catch (secondEx: Exception) {
+                    android.util.Log.e("SecurityManager", "Fallback to standard SharedPreferences for $PREFS_FILE", secondEx)
+                    context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+                }
+            }
+        }
+
         private const val KEY_SUPABASE_URL = "supabase_url"
         private const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
         private const val KEY_CLOUDINARY_CLOUD_NAME = "cloudinary_cloud_name"

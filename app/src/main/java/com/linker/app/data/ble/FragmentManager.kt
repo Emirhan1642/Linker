@@ -48,6 +48,10 @@ class FragmentManager(
         var timeoutJob: Job? = null
     )
     
+    companion object {
+        private const val MAX_CONCURRENT_MESSAGES = 100
+    }
+
     /**
      * Add a fragment to the manager
      * 
@@ -56,6 +60,15 @@ class FragmentManager(
      */
     suspend fun addFragment(fragment: BLEPacket): ByteArray? {
         val messageId = fragment.messageId
+        
+        // Evict oldest incomplete set if capacity exceeded to prevent unbounded memory growth
+        if (fragmentStore.size >= MAX_CONCURRENT_MESSAGES && !fragmentStore.containsKey(messageId)) {
+            val oldest = fragmentStore.minByOrNull { it.value.lastReceivedAt }
+            if (oldest != null) {
+                logger.w("Evicting oldest incomplete message fragments: ${oldest.key}")
+                cleanupMessage(oldest.key)
+            }
+        }
         
         // Get or create fragment set
         val fragmentSet = fragmentStore.getOrPut(messageId) {

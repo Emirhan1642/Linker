@@ -11,11 +11,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import androidx.compose.runtime.Immutable
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 
 @Immutable
 data class StoryGridUiState(
@@ -24,6 +25,7 @@ data class StoryGridUiState(
     val error: String? = null
 )
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class StoryGridViewModel @Inject constructor(
     private val observeStoriesGridUseCase: ObserveStoriesGridUseCase,
@@ -39,11 +41,13 @@ class StoryGridViewModel @Inject constructor(
 
     private fun observeStories() {
         viewModelScope.launch {
-            observeUserPreferencesUseCase().collect { prefsResult ->
-                val mutedIds = if (prefsResult is Result.Success) prefsResult.data.mutedUserIds else emptySet()
-                val blockedIds = if (prefsResult is Result.Success) prefsResult.data.blockedUserIds else emptySet()
-
-                observeStoriesGridUseCase(mutedIds, blockedIds).collect { result ->
+            observeUserPreferencesUseCase()
+                .flatMapLatest { prefsResult ->
+                    val mutedIds = if (prefsResult is Result.Success) prefsResult.data.mutedUserIds else emptySet()
+                    val blockedIds = if (prefsResult is Result.Success) prefsResult.data.blockedUserIds else emptySet()
+                    observeStoriesGridUseCase(mutedIds, blockedIds)
+                }
+                .collect { result ->
                     when (result) {
                         is Result.Success -> _uiState.update {
                             it.copy(userStories = result.data, isLoading = false, error = null)
@@ -54,7 +58,6 @@ class StoryGridViewModel @Inject constructor(
                         is Result.Loading -> _uiState.update { it.copy(isLoading = true) }
                     }
                 }
-            }
         }
     }
 }

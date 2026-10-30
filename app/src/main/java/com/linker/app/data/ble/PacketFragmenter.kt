@@ -27,7 +27,8 @@ class PacketFragmenter {
         senderId: String,
         recipientId: String,
         ttl: Byte,
-        encryptedPayload: ByteArray
+        encryptedPayload: ByteArray,
+        hopCount: Byte = 0
     ): List<BLEPacket> {
         if (encryptedPayload.size <= BLEPacket.MAX_PAYLOAD_SIZE) {
             // No fragmentation needed
@@ -37,7 +38,7 @@ class PacketFragmenter {
                     senderId = senderId,
                     recipientId = recipientId,
                     ttl = ttl,
-                    hopCount = 0,
+                    hopCount = hopCount,
                     fragmentIndex = 0,
                     totalFragments = 1,
                     encryptedPayload = encryptedPayload
@@ -64,7 +65,7 @@ class PacketFragmenter {
                 senderId = senderId,
                 recipientId = recipientId,
                 ttl = ttl,
-                hopCount = 0,
+                hopCount = hopCount,
                 fragmentIndex = i.toShort(),
                 totalFragments = totalFragments.toShort(),
                 encryptedPayload = fragmentPayload
@@ -145,6 +146,9 @@ class PacketFragmenter {
             val len = fragment.payloadLength.toInt()
             if (len < 0) {
                 throw IllegalArgumentException("Negative payload length in fragment")
+            }
+            if (fragment.encryptedPayload.size < len) {
+                throw IllegalArgumentException("Payload size mismatch: expected $len bytes, actual ${fragment.encryptedPayload.size} bytes")
             }
             totalSize += len
             if (totalSize > 10_000_000L) { // Limit to ~10MB max per message to prevent OutOfMemory

@@ -42,12 +42,16 @@ class GattServerManager @Inject constructor(
         val senderMacAddress: String
     )
     
-    private val _incomingPackets = MutableSharedFlow<IncomingPacketWithAddress>(replay = 0, extraBufferCapacity = 64)
+    private val _incomingPackets = MutableSharedFlow<IncomingPacketWithAddress>(replay = 0, extraBufferCapacity = 128)
     val incomingPackets: SharedFlow<IncomingPacketWithAddress> = _incomingPackets.asSharedFlow()
     
     // Track connected devices from incoming GATT connections
     private val _incomingConnections = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 16)
     val incomingConnections: SharedFlow<String> = _incomingConnections.asSharedFlow()
+    
+    // Track disconnected devices from incoming GATT connections
+    private val _incomingDisconnections = MutableSharedFlow<String>(replay = 0, extraBufferCapacity = 16)
+    val incomingDisconnections: SharedFlow<String> = _incomingDisconnections.asSharedFlow()
     
     private val gattServerCallback = object : BluetoothGattServerCallback() {
         
@@ -66,7 +70,10 @@ class GattServerManager @Inject constructor(
                     }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.d(TAG, "Device disconnected: ${device?.address}")
+                    Log.d(TAG, "Device disconnected from GATT server: ${device?.address}")
+                    device?.address?.let { address ->
+                        _incomingDisconnections.tryEmit(address)
+                    }
                 }
             }
         }
@@ -151,6 +158,14 @@ class GattServerManager @Inject constructor(
             }
         }
         
+        override fun onExecuteWrite(device: BluetoothDevice?, requestId: Int, execute: Boolean) {
+            Log.d(TAG, "onExecuteWrite for ${device?.address}, execute=$execute")
+            val server = gattServer
+            if (server != null) {
+                server.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, 0, null)
+            }
+        }
+        
         override fun onMtuChanged(device: BluetoothDevice?, mtu: Int) {
             Log.d(TAG, "MTU changed for ${device?.address}: $mtu bytes")
             // MTU change is handled automatically by Android BLE stack
@@ -228,8 +243,23 @@ class GattServerManager @Inject constructor(
      */
     fun stopServer() = synchronized(serverLock) {
         try {
-            gattServer?.clearServices()
-            gattServer?.close()
+            val server = gattServer
+            if (server != null) {
+                try {
+                    val connectedDevices = bluetoothManager?.getConnectedDevices(BluetoothProfile.GATT_SERVER)
+                    connectedDevices?.forEach { device ->
+                        try {
+                            server.cancelConnection(device)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error cancelling connection to ${device.address}", e)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error cancelling client connections before server close", e)
+                }
+                server.clearServices()
+                server.close()
+            }
             gattServer = null
             
             Log.d(TAG, "GATT server stopped")

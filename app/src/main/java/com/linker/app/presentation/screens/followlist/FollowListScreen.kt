@@ -33,6 +33,14 @@ fun FollowListScreen(
     viewModel: FollowListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let { msg ->
+            snackbarHostState.showSnackbar(msg)
+            viewModel.clearError()
+        }
+    }
 
     val title = when (uiState.listType) {
         FollowListType.FOLLOWERS        -> stringResource(R.string.followers)
@@ -75,7 +83,7 @@ fun FollowListScreen(
                     modifier = Modifier.align(Alignment.Center)
                 )
 
-                uiState.error != null -> {
+                uiState.error != null && uiState.users.isEmpty() -> {
                     val errorMessage = uiState.error
                     if (errorMessage != null) {
                         Text(
@@ -133,6 +141,14 @@ fun FollowListScreen(
                     }
                 }
             }
+
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp)
+            )
         }
     }
 }

@@ -12,6 +12,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -119,6 +120,8 @@ class CommentSheetViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSending = true)
             if (editComment != null) {
+                val previousComments = _uiState.value.comments
+                val previousRepliesMap = _uiState.value.repliesMap
                 // Optimistic Edit
                 _uiState.value = _uiState.value.copy(
                     editComment = null,
@@ -134,7 +137,11 @@ class CommentSheetViewModel @Inject constructor(
                 val result = commentUseCases.editComment(editComment.commentId, content)
                 _uiState.value = _uiState.value.copy(isSending = false)
                 if (result is Result.Error) {
-                    _uiState.value = _uiState.value.copy(error = result.message)
+                    _uiState.value = _uiState.value.copy(
+                        comments = previousComments,
+                        repliesMap = previousRepliesMap,
+                        error = result.message ?: "Failed to edit comment"
+                    )
                 }
             } else if (replyTo != null) {
                 // Reply
@@ -170,41 +177,92 @@ class CommentSheetViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(editComment = comment, replyToComment = null)
     }
 
+    fun clearError() {
+        _uiState.update { it.copy(error = null) }
+    }
+
     fun deleteComment(commentId: String) {
-        viewModelScope.launch {
-            // Optimistic Delete
-            _uiState.value = _uiState.value.copy(
-                comments = _uiState.value.comments.filter { it.commentId != commentId },
-                repliesMap = _uiState.value.repliesMap.mapValues { (_, replies) ->
+        var deletedRootComment: Comment? = null
+        var deletedParentId: String? = null
+        var deletedReplyComment: Comment? = null
+
+        // Optimistic Delete applied immediately
+        _uiState.update { state ->
+            deletedRootComment = state.comments.find { it.commentId == commentId }
+            state.repliesMap.forEach { (parentId, replies) ->
+                val found = replies.find { it.commentId == commentId }
+                if (found != null) {
+                    deletedParentId = parentId
+                    deletedReplyComment = found
+                }
+            }
+            state.copy(
+                comments = state.comments.filter { it.commentId != commentId },
+                repliesMap = state.repliesMap.mapValues { (_, replies) ->
                     replies.filter { it.commentId != commentId }
                 }
             )
-            commentUseCases.deleteComment(commentId)
+        }
+        viewModelScope.launch {
+            val result = commentUseCases.deleteComment(commentId)
+            if (result is Result.Error) {
+                _uiState.update { state ->
+                    val restoredComments = if (deletedRootComment != null) {
+                        (state.comments + deletedRootComment!!).sortedBy { it.createdAt }
+                    } else state.comments
+
+                    val restoredRepliesMap = if (deletedReplyComment != null && deletedParentId != null) {
+                        val currentReplies = state.repliesMap[deletedParentId] ?: emptyList()
+                        state.repliesMap + (deletedParentId!! to (currentReplies + deletedReplyComment!!).sortedBy { it.createdAt })
+                    } else state.repliesMap
+
+                    state.copy(
+                        comments = restoredComments,
+                        repliesMap = restoredRepliesMap,
+                        error = result.message ?: "Failed to delete comment"
+                    )
+                }
+            }
         }
     }
 
     fun toggleLike(commentId: String) {
-        viewModelScope.launch {
-            // Optimistic Like Toggle
-            _uiState.value = _uiState.value.copy(
-                comments = _uiState.value.comments.map { comment ->
+        // Optimistic Like Toggle applied immediately
+        _uiState.update { state ->
+            val updateList = { list: List<Comment> ->
+                list.map { comment ->
                     if (comment.commentId == commentId) {
                         val newLiked = !comment.isLiked
                         val newCount = if (newLiked) comment.likesCount + 1 else (comment.likesCount - 1).coerceAtLeast(0)
                         comment.copy(isLiked = newLiked, likesCount = newCount)
                     } else comment
-                },
-                repliesMap = _uiState.value.repliesMap.mapValues { (_, replies) ->
-                    replies.map { reply ->
-                        if (reply.commentId == commentId) {
-                            val newLiked = !reply.isLiked
-                            val newCount = if (newLiked) reply.likesCount + 1 else (reply.likesCount - 1).coerceAtLeast(0)
-                            reply.copy(isLiked = newLiked, likesCount = newCount)
-                        } else reply
-                    }
                 }
+            }
+            state.copy(
+                comments = updateList(state.comments),
+                repliesMap = state.repliesMap.mapValues { (_, replies) -> updateList(replies) }
             )
-            commentUseCases.likeComment(commentId)
+        }
+        viewModelScope.launch {
+            val result = commentUseCases.likeComment(commentId)
+            if (result is Result.Error) {
+                _uiState.update { state ->
+                    val revertList = { list: List<Comment> ->
+                        list.map { comment ->
+                            if (comment.commentId == commentId) {
+                                val revertedLiked = !comment.isLiked
+                                val newCount = if (revertedLiked) comment.likesCount + 1 else (comment.likesCount - 1).coerceAtLeast(0)
+                                comment.copy(isLiked = revertedLiked, likesCount = newCount)
+                            } else comment
+                        }
+                    }
+                    state.copy(
+                        comments = revertList(state.comments),
+                        repliesMap = state.repliesMap.mapValues { (_, replies) -> revertList(replies) },
+                        error = result.message ?: "Failed to update like"
+                    )
+                }
+            }
         }
     }
 

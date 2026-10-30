@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Lightweight user reference for use in other domain models.
  *
@@ -13,6 +15,7 @@ package com.linker.app.domain.model
  * @property profileImageUrl Profile picture URL.
  * @property isVerified Whether the user has a verified badge.
  */
+@Immutable
 data class UserReference(
     val userId: String,
     val username: String,
@@ -63,6 +66,7 @@ data class UserReference(
  * @property isVerified Whether the user has a verified badge.
  * @property followersCount Number of followers (for display in post header).
  */
+@Immutable
 data class LinkAuthor(
     val userId: String,
     val username: String,
@@ -115,6 +119,7 @@ data class LinkAuthor(
  * @property profileImageUrl Profile picture URL.
  * @property isVerified Whether the user has a verified badge.
  */
+@Immutable
 data class CommentAuthor(
     val userId: String,
     val username: String,
@@ -163,6 +168,7 @@ data class CommentAuthor(
  * @property displayName User's display name.
  * @property profileImageUrl Profile picture URL.
  */
+@Immutable
 data class NoteAuthor(
     val userId: String,
     val username: String,
@@ -209,6 +215,7 @@ data class NoteAuthor(
  * @property displayName User's display name.
  * @property profileImageUrl Profile picture URL.
  */
+@Immutable
 data class StoryAuthor(
     val userId: String,
     val username: String,
@@ -256,6 +263,7 @@ data class StoryAuthor(
  * @property profileImageUrl Profile picture URL.
  * @property isVerified Whether the user has a verified badge.
  */
+@Immutable
 data class NotificationActor(
     val userId: String,
     val username: String,

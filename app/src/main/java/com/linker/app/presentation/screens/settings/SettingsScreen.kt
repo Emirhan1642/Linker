@@ -25,25 +25,31 @@ import com.linker.app.R
 import com.linker.app.presentation.theme.*
 import com.linker.app.presentation.animation.*
 import com.linker.app.presentation.components.*
+import androidx.compose.runtime.Immutable
 
+@Immutable
 sealed interface SettingsItem {
+    @Immutable
     data class Navigation(
         val iconRes: Int, val labelRes: Int,
         val valueRes: Int? = null, val valueString: String? = null, val onClick: () -> Unit = {}
     ) : SettingsItem
 
+    @Immutable
     data class Toggle(
         val iconRes: Int, val labelRes: Int,
         val fieldKey: SettingField,
         val checked: Boolean, val onToggle: (Boolean) -> Unit
     ) : SettingsItem
 
+    @Immutable
     data class Danger(
         val iconRes: Int, val labelRes: Int,
         val isWarning: Boolean = false, val onClick: () -> Unit = {}
     ) : SettingsItem
 }
 
+@Immutable
 data class SettingsSection(val titleRes: Int, val items: List<SettingsItem>)
 
 @Composable

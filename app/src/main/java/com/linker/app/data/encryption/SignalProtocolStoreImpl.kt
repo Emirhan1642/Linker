@@ -1,4 +1,4 @@
-package com.linker.app.data.encryption
+﻿package com.linker.app.data.encryption
 
 import com.linker.app.data.local.dao.*
 import com.linker.app.data.local.entity.*

@@ -42,9 +42,18 @@ fun LinkDetailScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showActionSheet by remember { mutableStateOf(false) }
     var showCommentSheet by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(linkId) {
         viewModel.loadLink(linkId)
+    }
+
+    LaunchedEffect(uiState.error, uiState.link) {
+        val error = uiState.error
+        if (error != null && uiState.link != null) {
+            snackbarHostState.showSnackbar(error)
+            viewModel.clearError()
+        }
     }
 
     if (showActionSheet) {
@@ -64,6 +73,7 @@ fun LinkDetailScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Black,
         topBar = {
             Row(
@@ -89,7 +99,7 @@ fun LinkDetailScreen(
                 IconButton(onClick = { showActionSheet = true }) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
-                        contentDescription = "More",
+                        contentDescription = androidx.compose.ui.res.stringResource(R.string.action_more_options),
                         tint = TextPrimary
                     )
                 }
@@ -101,14 +111,14 @@ fun LinkDetailScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (uiState.isLoading) {
+            if (uiState.isLoading && uiState.link == null) {
                 CircularProgressIndicator(
                     color = Color.White,
                     modifier = Modifier.align(Alignment.Center)
                 )
-            } else if (uiState.error != null) {
+            } else if (uiState.link == null && uiState.error != null) {
                 Text(
-                    text = uiState.error ?: "Gönderi yüklenemedi",
+                    text = uiState.error ?: androidx.compose.ui.res.stringResource(R.string.error_loading_post),
                     color = TextSecondary,
                     modifier = Modifier.align(Alignment.Center)
                 )

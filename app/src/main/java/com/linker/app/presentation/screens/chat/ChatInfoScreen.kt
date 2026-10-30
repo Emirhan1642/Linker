@@ -560,7 +560,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.galleryContent(shared
             }
         }
     } else {
-        items(sharedMediaState.sharedMedia) { media ->
+        items(sharedMediaState.sharedMedia, key = { it.mediaUrl }) { media ->
             SharedMediaThumbnail(media)
         }
     }
@@ -578,7 +578,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.videosContent(sharedM
             }
         }
     } else {
-        items(videos) { media ->
+        items(videos, key = { it.mediaUrl }) { media ->
             SharedMediaThumbnail(media)
         }
     }
@@ -595,7 +595,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.linksContent(sharedMe
             }
         }
     } else {
-        items(sharedMediaState.sharedLinks) { link ->
+        items(sharedMediaState.sharedLinks, key = { it.linkId }) { link ->
             SharedLinkItemRow(link)
         }
     }
@@ -608,7 +608,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.membersTabContent(
     onNavigateToUserProfile: (String) -> Unit,
     onMemberLongClick: (User) -> Unit
 ) {
-    items(basicInfo.participants) { participant ->
+    items(basicInfo.participants, key = { it.userId }) { participant ->
         val isMemberAdmin = basicInfo.groupAdminIds.contains(participant.userId) ||
             participant.userId == basicInfo.groupCreatedBy
         Row(

@@ -192,7 +192,16 @@ fun SpotifySearchScreen(
                     }
 
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(uiState.results) { item ->
+                        items(
+    items = uiState.results,
+    key = { item ->
+        when (item) {
+            is SpotifySearchResultItem.Track -> "track_${item.track.id}"
+            is SpotifySearchResultItem.Artist -> "artist_${item.artist.id}"
+            is SpotifySearchResultItem.Album -> "album_${item.album.id}"
+        }
+    }
+) { item ->
                             when (item) {
                                 is SpotifySearchResultItem.Track -> {
                                     val track = item.track
@@ -573,7 +582,7 @@ fun DashboardSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            items(tracks) { track ->
+            items(tracks, key = { it.id }) { track ->
                 DashboardTrackItem(
                     track = track,
                     onTrackSelected = onTrackSelected,

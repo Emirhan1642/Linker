@@ -310,23 +310,10 @@ class OfflineMessagingService : Service() {
                     
                     try {
                         bleMeshManager.startMeshNetwork()
+                        isScanning = true
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to start mesh network", e)
                         throw e
-                    }
-                    
-                    try {
-                        bleMeshManager.startScanning()
-                        isScanning = true
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to start scanning", e)
-                        throw e
-                    }
-                    
-                    try {
-                        bleMeshManager.startAdvertising()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to start advertising", e)
                     }
                     
                     setupMessageReceivedCallback()

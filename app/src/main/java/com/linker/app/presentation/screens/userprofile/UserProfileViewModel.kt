@@ -95,8 +95,11 @@ class UserProfileViewModel @Inject constructor(
         }
     }
 
+    private var postsJob: kotlinx.coroutines.Job? = null
+
     private fun loadUserPosts() {
-        linkRepository.observeLinksByAuthor(userId)
+        postsJob?.cancel()
+        postsJob = linkRepository.observeLinksByAuthor(userId)
             .onEach { result ->
                 if (result is Result.Success) {
                     _uiState.update { it.copy(posts = result.data) }
@@ -109,10 +112,39 @@ class UserProfileViewModel @Inject constructor(
 
     fun onFollowAction() {
         val user = _uiState.value.user ?: return
-        viewModelScope.launch {
-            _uiState.update { it.copy(isActionLoading = true) }
+        val previousUser = user
+        val previousLocked = _uiState.value.isContentLocked
 
-            val result: Result<Unit> = when (user.followState()) {
+        val currentState = user.followState()
+        val optimisticUser = when (currentState) {
+            FollowState.FOLLOWING -> user.copy(
+                relationship = user.relationship.copy(isFollowing = false, followRequestSent = false),
+                metrics = user.metrics.copy(followersCount = maxOf(0, user.metrics.followersCount - 1))
+            )
+            FollowState.REQUEST_SENT -> user.copy(
+                relationship = user.relationship.copy(followRequestSent = false, isFollowing = false)
+            )
+            FollowState.NOT_FOLLOWING_PRIVATE -> user.copy(
+                relationship = user.relationship.copy(followRequestSent = true, isFollowing = false)
+            )
+            FollowState.NOT_FOLLOWING -> user.copy(
+                relationship = user.relationship.copy(isFollowing = true, followRequestSent = false),
+                metrics = user.metrics.copy(followersCount = user.metrics.followersCount + 1)
+            )
+        }
+        val optimisticLocked = optimisticUser.privacy.isPrivate && !optimisticUser.relationship.isFollowing
+
+        // Apply optimistic update immediately
+        _uiState.update {
+            it.copy(
+                user = optimisticUser,
+                isContentLocked = optimisticLocked,
+                isActionLoading = false
+            )
+        }
+
+        viewModelScope.launch {
+            val result: Result<Unit> = when (currentState) {
                 FollowState.FOLLOWING             -> userRepository.unfollowUser(user.userId)
                 FollowState.REQUEST_SENT          -> userRepository.cancelFollowRequest(user.userId)
                 FollowState.NOT_FOLLOWING,
@@ -120,9 +152,16 @@ class UserProfileViewModel @Inject constructor(
             }
 
             when (result) {
-                is Result.Success -> loadUser()   // loadUser isActionLoading'i false yapıyor
+                is Result.Success -> loadUser()
                 is Result.Error -> {
-                    _uiState.update { it.copy(isActionLoading = false) }
+                    // Rollback to previous state on failure
+                    _uiState.update {
+                        it.copy(
+                            user = previousUser,
+                            isContentLocked = previousLocked,
+                            isActionLoading = false
+                        )
+                    }
                     _effects.emit(UserProfileEffect.ShowSnackbar(UiText.DynamicString(result.message ?: "Action failed")))
                 }
                 is Result.Loading -> {}

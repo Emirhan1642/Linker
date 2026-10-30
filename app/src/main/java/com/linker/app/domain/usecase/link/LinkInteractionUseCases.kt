@@ -21,10 +21,10 @@ class UpdateLinkDescriptionUseCase @Inject constructor(
             return Result.Error("Description exceeds maximum length of ${Link.MAX_DESCRIPTION_LENGTH}")
         }
 
-        // Sanitize: strip HTML tags
+        // Sanitize: strip script blocks first, then remaining HTML tags
         val sanitized = newDescription
+            .replace(Regex("(?is)<script[^>]*>.*?</script>"), "")
             .replace(Regex("<[^>]*>"), "")
-            .replace(Regex("(?i)<script[^>]*>.*?</script>"), "")
             .trim()
 
         return linkRepository.updateLinkDescription(linkId, sanitized)

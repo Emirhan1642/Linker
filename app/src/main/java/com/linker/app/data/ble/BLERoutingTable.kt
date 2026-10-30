@@ -162,12 +162,30 @@ class BLERoutingTable @Inject constructor(
         }
         
         if (existingNode != null) {
+            val isRpaAddressChange = existingNode.deviceAddress != deviceAddress
             val isStale = (timestamp - existingNode.lastSeen > STALE_NODE_THRESHOLD)
             val isBetterRoute = routeQuality > existingNode.routeQuality
             val isDirectOverwritingStale = (isStale && hopCount <= existingNode.hopCount) || (timestamp - existingNode.lastSeen > 60_000L)
             
-            if (isBetterRoute || isDirectOverwritingStale) {
-                // Update with better route or refresh truly stale route
+            if (isBetterRoute || isDirectOverwritingStale || isRpaAddressChange) {
+                if (isRpaAddressChange) {
+                    logger.d("RPA address rotation detected for node $nodeId: ${existingNode.deviceAddress} -> $deviceAddress")
+                    // Clean up any temporary node created with this MAC address (by address or by id) to avoid unique constraint conflict
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        val existingByAddress = bleNodeDao.getNodeByAddress(deviceAddress)
+                        if (existingByAddress != null && existingByAddress.nodeId != nodeId) {
+                            bleNodeDao.deleteNode(existingByAddress)
+                        }
+                        val tempNode = bleNodeDao.getNodeById(deviceAddress)
+                        if (tempNode != null && tempNode.nodeId != nodeId) {
+                            bleNodeDao.deleteNode(tempNode)
+                        }
+                    }
+                    routeCache.remove(deviceAddress)
+                    routeCache.remove(existingNode.deviceAddress)
+                }
+                
+                // Update with better route, refreshed stale route, or new RPA MAC address
                 val updatedNode = existingNode.copy(
                     deviceAddress = deviceAddress,
                     rssi = rssi,
@@ -191,6 +209,19 @@ class BLERoutingTable @Inject constructor(
                 )
             }
         } else {
+            // Clean up any temporary node that had this MAC address before inserting to prevent unique constraint conflict
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                val existingByAddress = bleNodeDao.getNodeByAddress(deviceAddress)
+                if (existingByAddress != null && existingByAddress.nodeId != nodeId) {
+                    bleNodeDao.deleteNode(existingByAddress)
+                }
+                val tempNode = bleNodeDao.getNodeById(deviceAddress)
+                if (tempNode != null && tempNode.nodeId != nodeId) {
+                    bleNodeDao.deleteNode(tempNode)
+                }
+            }
+            routeCache.remove(deviceAddress)
+            
             // Insert new route
             val newNode = BleNodeEntity(
                 nodeId = nodeId,
@@ -356,6 +387,25 @@ class BLERoutingTable @Inject constructor(
         return System.currentTimeMillis() - lastSeen > STALE_NODE_THRESHOLD
     }
     
+    /**
+     * Invalidate route in memory cache
+     */
+    fun invalidateRoute(nodeId: String) {
+        routeCache.remove(nodeId)
+    }
+
+    /**
+     * Remove a specific route from cache and database
+     */
+    suspend fun removeRoute(nodeId: String) = mutex.withLock {
+        routeCache.remove(nodeId)
+        withContext(Dispatchers.IO) {
+            bleNodeDao.getNodeById(nodeId)?.let {
+                bleNodeDao.deleteNode(it)
+            }
+        }
+    }
+
     /**
      * Clear all routes
      */

@@ -50,7 +50,9 @@ class LinkRepositoryImpl @Inject constructor(
                 userDao.insertUser(user.toEntity())
                 return user
             }
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            android.util.Log.w("LinkRepositoryImpl", "Failed to fetch user document for $authorId: ${e.message}")
+        }
 
         return com.linker.app.domain.model.User(
             userId = authorId,
@@ -400,7 +402,11 @@ class LinkRepositoryImpl @Inject constructor(
                 )
                 .build()
             
-            androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+            androidx.work.WorkManager.getInstance(appContext).enqueueUniqueWork(
+                "cloudinary_upload_LINK_$linkId",
+                androidx.work.ExistingWorkPolicy.KEEP,
+                workRequest
+            )
         }
 
         entity.toDomain(resolveAuthor(currentUserId))

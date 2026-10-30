@@ -42,35 +42,87 @@ class AndroidKeystoreWrapper @Inject constructor(
         private const val GCM_TAG_LENGTH = 128
     }
     
-    private val keyStore: KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
-        load(null)
+    private val keyStore: KeyStore = try {
+        KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+    } catch (e: Exception) {
+        SecureLogger.e(TAG, "Failed to initialize AndroidKeyStore, falling back to default keystore", e)
+        KeyStore.getInstance(KeyStore.getDefaultType()).apply { load(null) }
     }
-    
-    private val masterKey = MasterKey.Builder(context)
-        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .build()
 
-    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
-        context,
-        PREFS_NAME,
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val prefs: SharedPreferences = createEncryptedPrefsSafely(context)
+
+    private fun createEncryptedPrefsSafely(context: Context): SharedPreferences {
+        return try {
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_NAME,
+                masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            SecureLogger.e(TAG, "EncryptedSharedPreferences corrupted for $PREFS_NAME, attempting recovery", e)
+            try {
+                val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$PREFS_NAME.xml")
+                if (prefsFile.exists()) {
+                    prefsFile.delete()
+                }
+                try {
+                    val ks = KeyStore.getInstance(ANDROID_KEYSTORE)
+                    ks.load(null)
+                    ks.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                } catch (ksEx: Exception) {
+                    SecureLogger.w(TAG, "Failed to delete corrupted master key alias", ksEx)
+                }
+            } catch (cleanupEx: Exception) {
+                SecureLogger.e(TAG, "Failed to cleanup corrupted prefs file", cleanupEx)
+            }
+
+            try {
+                val masterKey = MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    context,
+                    PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (secondEx: Exception) {
+                SecureLogger.e(TAG, "Fallback to standard SharedPreferences for $PREFS_NAME due to unrecoverable Keystore failure", secondEx)
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            }
+        }
+    }
     
     /**
      * Generate or retrieve AES key from Android Keystore
      */
     private fun getOrCreateSecretKey(alias: String): SecretKey {
-        if (keyStore.containsAlias(alias)) {
-            return keyStore.getKey(alias, null) as SecretKey
+        return try {
+            if (keyStore.containsAlias(alias)) {
+                keyStore.getKey(alias, null) as SecretKey
+            } else {
+                generateAesKey(alias)
+            }
+        } catch (e: Exception) {
+            SecureLogger.e(TAG, "Failed to get or create secret key for alias: $alias, regenerating", e)
+            try {
+                keyStore.deleteEntry(alias)
+            } catch (_: Exception) {}
+            generateAesKey(alias)
         }
-        
+    }
+
+    private fun generateAesKey(alias: String): SecretKey {
         val keyGenerator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES,
             ANDROID_KEYSTORE
         )
-        
         val keyGenParameterSpec = KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
@@ -80,7 +132,6 @@ class AndroidKeystoreWrapper @Inject constructor(
             .setKeySize(256)
             .setUserAuthenticationRequired(false)
             .build()
-        
         keyGenerator.init(keyGenParameterSpec)
         return keyGenerator.generateKey()
     }

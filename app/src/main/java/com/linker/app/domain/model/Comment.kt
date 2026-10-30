@@ -1,5 +1,7 @@
 package com.linker.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 /**
  * A single historical version of a Comment's content.
  *
@@ -7,6 +9,7 @@ package com.linker.app.domain.model
  * @property editedAt Timestamp when this version was saved (epoch ms).
  * @property version Version number (1-indexed; original = 0 implicit).
  */
+@Immutable
 data class CommentVersion(
     val content: String,
     val editedAt: Long,
@@ -43,6 +46,7 @@ data class CommentVersion(
  * @property createdAt Creation timestamp (epoch ms).
  * @property updatedAt Last update timestamp (epoch ms).
  */
+@Immutable
 data class Comment(
     val commentId: String,
     val linkId: String,

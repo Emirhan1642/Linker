@@ -1,4 +1,4 @@
-package com.linker.app.core.util
+﻿package com.linker.app.core.util
 
 import java.util.concurrent.TimeUnit
 

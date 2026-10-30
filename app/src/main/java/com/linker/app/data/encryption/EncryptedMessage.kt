@@ -1,4 +1,4 @@
-package com.linker.app.data.encryption
+﻿package com.linker.app.data.encryption
 
 import android.util.Base64
 import kotlinx.serialization.KSerializer

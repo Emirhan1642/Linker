@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,7 +120,7 @@ fun UserActionSheet(
             if (onShare != null) {
                 ActionItem(
                     icon = Icons.Default.Share,
-                    label = "Paylaş",
+                    label = stringResource(R.string.action_share),
                     tint = TextPrimary,
                     onClick = { onShare(); onDismiss() }
                 )
@@ -130,7 +131,7 @@ fun UserActionSheet(
                 if (canEdit && onEdit != null) {
                     ActionItem(
                         icon = Icons.Default.Edit,
-                        label = "Düzenle",
+                        label = stringResource(R.string.action_edit),
                         tint = TextPrimary,
                         onClick = { onEdit(); onDismiss() }
                     )
@@ -140,7 +141,7 @@ fun UserActionSheet(
                     HorizontalDivider(color = LightGray, modifier = Modifier.padding(vertical = 4.dp))
                     ActionItem(
                         icon = Icons.Default.Delete,
-                        label = "Sil",
+                        label = stringResource(R.string.action_delete),
                         tint = ErrorRed,
                         onClick = { onDelete(); onDismiss() }
                     )
@@ -150,7 +151,7 @@ fun UserActionSheet(
                 if (onMuteUser != null) {
                     ActionItem(
                         icon = Icons.Default.VolumeOff,
-                        label = "Kullanıcıyı Sustur",
+                        label = stringResource(R.string.user_action_mute),
                         tint = TextPrimary,
                         onClick = { onMuteUser(); onDismiss() }
                     )
@@ -159,7 +160,7 @@ fun UserActionSheet(
                 if (onBlockUser != null) {
                     ActionItem(
                         icon = Icons.Default.Block,
-                        label = "Kullanıcıyı Engelle",
+                        label = stringResource(R.string.user_action_block),
                         tint = ErrorRed,
                         onClick = { onBlockUser(); onDismiss() }
                     )
@@ -169,7 +170,7 @@ fun UserActionSheet(
                     HorizontalDivider(color = LightGray, modifier = Modifier.padding(vertical = 4.dp))
                     ActionItem(
                         icon = Icons.Default.Warning,
-                        label = "Şikayet Et",
+                        label = stringResource(R.string.user_action_report),
                         tint = ErrorRed,
                         onClick = { showReportSheet = true }
                     )

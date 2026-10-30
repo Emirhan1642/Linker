@@ -106,13 +106,7 @@ class ChatRepositoryImpl @Inject constructor(
                     } ?: emptyList()
                     
                     launch(Dispatchers.IO) {
-                        try {
-                            chats.forEach { chat ->
-                                saveChatToLocal(chat)
-                            }
-                        } catch (e: Exception) {
-                            Log.e("ChatRepository", "Error saving chats to local: ${e.message}")
-                        }
+                        saveChatsToLocal(chats)
                     }
                 }
 
@@ -681,6 +675,79 @@ class ChatRepositoryImpl @Inject constructor(
 
 
     /**
+     * Batch save chats from Firestore to local database atomically.
+     * Used for offline access and initial sync.
+     */
+    private suspend fun saveChatsToLocal(chats: List<Chat>) {
+        if (chats.isEmpty()) return
+        try {
+            val entities = chats.map { chat ->
+                ChatEntity(
+                    chatId = chat.chatId,
+                    chatType = if (chat.chatType == ChatType.GROUP) EntityChatType.GROUP else EntityChatType.PRIVATE,
+                    chatName = chat.chatName,
+                    chatImageUrl = chat.chatImageUrl,
+                    participantIds = chat.participants.map { it.userId },
+                    lastMessageId = chat.lastMessage?.messageId,
+                    lastMessageText = chat.lastMessage?.content,
+                    lastMessageAt = chat.lastMessage?.createdAt,
+                    unreadCount = chat.unreadCount,
+                    isPinned = chat.isPinned,
+                    isMuted = chat.isMuted,
+                    isArchived = chat.isArchived,
+                    isBlocked = chat.isBlocked,
+                    isFavorited = chat.isFavorited,
+                    createdAt = chat.createdAt,
+                    updatedAt = chat.updatedAt
+                )
+            }
+            chatDao.insertChats(entities)
+
+            // Cache participants in batch
+            val userEntities = mutableListOf<UserEntity>()
+            chats.forEach { chat ->
+                chat.participants.forEach { user ->
+                    try {
+                        userEntities.add(
+                            UserEntity(
+                                userId = user.userId,
+                                username = user.username,
+                                displayName = user.displayName,
+                                profileImageUrl = user.profileImageUrl,
+                                bio = user.bio,
+                                email = user.getEmail(),
+                                phoneNumber = user.getPhoneNumber(),
+                                coverImageUrl = user.coverImageUrl,
+                                isVerified = user.isVerified,
+                                followersCount = user.metrics.followersCount,
+                                followingCount = user.metrics.followingCount,
+                                likesCount = user.metrics.likesCount,
+                                isFollowing = user.relationship.isFollowing,
+                                isFollowedBy = user.relationship.isFollowedBy,
+                                isBlocked = user.relationship.isBlocked,
+                                isMuted = user.relationship.isMuted,
+                                followRequestSent = user.relationship.followRequestSent,
+                                isPrivate = user.privacy.isPrivate,
+                                hideFollowLists = user.privacy.hideFollowLists,
+                                createdAt = user.createdAt,
+                                updatedAt = user.updatedAt
+                            )
+                        )
+                        userCache.putUser(user)
+                        userCache.putDisplayName(user.userId, user.displayName)
+                        user.profileImageUrl?.let { userCache.putAvatarUrl(user.userId, it) }
+                    } catch (_: Exception) {}
+                }
+            }
+            if (userEntities.isNotEmpty()) {
+                userDao.insertUsers(userEntities.distinctBy { it.userId })
+            }
+        } catch (e: Exception) {
+            Log.e("ChatRepository", "Error batch saving chats to local: ${e.message}")
+        }
+    }
+
+    /**
      * Save a chat from Firestore to local database
      * Used for offline access
      */
@@ -777,17 +844,16 @@ class ChatRepositoryImpl @Inject constructor(
                 // Process chats in background
                 repositoryScope.launch {
                     try {
-                        snapshot.documents.forEach { doc ->
+                        val chats = snapshot.documents.mapNotNull { doc ->
                             try {
-                                val data = doc.data ?: return@forEach
-                                val chat = mapToChatSync(doc.id, data)
-                                
-                                // Save to local database
-                                saveChatToLocal(chat)
+                                val data = doc.data ?: return@mapNotNull null
+                                mapToChatSync(doc.id, data)
                             } catch (e: Exception) {
                                 android.util.Log.e("ChatRepository", "Error processing chat ${doc.id}: ${e.message}")
+                                null
                             }
                         }
+                        saveChatsToLocal(chats)
                         android.util.Log.d("ChatRepository", "Global listener processed ${snapshot.documents.size} chats")
                     } catch (e: Exception) {
                         android.util.Log.e("ChatRepository", "Error in global chat listener: ${e.message}")

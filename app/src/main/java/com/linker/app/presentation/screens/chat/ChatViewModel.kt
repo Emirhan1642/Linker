@@ -97,18 +97,28 @@ class ChatViewModel @Inject constructor(
         observeChats()
         observeNotes()
         observeFilters()
-        startPresencePing()
         com.google.firebase.auth.FirebaseAuth.getInstance().addAuthStateListener(authListener)
     }
 
-    private fun startPresencePing() {
+    fun startPresencePing() {
         presenceJob?.cancel()
         presenceJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             while (isActive) {
-                userRepository.updatePresence()
+                if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null) {
+                    try {
+                        userRepository.updatePresence()
+                    } catch (e: Exception) {
+                        android.util.Log.w("ChatViewModel", "Presence ping failed: ${e.message}")
+                    }
+                }
                 kotlinx.coroutines.delay(60_000L) // Ping every minute
             }
         }
+    }
+
+    fun stopPresencePing() {
+        presenceJob?.cancel()
+        presenceJob = null
     }
 
     private fun observeFilters() {
@@ -242,7 +252,6 @@ class ChatViewModel @Inject constructor(
         _messageState.value = ChatMessageUiState(isLoading = true)
         observeChats()
         observeNotes()
-        startPresencePing()
     }
 
     private suspend fun resolveUserDisplayName(userId: String): String {
@@ -736,14 +745,27 @@ class ChatViewModel @Inject constructor(
     fun deleteMessage(messageId: String, forEveryone: Boolean = false) {
         android.util.Log.d("ChatViewModel", "deleteMessage called: messageId=$messageId, forEveryone=$forEveryone")
         viewModelScope.launch {
-            val result = deleteMessageUseCase(messageId, forEveryone = forEveryone)
-            android.util.Log.d("ChatViewModel", "deleteMessage result: $result")
+            when (val result = deleteMessageUseCase(messageId, forEveryone = forEveryone)) {
+                is Result.Success -> {
+                    android.util.Log.d("ChatViewModel", "deleteMessage result: $result")
+                }
+                is Result.Error -> {
+                    _messageState.update { it.copy(sendError = result.message ?: "Failed to delete message") }
+                }
+                is Result.Loading -> {}
+            }
         }
     }
 
     fun reactToMessage(messageId: String, emoji: String?) {
         viewModelScope.launch {
-            reactToMessageUseCase(messageId, emoji)
+            when (val result = reactToMessageUseCase(messageId, emoji)) {
+                is Result.Success -> {}
+                is Result.Error -> {
+                    _messageState.update { it.copy(sendError = result.message ?: "Failed to update reaction") }
+                }
+                is Result.Loading -> {}
+            }
         }
     }
 
@@ -752,6 +774,10 @@ class ChatViewModel @Inject constructor(
             val result = messageRepository.forwardMessage(messageId, targetChatId)
             onComplete?.invoke(result is Result.Success)
         }
+    }
+
+    fun clearSendError() {
+        _messageState.update { it.copy(sendError = null) }
     }
 
     companion object {

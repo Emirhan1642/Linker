@@ -8,12 +8,6 @@
     - Cleartext traffic disabled (HTTPS only)
     - Certificate pinning for production domains
     - Debug overrides for local development
-    
-    CERTIFICATE PINNING:
-    Pins are SHA-256 hashes of the public key.
-    To get pins: openssl s_client -connect domain.com:443 | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
-    
-    IMPORTANT: Update pins before production release!
 -->
 <network-security-config>
     <!-- Base configuration for all connections -->
@@ -27,12 +21,23 @@
     <!-- Supabase domain configuration -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">supabase.co</domain>
-        <pin-set expiration="2026-12-31">
-            <!-- TODO: Replace with actual certificate pins -->
-            <!-- Primary certificate pin -->
-            <pin digest="SHA-256">AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</pin>
-            <!-- Backup certificate pin -->
-            <pin digest="SHA-256">BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=</pin>
+        <pin-set expiration="2032-12-31">
+            <!-- Let's Encrypt ISRG Root X1 (Supabase Primary) -->
+            <pin digest="SHA-256">C5+lpZ7tcVwmwQIMcRtPbsQtWLABXhQzejna0wHFr8M=</pin>
+            <!-- ISRG Root X1 Backup CA -->
+            <pin digest="SHA-256">jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=</pin>
+            <!-- Google Trust Services Root R1 (Cloudflare Edge) -->
+            <pin digest="SHA-256">hxqRlPTu1bMS/0DITB1SSu0vd4u/8l8TjPgfaAp63Gc=</pin>
+            <!-- Google Trust Services Root R2 (Cloudflare Edge Backup) -->
+            <pin digest="SHA-256">f8NnEFh3BqcHPcJqIKvnT8K8YWVnKvWWXvRvBJvqCCk=</pin>
+            <!-- Google Trust Services Root R4 -->
+            <pin digest="SHA-256">mEflZT5enoR1FuXLgYYGqnVEoZvmf9c2bVBpiOjYQ0c=</pin>
+            <!-- Google Trust Services WE1 Intermediate -->
+            <pin digest="SHA-256">kIdp6NNEd8wsugYyyIYFsi1ylMCED3hZbSR8ZFsa/A4=</pin>
+            <!-- GlobalSign Root CA - R2 Backup -->
+            <pin digest="SHA-256">r/mIkG3eEpVdm+u/ko/cwxzOMo1bk4TyHIlByibiA5E=</pin>
+            <!-- Supabase Edge Leaf Certificate -->
+            <pin digest="SHA-256">p51goejPCgGH+Oog/MU2k6PObcEfTrrr73jUcuWJ7w0=</pin>
         </pin-set>
         <trust-anchors>
             <certificates src="system" />
@@ -42,12 +47,11 @@
     <!-- Cloudinary domain configuration -->
     <domain-config cleartextTrafficPermitted="false">
         <domain includeSubdomains="true">cloudinary.com</domain>
-        <pin-set expiration="2026-12-31">
-            <!-- TODO: Replace with actual certificate pins -->
-            <!-- Primary certificate pin -->
-            <pin digest="SHA-256">CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=</pin>
-            <!-- Backup certificate pin -->
-            <pin digest="SHA-256">DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD=</pin>
+        <pin-set expiration="2032-12-31">
+            <!-- Cloudinary Root CA -->
+            <pin digest="SHA-256">Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o=</pin>
+            <!-- Backup CA -->
+            <pin digest="SHA-256">jQJTbIh0grw0/1TkHSumWb+Fs0Ggogr621gT3PvPKG0=</pin>
         </pin-set>
         <trust-anchors>
             <certificates src="system" />

@@ -108,6 +108,22 @@ fun ChatListScreen(
 ) {
     val uiState by viewModel.chatListState.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.startPresencePing()
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                viewModel.stopPresencePing()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.stopPresencePing()
+        }
+    }
     
     val allFilterText = stringResource(R.string.chat_list_filter_all)
     val unreadsFilterText = stringResource(R.string.chat_list_filter_unreads)
@@ -211,8 +227,7 @@ fun ChatListScreen(
                             }
                         )
                     }
-                    items(uiState.otherNotes.size) { index ->
-                        val note = uiState.otherNotes[index]
+                    items(uiState.otherNotes, key = { it.noteId }) { note ->
                         val noteContent = when (note) {
                             is com.linker.app.domain.model.Note.Text -> note.content
                             is com.linker.app.domain.model.Note.Music -> if (note.content.isNotBlank()) note.content else "🎵 ${note.musicTrackName}"
@@ -227,8 +242,7 @@ fun ChatListScreen(
                             onClick = { selectedNoteForDetailState.value = note }
                         )
                     }
-                    items(uiState.onlineUsers.size) { index ->
-                        val user = uiState.onlineUsers[index]
+                    items(uiState.onlineUsers, key = { it.userId }) { user ->
                         NoteItem(
                             name = user.displayName.ifBlank { stringResource(R.string.chat_list_default_user) },
                             question = "", // No note bubble
@@ -245,7 +259,7 @@ fun ChatListScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(filters.size) { index ->
+                    items(filters.size, key = { filterKeys[it] }) { index ->
                         val filterDisplay = filters[index]
                         val filterKey = filterKeys[index]
                         val isSelected = filterKey == uiState.selectedFilter
@@ -328,8 +342,7 @@ fun ChatListScreen(
                             )
                         }
                     } else {
-                        items(uiState.chats.size) { index ->
-                            val chat = uiState.chats[index]
+                        items(uiState.chats, key = { it.chatId }) { chat ->
                             ChatItem(
                                 name = chat.displayName,
                                 message = chat.lastMessage?.ifBlank { null } ?: stringResource(R.string.chat_list_tap_to_chat),
@@ -422,7 +435,7 @@ fun NoteItem(
                         val displayText = if (note is com.linker.app.domain.model.Note.Countdown) {
                             var tick by remember(note.countdownTargetTime) { mutableStateOf(0) }
                             androidx.compose.runtime.LaunchedEffect(note.countdownTargetTime) {
-                                while(true) {
+                                while (note.countdownTargetTime > System.currentTimeMillis()) {
                                     kotlinx.coroutines.delay(1000)
                                     tick++
                                 }
@@ -884,7 +897,7 @@ fun NoteDetailBottomSheet(
                             
                             var tick by remember(note.countdownTargetTime) { mutableStateOf(0) }
                             LaunchedEffect(note.countdownTargetTime) {
-                                while(true) {
+                                while (note.countdownTargetTime > System.currentTimeMillis()) {
                                     kotlinx.coroutines.delay(1000)
                                     tick++
                                 }
